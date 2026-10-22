@@ -13,6 +13,7 @@ import com.opentv.app.ui.connect.ConnectTvScreen
 import com.opentv.app.ui.device.DeviceInfoScreen
 import com.opentv.app.ui.home.HomeScreen
 import com.opentv.app.ui.pending.PendingScreen
+import com.opentv.app.ui.player.PlayerScreen
 import com.opentv.app.ui.settings.SettingsScreen
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -43,6 +44,9 @@ fun OpenTvNavHost(
         }
         composable(Routes.CONNECT) {
             ConnectTvScreen(onBack = goBack)
+        }
+        composable(Routes.PLAYER) {
+            PlayerScreen(onBack = goBack)
         }
         composable(Routes.SETTINGS) {
             SettingsScreen(

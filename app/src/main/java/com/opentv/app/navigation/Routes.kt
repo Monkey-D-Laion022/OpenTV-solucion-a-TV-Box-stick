@@ -7,6 +7,7 @@ object Routes {
     const val DEVICE = "device"
     const val APPS = "apps"
     const val CONNECT = "connect"
+    const val PLAYER = "player"
 
     const val PENDING_ARG = "id"
     const val PENDING_PATTERN = "pending/{$PENDING_ARG}"
@@ -24,13 +25,6 @@ enum class PendingFeature(
     val phase: Int,
     val plan: String,
 ) {
-    PLAYER(
-        id = "player",
-        title = "Reproductor",
-        phase = 4,
-        plan = "Reproductor con Media3 y ExoPlayer, selector de documentos de Android y modos de " +
-            "visualización que conservan la proporción original.",
-    ),
     LOCAL_MEDIA(
         id = "local_media",
         title = "Multimedia local",

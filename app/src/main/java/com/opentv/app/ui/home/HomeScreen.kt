@@ -62,8 +62,7 @@ private val homeEntries = listOf(
     HomeEntry(
         title = "Reproductor",
         subtitle = "Videos locales y enlaces",
-        route = Routes.pending(PendingFeature.PLAYER),
-        badge = "Fase 4",
+        route = Routes.PLAYER,
     ),
     HomeEntry(
         title = "Multimedia local",

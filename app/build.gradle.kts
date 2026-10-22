@@ -58,6 +58,10 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.play.services.cast.framework)
     implementation(libs.androidx.mediarouter)
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.exoplayer.hls)
+    implementation(libs.androidx.media3.exoplayer.dash)
+    implementation(libs.androidx.media3.ui)
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
