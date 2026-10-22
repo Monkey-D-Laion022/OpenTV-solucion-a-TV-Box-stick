@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- El fondo oscuro de la ventana evita un destello blanco antes de que Compose dibuje. -->
+    <style name="Theme.OpenTV" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/opentv_background</item>
+    </style>
+</resources>

@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        Solo dos permisos, ambos «normales» (no piden confirmación al usuario) y ambos para la
+        Fase 3: INTERNET abre los sockets de red local de DLNA/SSDP (no se usa internet público) y
+        ACCESS_NETWORK_STATE comprueba si hay Wi‑Fi o Ethernet. Cada permiso futuro se añade junto
+        con la función que lo necesita.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- OpenTV se puede instalar en teléfonos (sin leanback ni pantalla táctil obligatoria para TV). -->
+    <uses-feature
+        android:name="android.software.leanback"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+
+    <!--
+        Visibilidad de paquetes (Android 11+): solo se ven las apps que ofrecen estos intents.
+        Se evita QUERY_ALL_PACKAGES a propósito. HOME sirve para saber si OpenTV es el launcher actual.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+        <!-- Para saber si el equipo tiene pantalla de transmisión (ACTION_CAST_SETTINGS). -->
+        <intent>
+            <action android:name="android.settings.CAST_SETTINGS" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".OpenTvApp"
+        android:allowBackup="false"
+        android:banner="@drawable/banner"
+        android:icon="@drawable/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.OpenTV">
+
+        <!-- Configuración del SDK de Google Cast (clase connect/CastOptionsProvider). -->
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="com.opentv.app.connect.CastOptionsProvider" />
+
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|uiMode"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+            Permite elegir OpenTV como «App de inicio» en los ajustes de Android. Solo aparece como
+            opción: el sistema nunca la activa sin que el usuario la elija.
+        -->
+        <activity-alias
+            android:name=".HomeAlias"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity-alias>
+    </application>
+
+</manifest>
