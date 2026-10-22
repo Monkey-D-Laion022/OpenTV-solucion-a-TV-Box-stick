@@ -29,6 +29,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.opentv.app.connect.CastDevice
 import com.opentv.app.connect.ConnectUiState
 import com.opentv.app.connect.ConnectViewModel
 import com.opentv.app.connect.ConnectionMethod
@@ -60,7 +61,7 @@ fun ConnectTvScreen(
     LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.onScreenStarted() }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.onScreenStopped() }
 
-    var link by rememberSaveable { mutableStateOf("") }
+    var link by rememberSaveable { mutableStateOf(viewModel.initialLink) }
     var brandIndex by remember { mutableIntStateOf(0) }
     val brand = TvBrand.values()[brandIndex]
 
@@ -120,13 +121,17 @@ fun ConnectTvScreen(
             MiracastBlock(state = state, onOpen = viewModel::openSystemCast)
 
             SectionTitle("Google Cast")
-            CastBlock(state = state)
+            CastBlock(
+                state = state,
+                onSend = { device -> viewModel.sendToCast(device, link) },
+                onDisconnect = viewModel::disconnectCast,
+            )
 
-            SectionTitle("DLNA: enviar un enlace de video")
+            SectionTitle("Enlace a enviar (Cast y DLNA)")
             DlnaBlock(
                 state = state,
                 link = link,
-                onLinkChange = { link = it },
+                onLinkChange = { link = it; viewModel.setLink(it) },
                 onScan = viewModel::scanDlna,
                 onSend = { device -> viewModel.sendLink(device, link) },
                 onStop = viewModel::stopPlayback,
@@ -233,7 +238,11 @@ private fun MiracastBlock(state: ConnectUiState, onOpen: () -> Unit) {
 }
 
 @Composable
-private fun CastBlock(state: ConnectUiState) {
+private fun CastBlock(
+    state: ConnectUiState,
+    onSend: (CastDevice) -> Unit,
+    onDisconnect: () -> Unit,
+) {
     val castStatus = state.statuses.firstOrNull { it.method == ConnectionMethod.GOOGLE_CAST }
     val castError = state.castError
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -254,9 +263,13 @@ private fun CastBlock(state: ConnectUiState) {
             else -> state.castDevices.forEach { device ->
                 TvListItem(
                     title = device.name,
-                    subtitle = "Detectado. El envío desde el reproductor llega en la Fase 4.",
+                    subtitle = "Enter o tocar: conectar y enviar el enlace del campo «Enlace a enviar» (más abajo).",
+                    onClick = { onSend(device) },
                 )
             }
+        }
+        if (castStatus?.state == MethodState.AVAILABLE) {
+            TvButton(text = "Desconectar Cast", onClick = onDisconnect, horizontalPadding = 24.dp)
         }
     }
 }
@@ -279,7 +292,7 @@ private fun DlnaBlock(
             modifier = Modifier.fillMaxWidth(),
         )
         Text(
-            text = "Solo enlaces de tu red local. El TV descarga el video por su cuenta.",
+            text = "DLNA: solo enlaces de tu red local. Cast: cualquier enlace http(s) que el TV pueda abrir. El TV descarga el video por su cuenta, así que lo muestra en su resolución.",
             style = MaterialTheme.typography.bodyMedium,
             color = OpenTvColors.Muted,
         )

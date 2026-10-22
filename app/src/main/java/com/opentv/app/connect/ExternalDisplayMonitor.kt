@@ -25,6 +25,10 @@ class ExternalDisplayMonitor(private val context: Context) {
             .firstOrNull { it.displayId != Display.DEFAULT_DISPLAY }
             ?.let { ExternalDisplay(it.name.orEmpty().ifBlank { "Pantalla externa" }) }
 
+    /** La pantalla externa como objeto de Android (para mostrar una `Presentation` en ella). */
+    fun currentDisplay(): Display? =
+        displayManager.displays.firstOrNull { it.displayId != Display.DEFAULT_DISPLAY }
+
     /** Emite el estado actual y cada cambio. Se desregistra solo al dejar de recolectarse. */
     fun observe(): Flow<ExternalDisplay?> = callbackFlow {
         val manager = displayManager

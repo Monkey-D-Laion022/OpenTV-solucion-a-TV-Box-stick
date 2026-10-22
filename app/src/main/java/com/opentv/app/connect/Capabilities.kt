@@ -88,7 +88,7 @@ object CapabilityEvaluator {
             ConnectionMethod.GOOGLE_CAST,
             MethodState.AVAILABLE,
             "Se pueden detectar dispositivos Cast. Cast envía contenido, no duplica la pantalla. " +
-                "El envío desde el reproductor llega en la Fase 4.",
+                "Tocá el dispositivo en «Conectar TV» para enviarle un enlace.",
         )
     }
 

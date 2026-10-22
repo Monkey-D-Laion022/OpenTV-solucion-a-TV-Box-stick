@@ -46,7 +46,7 @@ fun OpenTvNavHost(
             ConnectTvScreen(onBack = goBack)
         }
         composable(Routes.PLAYER) {
-            PlayerScreen(onBack = goBack)
+            PlayerScreen(onBack = goBack, onSendToTv = { navController.navigate(Routes.CONNECT) })
         }
         composable(Routes.SETTINGS) {
             SettingsScreen(

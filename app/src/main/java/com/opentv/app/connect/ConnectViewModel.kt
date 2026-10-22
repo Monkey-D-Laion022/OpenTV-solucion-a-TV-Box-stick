@@ -52,6 +52,13 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
     private var scanJob: Job? = null
     private var commandJob: Job? = null
 
+    /** Enlace compartido con el reproductor. La pantalla guarda su propia copia para escribir sin saltos. */
+    val initialLink: String get() = container.sharedLink.value
+
+    fun setLink(value: String) {
+        container.sharedLink.value = value
+    }
+
     fun onScreenStarted() {
         refreshCapabilities(container.displayMonitor.current())
         displayJob?.cancel()
@@ -141,6 +148,31 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
             is MediaUrlCheck.Valid ->
                 runCommand(device, DlnaSoap.ACTION_PLAY) { container.dlna.play(device, check.url) }
         }
+    }
+
+    /** Conecta con el dispositivo Cast y le envía [rawUrl]. */
+    fun sendToCast(device: CastDevice, rawUrl: String) {
+        if (commandJob?.isActive == true) return
+        commandJob = viewModelScope.launch {
+            _state.update { it.copy(busy = true, message = "Conectando con ${device.name}…") }
+            val result = try {
+                container.castSender.play(device.id, rawUrl)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                CastSendResult.Failed("Falló el envío (${e.javaClass.simpleName}).")
+            }
+            val text = when (result) {
+                is CastSendResult.Ok -> "Enviado a ${result.deviceName}. El TV reproduce el video por su cuenta."
+                is CastSendResult.Failed -> result.reason
+            }
+            _state.update { it.copy(busy = false, message = text) }
+        }
+    }
+
+    fun disconnectCast() {
+        container.castSender.stop()
+        _state.update { it.copy(message = "Se cerró la sesión de Cast.") }
     }
 
     fun stopPlayback(device: UpnpDevice) {

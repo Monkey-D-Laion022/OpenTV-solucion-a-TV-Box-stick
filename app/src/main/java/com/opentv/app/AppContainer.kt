@@ -7,11 +7,13 @@ import com.opentv.app.apps.AppsRepository
 import com.opentv.app.apps.FavoritesStore
 import com.opentv.app.connect.CapabilityDetector
 import com.opentv.app.connect.CastDiscovery
+import com.opentv.app.connect.CastSender
 import com.opentv.app.connect.DlnaController
 import com.opentv.app.connect.ExternalDisplayMonitor
 import com.opentv.app.connect.SocketLanHttp
 import com.opentv.app.connect.SystemCastLauncher
 import com.opentv.app.connect.UdpSsdpSearch
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
  * Dependencias compartidas, creadas solo cuando se usan (instanciación perezosa).
@@ -31,6 +33,10 @@ class AppContainer(context: Context) {
     val capabilityDetector: CapabilityDetector by lazy { CapabilityDetector(appContext, systemCast) }
     val castDiscovery: CastDiscovery by lazy { CastDiscovery(appContext) }
     val dlna: DlnaController by lazy { DlnaController(UdpSsdpSearch(), SocketLanHttp()) }
+    val castSender: CastSender by lazy { CastSender(appContext) }
+
+    /** Último enlace escrito en el reproductor o en «Conectar TV»; se comparte entre ambas pantallas. */
+    val sharedLink = MutableStateFlow("")
 
     private val iconLoaderHolder = lazy { AppIconLoader(appContext) }
     val iconLoader: AppIconLoader get() = iconLoaderHolder.value

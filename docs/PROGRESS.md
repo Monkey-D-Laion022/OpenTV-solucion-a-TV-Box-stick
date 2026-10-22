@@ -156,3 +156,20 @@ escritas y se corrigieron (texto de mensaje, carácter inválido en XML 1.0, una
    TV por DLNA y enviar un enlace de prueba de tu red local.
 3. Fase 4: reproductor Media3, selector de documentos, envío por Cast y servir archivos locales por DLNA.
 
+
+---
+
+## Fase 4 (en curso)
+
+### Módulo 1: reproductor Media3
+- `player/{PlayableUrl,VideoFit,PlayerViewModel}`, `ui/player/PlayerScreen`; ruta `PLAYER` real (sale de `PendingFeature`).
+- Dependencias: Media3 1.4.1 (exoplayer, hls, dash, ui), sin verificar contra el repositorio.
+- Manifest: `usesCleartextTraffic="true"` (para enlaces http de la red local). Es una decisión de seguridad a revisar.
+- Verificado: 101 pruebas de lógica pura (7 nuevas). NO verificado: compilación, reproducción real, `PlayerView` con el tema Material del sistema.
+
+### Módulo 2: pantalla externa y envío directo
+- `connect/{CastSender,CastMime}`: toque en un dispositivo Cast → `MediaRouter.selectRoute` → sesión → `RemoteMediaClient.load` con el enlace. «Desconectar Cast» cierra la sesión.
+- `ui/player/ExternalPresentation`: con pantalla externa, «Ver en la pantalla externa» dibuja el video en una `Presentation` a la resolución nativa del TV; el celular queda como control (Pausar/Reanudar).
+- Enlace compartido entre reproductor y «Conectar TV» (`AppContainer.sharedLink`); botón «Enviar a un TV» en el reproductor.
+- Verificado: 103 pruebas de lógica pura. NO verificado: compilación, API de Cast (`SessionManagerListener`, `selectRoute`), `Presentation` en el Redmi 14C, reproducción en un TV real.
+- Límites: Cast necesita que el receptor pueda abrir el enlace (CORS en HLS/DASH, enlaces vencidos); la `Presentation` solo funciona si Android informa una pantalla externa y puede reemplazar al espejo del sistema, algo que solo se comprueba en el equipo.

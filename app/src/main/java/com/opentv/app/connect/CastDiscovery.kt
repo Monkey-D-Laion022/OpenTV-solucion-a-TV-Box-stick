@@ -14,8 +14,8 @@ data class CastDevice(val id: String, val name: String)
 
 /**
  * Busca dispositivos Google Cast con el SDK oficial (CastContext + MediaRouter). Cast ENVÍA
- * contenido al receptor; no duplica la pantalla. Hoy solo detecta: el envío llega junto con el
- * reproductor (Fase 4).
+ * contenido al receptor; no duplica la pantalla. Esta clase solo detecta; el envío lo hace
+ * [CastSender].
  *
  * MediaRouter exige hilo principal: recolectar este flujo desde `viewModelScope` (Main). La
  * búsqueda activa gasta batería, así que solo vive mientras se recolecta (pantalla visible).
