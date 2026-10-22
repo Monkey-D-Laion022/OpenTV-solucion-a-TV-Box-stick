@@ -17,10 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,14 +31,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.opentv.app.connect.ConnectViewModel
 import com.opentv.app.connect.TvTarget
 import com.opentv.app.connect.TvTargets
-import com.opentv.app.ui.components.SearchField
 import com.opentv.app.ui.components.TvButton
 import com.opentv.app.ui.components.TvListItem
 import com.opentv.app.ui.theme.OpenTvColors
 
 /**
- * Selector propio de TV: lista los Google Cast y los DLNA que aparecen en la red y, al elegir uno,
- * le envía el enlace directamente desde OpenTV, sin pasar por el menú «Emitir» de Android.
+ * Selector propio de TV: lista los Google Cast y los DLNA de la red. Al tocar uno, OpenTV lo
+ * elige como salida: con Cast abre la sesión en ese momento. Desde entonces, lo que se reproduzca
+ * en OpenTV se envía a ese TV. No pide ningún enlace.
  *
  * @param manageDiscovery si es `true` la búsqueda se inicia al abrir y se corta al cerrar (úsese
  * cuando la pantalla que lo muestra no administra ya esa búsqueda).
@@ -54,7 +51,7 @@ fun CastPickerDialog(
     manageDiscovery: Boolean = true,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var link by rememberSaveable { mutableStateOf(viewModel.initialLink) }
+    val selected by viewModel.outputTarget.collectAsStateWithLifecycle()
 
     if (manageDiscovery) {
         DisposableEffect(Unit) {
@@ -86,7 +83,8 @@ fun CastPickerDialog(
         ) {
             Column(
                 modifier = Modifier
-                    .verticalScroll(rememberScrollState())
+                    .fillMaxWidth()
+                    .fillMaxHeight()
                     .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -98,48 +96,56 @@ fun CastPickerDialog(
                         color = OpenTvColors.OnBackground,
                     )
                 }
-                SearchField(
-                    value = link,
-                    onValueChange = { link = it; viewModel.setLink(it) },
-                    placeholder = "Enlace directo al video (http:// o https://)",
-                    modifier = Modifier.fillMaxWidth(),
-                )
                 Text(
-                    text = "Elegí un TV: el enlace se le envía y el TV lo reproduce por su cuenta, en su " +
-                        "propia resolución. DLNA admite solo enlaces de tu red local.",
+                    text = selected?.let { "Salida elegida: ${it.name} (${it.protocol})" }
+                        ?: "Tocá un TV para usarlo como salida. Lo que reproduzcas en OpenTV se verá ahí.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = OpenTvColors.Muted,
+                    color = if (selected != null) OpenTvColors.Success else OpenTvColors.Muted,
                 )
 
-                state.message?.let { TvListItem(title = it, subtitle = null) }
-                state.dlna.error?.let { TvListItem(title = it, subtitle = null) }
-
-                if (state.busy) {
-                    Text("Enviando…", style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted)
+                // La lista se desplaza; el mensaje y los botones quedan fijos y siempre a la vista.
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (targets.isEmpty()) {
+                        Text(
+                            text = emptyText(
+                                onLocalNetwork = state.onLocalNetwork,
+                                searching = state.dlna.scanning || !state.dlna.scanned,
+                            ),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = OpenTvColors.Muted,
+                        )
+                    } else {
+                        Text(
+                            text = if (state.dlna.scanning) "TV detectados (sigue buscando…)" else "TV detectados",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = OpenTvColors.OnBackground,
+                        )
+                        targets.forEach { target ->
+                            TvListItem(
+                                title = target.name,
+                                subtitle = subtitleOf(target, isSelected = target.key == selected?.key),
+                                onClick = { viewModel.selectTarget(target) },
+                            )
+                        }
+                    }
+                    state.dlna.error?.let { TvListItem(title = it, subtitle = null) }
                 }
 
-                if (targets.isEmpty()) {
+                val status = when {
+                    state.busy -> state.message ?: "Conectando…"
+                    else -> state.message
+                }
+                if (status != null) {
                     Text(
-                        text = emptyText(
-                            onLocalNetwork = state.onLocalNetwork,
-                            searching = state.dlna.scanning || !state.dlna.scanned,
-                        ),
+                        text = status,
                         style = MaterialTheme.typography.bodyLarge,
-                        color = OpenTvColors.Muted,
+                        color = OpenTvColors.Warning,
                     )
-                } else {
-                    Text(
-                        text = if (state.dlna.scanning) "TV detectados (sigue buscando…)" else "TV detectados",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = OpenTvColors.OnBackground,
-                    )
-                    targets.forEach { target ->
-                        TvListItem(
-                            title = target.name,
-                            subtitle = subtitleOf(target),
-                            onClick = { viewModel.send(target, link) },
-                        )
-                    }
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -149,7 +155,7 @@ fun CastPickerDialog(
                         horizontalPadding = 20.dp,
                         modifier = Modifier.focusRequester(firstFocus),
                     )
-                    TvButton(text = "Detener / desconectar", onClick = viewModel::stopAll, horizontalPadding = 20.dp)
+                    TvButton(text = "Dejar de transmitir", onClick = viewModel::clearTarget, horizontalPadding = 20.dp)
                     TvButton(text = "Cerrar", onClick = onDismiss, horizontalPadding = 20.dp)
                 }
             }
@@ -157,13 +163,16 @@ fun CastPickerDialog(
     }
 }
 
-private fun subtitleOf(target: TvTarget): String = when (target) {
-    is TvTarget.CastTarget -> "Google Cast · tocá para enviar"
-    is TvTarget.DlnaTarget -> {
-        val extra = listOf(target.device.manufacturer, target.device.modelName)
-            .filter { it.isNotBlank() }
-            .joinToString(" ")
-        if (extra.isBlank()) "DLNA · tocá para enviar" else "DLNA · $extra · tocá para enviar"
+private fun subtitleOf(target: TvTarget, isSelected: Boolean): String {
+    val tail = if (isSelected) "salida elegida" else "tocá para conectar"
+    return when (target) {
+        is TvTarget.CastTarget -> "Google Cast · $tail"
+        is TvTarget.DlnaTarget -> {
+            val extra = listOf(target.device.manufacturer, target.device.modelName)
+                .filter { it.isNotBlank() }
+                .joinToString(" ")
+            if (extra.isBlank()) "DLNA · $tail" else "DLNA · $extra · $tail"
+        }
     }
 }
 

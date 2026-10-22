@@ -15,6 +15,7 @@ import com.opentv.app.ui.home.HomeScreen
 import com.opentv.app.ui.pending.PendingScreen
 import com.opentv.app.ui.player.PlayerScreen
 import com.opentv.app.ui.settings.SettingsScreen
+import com.opentv.app.ui.settings.ToolsScreen
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 
@@ -51,6 +52,13 @@ fun OpenTvNavHost(
         composable(Routes.SETTINGS) {
             SettingsScreen(
                 onOpenDiagnostics = { navController.navigate(Routes.DEVICE) },
+                onOpenTools = { navController.navigate(Routes.TOOLS) },
+                onBack = goBack,
+            )
+        }
+        composable(Routes.TOOLS) {
+            ToolsScreen(
+                onOpenPlayer = { navController.navigate(Routes.PLAYER) },
                 onBack = goBack,
             )
         }

@@ -48,6 +48,7 @@ fun PlayerScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val externalDisplay by viewModel.externalDisplay.collectAsStateWithLifecycle()
+    val outputTarget by viewModel.outputTarget.collectAsStateWithLifecycle()
     var link by rememberSaveable { mutableStateOf(viewModel.initialLink) }
     var castPickerOpen by remember { mutableStateOf(false) }
     if (castPickerOpen) CastPickerDialog(onDismiss = { castPickerOpen = false })
@@ -124,6 +125,23 @@ fun PlayerScreen(
                 }
             }
 
+            outputTarget?.let { target ->
+                Text(
+                    text = "Salida: ${target.name} (${target.protocol}). Al reproducir, el video se envía al TV.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OpenTvColors.Success,
+                )
+            }
+            state.castMessage?.let { msg ->
+                Text(text = msg, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning)
+            }
+            if (state.castingTo != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    TvButton(text = "Detener en el TV", onClick = viewModel::stopOnTv, horizontalPadding = 20.dp)
+                    TvButton(text = "Ver aquí en el celular", onClick = viewModel::playHere, horizontalPadding = 20.dp)
+                }
+            }
+
             val error = state.error
             when {
                 error != null -> Text(
@@ -149,7 +167,7 @@ fun PlayerScreen(
                 )
             }
 
-            if (state.currentUrl != null && !state.onExternal) {
+            if (state.currentUrl != null && !state.onExternal && state.castingTo == null) {
                 AndroidView(
                     modifier = Modifier
                         .fillMaxWidth()

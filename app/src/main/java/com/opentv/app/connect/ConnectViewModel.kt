@@ -53,6 +53,31 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
     private var commandJob: Job? = null
     private var lastDlna: UpnpDevice? = null
 
+    /** TV de salida elegido (lo que se reproduzca se envía ahí). */
+    val outputTarget: StateFlow<TvTarget?> get() = container.output.target
+
+    /** Toque en un TV de la lista: lo elige como salida y, con Cast, abre la sesión ya mismo. */
+    fun selectTarget(target: TvTarget) {
+        if (commandJob?.isActive == true) return
+        commandJob = viewModelScope.launch {
+            _state.update { it.copy(busy = true, message = "Conectando con ${target.name}…") }
+            val result = try {
+                container.output.select(target)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                OutputResult(false, "Falló la conexión (${e.javaClass.simpleName}).")
+            }
+            _state.update { it.copy(busy = false, message = result.message) }
+        }
+    }
+
+    /** Deja de transmitir: cierra la sesión Cast y olvida el TV elegido. */
+    fun clearTarget() {
+        container.output.clear()
+        _state.update { it.copy(message = "Se dejó de transmitir. La reproducción vuelve al teléfono.") }
+    }
+
     /** Enlace compartido con el reproductor. La pantalla guarda su propia copia para escribir sin saltos. */
     val initialLink: String get() = container.sharedLink.value
 

@@ -16,7 +16,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -37,11 +36,11 @@ import com.opentv.app.connect.MethodState
 import com.opentv.app.connect.MethodStatus
 import com.opentv.app.connect.PhoneGuides
 import com.opentv.app.connect.TvBrand
+import com.opentv.app.connect.TvTarget
 import com.opentv.app.connect.UpnpDevice
 import com.opentv.app.connect.Troubleshooting
 import com.opentv.app.ui.components.FocusableSurface
 import com.opentv.app.ui.components.SafeArea
-import com.opentv.app.ui.components.SearchField
 import com.opentv.app.ui.components.StatusChip
 import com.opentv.app.ui.components.TvButton
 import com.opentv.app.ui.components.TvListItem
@@ -57,11 +56,11 @@ fun ConnectTvScreen(
     viewModel: ConnectViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val selectedTarget by viewModel.outputTarget.collectAsStateWithLifecycle()
 
     LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.onScreenStarted() }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.onScreenStopped() }
 
-    var link by rememberSaveable { mutableStateOf(viewModel.initialLink) }
     var brandIndex by remember { mutableIntStateOf(0) }
     val brand = TvBrand.values()[brandIndex]
     var castPickerOpen by remember { mutableStateOf(false) }
@@ -137,18 +136,18 @@ fun ConnectTvScreen(
             SectionTitle("Google Cast")
             CastBlock(
                 state = state,
-                onSend = { device -> viewModel.sendToCast(device, link) },
-                onDisconnect = viewModel::disconnectCast,
+                selectedKey = selectedTarget?.key,
+                onSelect = { device -> viewModel.selectTarget(TvTarget.CastTarget(device)) },
+                onStop = viewModel::clearTarget,
             )
 
-            SectionTitle("Enlace a enviar (Cast y DLNA)")
+            SectionTitle("DLNA")
             DlnaBlock(
                 state = state,
-                link = link,
-                onLinkChange = { link = it; viewModel.setLink(it) },
+                selectedKey = selectedTarget?.key,
                 onScan = viewModel::scanDlna,
-                onSend = { device -> viewModel.sendLink(device, link) },
-                onStop = viewModel::stopPlayback,
+                onSelect = { device -> viewModel.selectTarget(TvTarget.DlnaTarget(device)) },
+                onStop = viewModel::clearTarget,
             )
 
             SectionTitle("Guía paso a paso")
@@ -265,8 +264,9 @@ private fun MiracastBlock(state: ConnectUiState, onOpen: () -> Unit) {
 @Composable
 private fun CastBlock(
     state: ConnectUiState,
-    onSend: (CastDevice) -> Unit,
-    onDisconnect: () -> Unit,
+    selectedKey: String?,
+    onSelect: (CastDevice) -> Unit,
+    onStop: () -> Unit,
 ) {
     val castStatus = state.statuses.firstOrNull { it.method == ConnectionMethod.GOOGLE_CAST }
     val castError = state.castError
@@ -288,13 +288,17 @@ private fun CastBlock(
             else -> state.castDevices.forEach { device ->
                 TvListItem(
                     title = device.name,
-                    subtitle = "Enter o tocar: conectar y enviar el enlace del campo «Enlace a enviar» (más abajo).",
-                    onClick = { onSend(device) },
+                    subtitle = if (selectedKey == "cast:${device.id}") {
+                        "Salida elegida"
+                    } else {
+                        "Tocá para conectar y usar este TV como salida"
+                    },
+                    onClick = { onSelect(device) },
                 )
             }
         }
         if (castStatus?.state == MethodState.AVAILABLE) {
-            TvButton(text = "Desconectar Cast", onClick = onDisconnect, horizontalPadding = 24.dp)
+            TvButton(text = "Dejar de transmitir", onClick = onStop, horizontalPadding = 24.dp)
         }
     }
 }
@@ -302,30 +306,21 @@ private fun CastBlock(
 @Composable
 private fun DlnaBlock(
     state: ConnectUiState,
-    link: String,
-    onLinkChange: (String) -> Unit,
+    selectedKey: String?,
     onScan: () -> Unit,
-    onSend: (UpnpDevice) -> Unit,
-    onStop: (UpnpDevice) -> Unit,
+    onSelect: (UpnpDevice) -> Unit,
+    onStop: () -> Unit,
 ) {
     val dlna = state.dlna
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SearchField(
-            value = link,
-            onValueChange = onLinkChange,
-            placeholder = "Enlace directo a un video (http://192.168.x.x/video.mp4)",
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Text(
-            text = "DLNA: solo enlaces de tu red local. Cast: cualquier enlace http(s) que el TV pueda abrir. El TV descarga el video por su cuenta, así que lo muestra en su resolución.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = OpenTvColors.Muted,
-        )
-        TvButton(
-            text = if (dlna.scanning) "Buscando…" else "Buscar TV en la red",
-            onClick = onScan,
-            horizontalPadding = 24.dp,
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TvButton(
+                text = if (dlna.scanning) "Buscando…" else "Buscar TV en la red",
+                onClick = onScan,
+                horizontalPadding = 24.dp,
+            )
+            TvButton(text = "Dejar de transmitir", onClick = onStop, horizontalPadding = 24.dp)
+        }
         dlna.error?.let { TvListItem(title = it, subtitle = null) }
         if (dlna.scanned && dlna.devices.isEmpty() && dlna.error == null) {
             Text(
@@ -334,30 +329,16 @@ private fun DlnaBlock(
                 color = OpenTvColors.Muted,
             )
         }
-        if (state.busy) {
-            Text(
-                text = "Enviando orden al TV…",
-                style = MaterialTheme.typography.bodyMedium,
-                color = OpenTvColors.Muted,
-            )
-        }
         dlna.devices.forEach { device ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TvListItem(
-                    title = device.friendlyName,
-                    subtitle = listOf(device.manufacturer, device.modelName)
-                        .filter { it.isNotBlank() }
-                        .joinToString(" · ")
-                        .ifBlank { "Enter: enviar el enlace a este TV" },
-                    onClick = { onSend(device) },
-                    modifier = Modifier.weight(1f),
-                )
-                TvButton(text = "Detener", onClick = { onStop(device) }, horizontalPadding = 20.dp)
-            }
+            TvListItem(
+                title = device.friendlyName,
+                subtitle = (listOf(device.manufacturer, device.modelName)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · ")
+                    .ifBlank { "DLNA" }) +
+                    if (selectedKey == "dlna:${device.udn}") " · salida elegida" else " · tocá para elegir",
+                onClick = { onSelect(device) },
+            )
         }
     }
 }

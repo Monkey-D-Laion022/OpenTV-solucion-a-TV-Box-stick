@@ -181,3 +181,12 @@ Corrige un reclamo real: las tarjetas eran texto y no había ícono ni selector.
 - `connect/TvTargets`, `CastDevice` (archivo propio), `ConnectViewModel.send/stopAll`, `core/BuildInfo` (etiqueta «Fase 4 · módulo 2 (selector de Cast propio)» visible en el inicio y en «Dispositivo»).
 - Verificado: 106 pruebas de lógica pura; imports auditados. NO verificado: compilación, el diálogo con D-pad/táctil, Cast y DLNA contra un TV real, `Presentation` en el Redmi 14C.
 - Miracast: sigue pasando por el ajuste del sistema; no existe API pública para conectarlo desde una app.
+
+### Módulo 3A: TV elegido y launcher en filas
+- Tocar un TV (Cast o DLNA) en el selector lo elige como salida: con Cast abre la sesión en el momento (`CastSender.connect`); con DLNA queda como destino. `connect/OutputController`.
+- Con un TV elegido, «Reproducir» envía el enlace allí (botones «Detener en el TV» / «Ver aquí en el celular»).
+- Se quitó la caja de enlace del selector y de «Conectar TV». La entrada manual de enlaces quedó en Configuración › Herramientas (`ui/settings/ToolsScreen`); el reproductor ya no está en el inicio.
+- Inicio en filas horizontales (`LazyRow`): Aplicaciones (favoritas primero + «Ver todas»), Multimedia, Ajustes.
+- Etiqueta de versión: «Fase 4 · módulo 3A».
+- Verificado: pruebas de lógica pura e imports. NO verificado: compilación, Cast/DLNA contra el LG, foco con D-pad en las filas.
+- PENDIENTE (módulo 3B): proyectar el launcher en la pantalla externa con `Presentation` y control remoto desde el celular. Límite conocido: las apps de terceros se abren en la pantalla del teléfono, no en el TV.

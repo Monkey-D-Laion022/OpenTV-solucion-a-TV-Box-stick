@@ -10,12 +10,15 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.opentv.app.OpenTvApp
 import com.opentv.app.connect.ExternalDisplay
+import com.opentv.app.connect.TvTarget
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 data class PlayerUiState(
     /** Enlace en reproducción o `null` si todavía no se eligió ninguno. */
@@ -25,6 +28,11 @@ data class PlayerUiState(
     /** El video se está mostrando en la pantalla externa (HDMI o inalámbrica) y no en el celular. */
     val onExternal: Boolean = false,
     val paused: Boolean = false,
+    /** Nombre del TV que está reproduciendo el último enlace enviado, o `null`. */
+    val castingTo: String? = null,
+    /** Último mensaje sobre el envío al TV (éxito o error). */
+    val castMessage: String? = null,
+    val sending: Boolean = false,
 )
 
 /**
@@ -44,6 +52,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000),
         initialValue = null,
     )
+
+    /** TV elegido como salida: si hay uno, reproducir envía el enlace allí en vez de usar el teléfono. */
+    val outputTarget: StateFlow<TvTarget?> get() = container.output.target
+
+    private var lastUrl: String? = null
 
     val initialLink: String get() = container.sharedLink.value
 
@@ -78,13 +91,58 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         when (val check = PlayableUrl.check(rawUrl)) {
             is PlayableUrlCheck.Invalid -> _state.update { it.copy(error = check.reason) }
             is PlayableUrlCheck.Valid -> {
+                lastUrl = check.url
+                val target = container.output.target.value
+                if (target != null) {
+                    sendToTarget(check.url, target)
+                    return
+                }
                 val p = player()
                 p.setMediaItem(MediaItem.fromUri(check.url))
                 p.prepare()
                 p.playWhenReady = true
-                _state.update { it.copy(currentUrl = check.url, error = null, paused = false) }
+                _state.update { it.copy(currentUrl = check.url, error = null, paused = false, castingTo = null, castMessage = null) }
             }
         }
+    }
+
+    private fun sendToTarget(url: String, target: TvTarget) {
+        exo?.pause()
+        _state.update { it.copy(sending = true, error = null, castMessage = "Enviando a ${target.name}…") }
+        viewModelScope.launch {
+            val result = try {
+                container.output.send(url)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                com.opentv.app.connect.OutputResult(false, "Falló el envío (${e.javaClass.simpleName}).")
+            }
+            _state.update {
+                it.copy(
+                    sending = false,
+                    castMessage = result.message,
+                    castingTo = if (result.ok) target.name else null,
+                    currentUrl = if (result.ok) url else it.currentUrl,
+                )
+            }
+        }
+    }
+
+    /** Detiene la reproducción en el TV y cierra la salida. */
+    fun stopOnTv() {
+        viewModelScope.launch {
+            val result = container.output.stopPlayback()
+            container.output.clear()
+            _state.update { it.copy(castingTo = null, castMessage = result.message) }
+        }
+    }
+
+    /** Deja de usar el TV y reproduce el último enlace en el teléfono. */
+    fun playHere() {
+        val url = lastUrl ?: return
+        container.output.clear()
+        _state.update { it.copy(castingTo = null, castMessage = null) }
+        play(url)
     }
 
     fun stop() {

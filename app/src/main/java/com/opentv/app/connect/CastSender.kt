@@ -20,43 +20,30 @@ sealed interface CastSendResult {
 }
 
 /**
- * Envía un enlace directo a un dispositivo Google Cast con el SDK oficial: selecciona la ruta
- * (inicia la sesión) y carga el video en el receptor. El TV descarga el video por su cuenta, así
- * que se ve en su resolución original, sin barras del teléfono. NO duplica la pantalla.
+ * Conecta con un dispositivo Google Cast y le envía enlaces, con el SDK oficial. [connect] abre la
+ * sesión (sin enviar nada); [play] la abre si hace falta y carga el video. El TV descarga el video
+ * por su cuenta, así que lo muestra en su resolución original. NO duplica la pantalla.
  *
  * Debe llamarse desde el hilo principal, con la búsqueda de [CastDiscovery] activa (si no, la
  * ruta no existe). El receptor tiene que poder abrir el enlace desde su propia conexión.
  */
 class CastSender(private val context: Context) {
 
+    /** Abre la sesión con el dispositivo (si ya estaba abierta con él, no hace nada). */
+    suspend fun connect(deviceId: String): CastSendResult =
+        when (val ensured = ensureSession(deviceId)) {
+            is Ensured.Failed -> CastSendResult.Failed(ensured.reason)
+            is Ensured.Ok -> CastSendResult.Ok(ensured.name)
+        }
+
     suspend fun play(deviceId: String, rawUrl: String): CastSendResult {
         val url = when (val check = PlayableUrl.check(rawUrl)) {
             is PlayableUrlCheck.Invalid -> return CastSendResult.Failed(check.reason)
             is PlayableUrlCheck.Valid -> check.url
         }
-        val sessions = try {
-            CastContext.getSharedInstance(context).sessionManager
-        } catch (e: RuntimeException) {
-            return CastSendResult.Failed("No se pudo iniciar Google Cast en este equipo.")
-        }
-        val route = MediaRouter.getInstance(context).routes.firstOrNull { it.id == deviceId }
-            ?: return CastSendResult.Failed("El dispositivo ya no aparece en la red. Esperá a que vuelva a aparecer.")
-
-        val current = sessions.currentCastSession
-        if (current != null && current.isConnected) {
-            return if (current.castDevice?.friendlyName == route.name) {
-                load(current, url, route.name)
-            } else {
-                CastSendResult.Failed(
-                    "Ya hay una sesión Cast con otro dispositivo. Tocá «Desconectar Cast» y probá de nuevo.",
-                )
-            }
-        }
-
-        return when (val started = withTimeoutOrNull(CONNECT_TIMEOUT_MS) { startSession(sessions, route) }) {
-            null -> CastSendResult.Failed("El dispositivo no respondió a tiempo. Verificá que esté encendido y en tu red.")
-            is Started.Failed -> CastSendResult.Failed("No se pudo conectar con ${route.name} (código ${started.code}).")
-            is Started.Ok -> load(started.session, url, route.name)
+        return when (val ensured = ensureSession(deviceId)) {
+            is Ensured.Failed -> CastSendResult.Failed(ensured.reason)
+            is Ensured.Ok -> load(ensured.session, url, ensured.name)
         }
     }
 
@@ -69,9 +56,41 @@ class CastSender(private val context: Context) {
         }
     }
 
+    private sealed interface Ensured {
+        data class Ok(val session: CastSession, val name: String) : Ensured
+        data class Failed(val reason: String) : Ensured
+    }
+
     private sealed interface Started {
         data class Ok(val session: CastSession) : Started
         data class Failed(val code: Int) : Started
+    }
+
+    private suspend fun ensureSession(deviceId: String): Ensured {
+        val sessions = try {
+            CastContext.getSharedInstance(context).sessionManager
+        } catch (e: RuntimeException) {
+            return Ensured.Failed("No se pudo iniciar Google Cast en este equipo.")
+        }
+        val route = MediaRouter.getInstance(context).routes.firstOrNull { it.id == deviceId }
+            ?: return Ensured.Failed("El dispositivo ya no aparece en la red. Esperá a que vuelva a aparecer.")
+
+        val current = sessions.currentCastSession
+        if (current != null && current.isConnected) {
+            return if (current.castDevice?.friendlyName == route.name) {
+                Ensured.Ok(current, route.name)
+            } else {
+                // Otra sesión abierta: se cierra y se vuelve a intentar con el TV elegido.
+                sessions.endCurrentSession(true)
+                Ensured.Failed("Se cerró la sesión anterior. Tocá el TV otra vez para conectar con ${route.name}.")
+            }
+        }
+
+        return when (val started = withTimeoutOrNull(CONNECT_TIMEOUT_MS) { startSession(sessions, route) }) {
+            null -> Ensured.Failed("El dispositivo no respondió a tiempo. Verificá que esté encendido y en tu red.")
+            is Started.Failed -> Ensured.Failed("No se pudo conectar con ${route.name} (código ${started.code}).")
+            is Started.Ok -> Ensured.Ok(started.session, route.name)
+        }
     }
 
     private suspend fun startSession(sessions: SessionManager, route: MediaRouter.RouteInfo): Started =

@@ -10,6 +10,7 @@ import com.opentv.app.connect.CastDiscovery
 import com.opentv.app.connect.CastSender
 import com.opentv.app.connect.DlnaController
 import com.opentv.app.connect.ExternalDisplayMonitor
+import com.opentv.app.connect.OutputController
 import com.opentv.app.connect.SocketLanHttp
 import com.opentv.app.connect.SystemCastLauncher
 import com.opentv.app.connect.UdpSsdpSearch
@@ -34,6 +35,7 @@ class AppContainer(context: Context) {
     val castDiscovery: CastDiscovery by lazy { CastDiscovery(appContext) }
     val dlna: DlnaController by lazy { DlnaController(UdpSsdpSearch(), SocketLanHttp()) }
     val castSender: CastSender by lazy { CastSender(appContext) }
+    val output: OutputController by lazy { OutputController(castSender, dlna) }
 
     /** Último enlace escrito en el reproductor o en «Conectar TV»; se comparte entre ambas pantallas. */
     val sharedLink = MutableStateFlow("")

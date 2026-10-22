@@ -8,6 +8,7 @@ object Routes {
     const val APPS = "apps"
     const val CONNECT = "connect"
     const val PLAYER = "player"
+    const val TOOLS = "tools"
 
     const val PENDING_ARG = "id"
     const val PENDING_PATTERN = "pending/{$PENDING_ARG}"

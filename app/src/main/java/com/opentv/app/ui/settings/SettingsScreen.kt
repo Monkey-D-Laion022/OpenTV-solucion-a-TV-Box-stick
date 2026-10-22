@@ -34,7 +34,7 @@ import com.opentv.app.ui.theme.OpenTvColors
  * Apariencia, Reproducción, Control remoto, etc. se añadirán junto con sus funciones.
  */
 @Composable
-fun SettingsScreen(onOpenDiagnostics: () -> Unit, onBack: () -> Unit) {
+fun SettingsScreen(onOpenDiagnostics: () -> Unit, onOpenTools: () -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
     val info = rememberDeviceInfo()
     val helper = remember(context) { DefaultLauncherHelper(context) }
@@ -90,6 +90,11 @@ fun SettingsScreen(onOpenDiagnostics: () -> Unit, onBack: () -> Unit) {
                 )
             }
 
+            TvListItem(
+                title = "Herramientas",
+                subtitle = "Funciones avanzadas: reproducir un enlace directo",
+                onClick = onOpenTools,
+            )
             TvListItem(
                 title = "Diagnóstico",
                 subtitle = "Pantalla, orientación, memoria y limitaciones conocidas",

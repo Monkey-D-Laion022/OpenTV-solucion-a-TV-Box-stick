@@ -10,6 +10,7 @@ import com.opentv.app.apps.AppListLogic
 import com.opentv.app.apps.InstalledApp
 import com.opentv.app.apps.SortMode
 import com.opentv.app.connect.ExternalDisplay
+import com.opentv.app.connect.TvTarget
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -52,6 +53,17 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = null,
     )
 
+    /** TV elegido como salida, si hay uno. */
+    val outputTarget: StateFlow<TvTarget?> get() = container.output.target
+
+    private val _rowApps = MutableStateFlow<List<InstalledApp>>(emptyList())
+
+    /** Apps de la fila principal del launcher: favoritas primero y después el resto de la A a la Z. */
+    val rowApps: StateFlow<List<InstalledApp>> = _rowApps.asStateFlow()
+
+    private val _totalApps = MutableStateFlow(0)
+    val totalApps: StateFlow<Int> = _totalApps.asStateFlow()
+
     private val _favoriteApps = MutableStateFlow<List<InstalledApp>>(emptyList())
     val favoriteApps: StateFlow<List<InstalledApp>> = _favoriteApps.asStateFlow()
 
@@ -65,11 +77,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         refreshJob = viewModelScope.launch {
             try {
                 val favorites = container.favorites.load()
-                val apps = if (favorites.isEmpty()) {
-                    emptyList()
-                } else {
-                    withContext(Dispatchers.IO) { container.repository.loadInstalledApps() }
-                }
+                val apps = withContext(Dispatchers.IO) { container.repository.loadInstalledApps() }
+                _totalApps.value = apps.size
+                _rowApps.value = AppListLogic.sort(apps, SortMode.FAVORITES_FIRST, favorites).take(ROW_LIMIT)
                 _favoriteApps.value = AppListLogic.sort(
                     apps.filter { it.packageName in favorites },
                     SortMode.NAME_ASC,
@@ -80,6 +90,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 // Las favoritas son un extra del inicio: si falla la lectura, simplemente no se muestran.
                 _favoriteApps.value = emptyList()
+                _rowApps.value = emptyList()
             }
         }
     }
@@ -92,5 +103,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val CLOCK_TICK_MS = 15_000L
+        const val ROW_LIMIT = 24
     }
 }
