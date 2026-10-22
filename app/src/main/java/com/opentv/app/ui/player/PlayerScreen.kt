@@ -31,6 +31,8 @@ import com.opentv.app.player.PlayerViewModel
 import com.opentv.app.ui.components.SafeArea
 import com.opentv.app.ui.components.SearchField
 import com.opentv.app.ui.components.TvButton
+import com.opentv.app.ui.connect.CastButton
+import com.opentv.app.ui.connect.CastPickerDialog
 import com.opentv.app.ui.theme.OpenTvColors
 
 /**
@@ -42,12 +44,13 @@ import com.opentv.app.ui.theme.OpenTvColors
 @Composable
 fun PlayerScreen(
     onBack: () -> Unit,
-    onSendToTv: () -> Unit,
     viewModel: PlayerViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val externalDisplay by viewModel.externalDisplay.collectAsStateWithLifecycle()
     var link by rememberSaveable { mutableStateOf(viewModel.initialLink) }
+    var castPickerOpen by remember { mutableStateOf(false) }
+    if (castPickerOpen) CastPickerDialog(onDismiss = { castPickerOpen = false })
 
     // Al salir de pantalla (otra app, apagar el celular) se pausa; no se sigue gastando batería.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.pause() }
@@ -104,7 +107,7 @@ fun PlayerScreen(
                     onClick = viewModel::cycleFit,
                     horizontalPadding = 20.dp,
                 )
-                TvButton(text = "Enviar a un TV (Cast / DLNA)", onClick = onSendToTv, horizontalPadding = 20.dp)
+                CastButton(onClick = { castPickerOpen = true })
                 if (state.currentUrl != null && (externalDisplay != null || state.onExternal)) {
                     TvButton(
                         text = if (state.onExternal) "Volver al celular" else "Ver en la pantalla externa",

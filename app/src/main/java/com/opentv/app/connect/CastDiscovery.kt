@@ -9,9 +9,6 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 
-/** Un dispositivo Google Cast detectado en la red. */
-data class CastDevice(val id: String, val name: String)
-
 /**
  * Busca dispositivos Google Cast con el SDK oficial (CastContext + MediaRouter). Cast ENVÍA
  * contenido al receptor; no duplica la pantalla. Esta clase solo detecta; el envío lo hace

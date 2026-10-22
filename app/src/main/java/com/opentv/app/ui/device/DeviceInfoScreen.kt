@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.opentv.app.OpenTvApp
 import com.opentv.app.core.AspectRatio
+import com.opentv.app.core.BuildInfo
 import com.opentv.app.device.DeviceInfo
 import com.opentv.app.device.DeviceInfoProvider
 import com.opentv.app.ui.components.InfoRow
@@ -76,6 +77,7 @@ fun DeviceInfoScreen(onBack: () -> Unit) {
                 "Resolución de salida",
                 "Depende del sistema y del televisor; no se puede medir desde esta pantalla.",
             )
+            InfoRow("Versión de OpenTV", BuildInfo.LABEL)
             InfoRow("Equipo", "${info.manufacturer} ${info.model}".trim())
             InfoRow("Android", "${info.androidRelease} (API ${info.sdkInt})")
             InfoRow("Memoria RAM", ramText(info))

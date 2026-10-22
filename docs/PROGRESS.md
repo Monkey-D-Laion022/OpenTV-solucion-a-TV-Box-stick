@@ -173,3 +173,11 @@ escritas y se corrigieron (texto de mensaje, carácter inválido en XML 1.0, una
 - Enlace compartido entre reproductor y «Conectar TV» (`AppContainer.sharedLink`); botón «Enviar a un TV» en el reproductor.
 - Verificado: 103 pruebas de lógica pura. NO verificado: compilación, API de Cast (`SessionManagerListener`, `selectRoute`), `Presentation` en el Redmi 14C, reproducción en un TV real.
 - Límites: Cast necesita que el receptor pueda abrir el enlace (CORS en HLS/DASH, enlaces vencidos); la `Presentation` solo funciona si Android informa una pantalla externa y puede reemplazar al espejo del sistema, algo que solo se comprueba en el equipo.
+
+### Módulo 2 (rehecho): selector de TV propio
+Corrige un reclamo real: las tarjetas eran texto y no había ícono ni selector.
+- `ui/connect/CastIcon` (ícono dibujado a mano + `CastButton`), `ui/connect/CastPickerDialog` (lista unificada de TV Cast y DLNA; al tocar uno envía el enlace desde OpenTV; botones «Buscar de nuevo» y «Detener / desconectar»).
+- El botón de Cast está en el inicio, en el reproductor y en «Conectar TV». Las tarjetas de Cast/DLNA/Miracast de «Conectar TV» son clicables.
+- `connect/TvTargets`, `CastDevice` (archivo propio), `ConnectViewModel.send/stopAll`, `core/BuildInfo` (etiqueta «Fase 4 · módulo 2 (selector de Cast propio)» visible en el inicio y en «Dispositivo»).
+- Verificado: 106 pruebas de lógica pura; imports auditados. NO verificado: compilación, el diálogo con D-pad/táctil, Cast y DLNA contra un TV real, `Presentation` en el Redmi 14C.
+- Miracast: sigue pasando por el ajuste del sistema; no existe API pública para conectarlo desde una app.

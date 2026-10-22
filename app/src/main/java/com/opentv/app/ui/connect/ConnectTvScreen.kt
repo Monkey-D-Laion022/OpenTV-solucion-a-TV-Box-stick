@@ -64,6 +64,10 @@ fun ConnectTvScreen(
     var link by rememberSaveable { mutableStateOf(viewModel.initialLink) }
     var brandIndex by remember { mutableIntStateOf(0) }
     val brand = TvBrand.values()[brandIndex]
+    var castPickerOpen by remember { mutableStateOf(false) }
+    if (castPickerOpen) {
+        CastPickerDialog(onDismiss = { castPickerOpen = false }, viewModel = viewModel, manageDiscovery = false)
+    }
 
     val firstFocus = remember { FocusRequester() }
     val hasStatuses = state.statuses.isNotEmpty()
@@ -92,7 +96,10 @@ fun ConnectTvScreen(
                     style = MaterialTheme.typography.headlineMedium,
                     color = OpenTvColors.OnBackground,
                 )
-                TvButton(text = "Volver", onClick = onBack, horizontalPadding = 20.dp)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CastButton(onClick = { castPickerOpen = true })
+                    TvButton(text = "Volver", onClick = onBack, horizontalPadding = 20.dp)
+                }
             }
             Text(
                 text = "Estado real de este equipo. Cast y DLNA envían contenido al TV; no duplican " +
@@ -113,6 +120,13 @@ fun ConnectTvScreen(
             state.statuses.forEachIndexed { index, status ->
                 StatusCard(
                     status = status,
+                    onClick = when {
+                        status.method == ConnectionMethod.MIRACAST && state.hasCastSettingsScreen ->
+                            viewModel::openSystemCast
+                        (status.method == ConnectionMethod.GOOGLE_CAST || status.method == ConnectionMethod.DLNA) &&
+                            status.state == MethodState.AVAILABLE -> { { castPickerOpen = true } }
+                        else -> null
+                    },
                     modifier = if (index == 0) Modifier.focusRequester(firstFocus) else Modifier,
                 )
             }
@@ -176,8 +190,8 @@ private fun stateColor(state: MethodState): Color = when (state) {
 }
 
 @Composable
-private fun StatusCard(status: MethodStatus, modifier: Modifier = Modifier) {
-    FocusableSurface(onClick = null, modifier = modifier.fillMaxWidth(), focusedScale = 1.01f) {
+private fun StatusCard(status: MethodStatus, onClick: (() -> Unit)?, modifier: Modifier = Modifier) {
+    FocusableSurface(onClick = onClick, modifier = modifier.fillMaxWidth(), focusedScale = 1.01f) {
         Column(
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -200,6 +214,17 @@ private fun StatusCard(status: MethodStatus, modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = OpenTvColors.Muted,
             )
+            if (onClick != null) {
+                Text(
+                    text = if (status.method == ConnectionMethod.MIRACAST) {
+                        "Tocá para abrir la transmisión del sistema"
+                    } else {
+                        "Tocá para elegir un TV y enviarle un enlace"
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = OpenTvColors.Primary,
+                )
+            }
         }
     }
 }

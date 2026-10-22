@@ -51,6 +51,7 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
     private var castJob: Job? = null
     private var scanJob: Job? = null
     private var commandJob: Job? = null
+    private var lastDlna: UpnpDevice? = null
 
     /** Enlace compartido con el reproductor. La pantalla guarda su propia copia para escribir sin saltos. */
     val initialLink: String get() = container.sharedLink.value
@@ -145,8 +146,10 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
         if (commandJob?.isActive == true) return
         when (val check = MediaUrlPolicy.check(rawUrl)) {
             is MediaUrlCheck.Invalid -> _state.update { it.copy(message = check.reason) }
-            is MediaUrlCheck.Valid ->
+            is MediaUrlCheck.Valid -> {
+                lastDlna = device
                 runCommand(device, DlnaSoap.ACTION_PLAY) { container.dlna.play(device, check.url) }
+            }
         }
     }
 
@@ -167,6 +170,25 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
                 is CastSendResult.Failed -> result.reason
             }
             _state.update { it.copy(busy = false, message = text) }
+        }
+    }
+
+    /** Envía [rawUrl] al TV elegido en el selector, por el método que corresponda. */
+    fun send(target: TvTarget, rawUrl: String) {
+        when (target) {
+            is TvTarget.CastTarget -> sendToCast(target.device, rawUrl)
+            is TvTarget.DlnaTarget -> sendLink(target.device, rawUrl)
+        }
+    }
+
+    /** Corta lo que se envió: cierra la sesión Cast y manda «Stop» al último TV DLNA usado. */
+    fun stopAll() {
+        container.castSender.stop()
+        val dlnaTarget = lastDlna
+        if (dlnaTarget != null) {
+            stopPlayback(dlnaTarget)
+        } else {
+            _state.update { it.copy(message = "Se cerró la sesión de Cast.") }
         }
     }
 

@@ -17,6 +17,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -36,7 +38,10 @@ import com.opentv.app.ui.apps.LaunchMessage
 import com.opentv.app.ui.apps.PortraitWarningDialog
 import com.opentv.app.ui.components.SafeArea
 import com.opentv.app.ui.components.StatusChip
+import com.opentv.app.core.BuildInfo
 import com.opentv.app.ui.components.TvCard
+import com.opentv.app.ui.connect.CastButton
+import com.opentv.app.ui.connect.CastPickerDialog
 import com.opentv.app.ui.theme.OpenTvColors
 import java.util.Date
 
@@ -93,6 +98,7 @@ fun HomeScreen(
     val favorites by viewModel.favoriteApps.collectAsStateWithLifecycle()
     val launchState by viewModel.appLaunch.state.collectAsStateWithLifecycle()
     val externalDisplay by viewModel.externalDisplay.collectAsStateWithLifecycle()
+    var castPickerOpen by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val date = Date(nowMillis)
     val timeText = DateFormat.getTimeFormat(context).format(date)
@@ -112,6 +118,8 @@ fun HomeScreen(
     val firstCardFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { firstCardFocus.requestFocus() } }
 
+    if (castPickerOpen) CastPickerDialog(onDismiss = { castPickerOpen = false })
+
     SafeArea {
         Column(
             modifier = Modifier
@@ -121,7 +129,12 @@ fun HomeScreen(
                 .padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            HomeHeader(timeText = timeText, dateText = dateText, externalDisplayName = externalDisplay?.name)
+            HomeHeader(
+                timeText = timeText,
+                dateText = dateText,
+                externalDisplayName = externalDisplay?.name,
+                onCast = { castPickerOpen = true },
+            )
 
             if (favorites.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -186,7 +199,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun HomeHeader(timeText: String, dateText: String, externalDisplayName: String?) {
+private fun HomeHeader(timeText: String, dateText: String, externalDisplayName: String?, onCast: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -199,7 +212,7 @@ private fun HomeHeader(timeText: String, dateText: String, externalDisplayName: 
                 color = OpenTvColors.OnBackground,
             )
             Text(
-                text = "Tu centro multimedia",
+                text = "Tu centro multimedia · ${BuildInfo.LABEL}",
                 style = MaterialTheme.typography.bodyLarge,
                 color = OpenTvColors.Muted,
             )
@@ -227,6 +240,7 @@ private fun HomeHeader(timeText: String, dateText: String, externalDisplayName: 
                 },
                 dotColor = if (externalDisplayName == null) OpenTvColors.Muted else OpenTvColors.Success,
             )
+            CastButton(onClick = onCast)
         }
     }
 }
