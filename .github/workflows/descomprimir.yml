@@ -1,0 +1,21 @@
+name: Descomprimir
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  unzip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Descomprimir y subir
+        run: |
+          unzip -q OpenTV-fase3.zip -d tmp
+          rm -rf tmp/OpenTV/.github
+          cp -a tmp/OpenTV/. .
+          rm -rf tmp OpenTV-fase3.zip
+          chmod +x gradlew
+          git config user.name github-actions
+          git config user.email github-actions@users.noreply.github.com
+          git add -A
+          git commit -m "Descomprimir OpenTV"
+          git push
