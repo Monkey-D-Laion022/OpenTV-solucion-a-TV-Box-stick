@@ -29,12 +29,12 @@ class DlnaController(
     }
 
     /** Envía el enlace y ordena reproducir. Si el primer paso falla, no se intenta el segundo. */
-    suspend fun play(device: UpnpDevice, mediaUrl: String): DlnaResult {
+    suspend fun play(device: UpnpDevice, mediaUrl: String, metadata: String? = null): DlnaResult {
         val url = (MediaUrlPolicy.check(mediaUrl) as? MediaUrlCheck.Valid)?.url
             ?: return DlnaResult.Rejected(status = 0, detail = "enlace no válido")
 
         val type = device.avTransportServiceType
-        val setUri = send(device, DlnaSoap.ACTION_SET_URI, DlnaSoap.setUri(type, url))
+        val setUri = send(device, DlnaSoap.ACTION_SET_URI, DlnaSoap.setUri(type, url, metadata))
         if (setUri != DlnaResult.Ok) return setUri
         return send(device, DlnaSoap.ACTION_PLAY, DlnaSoap.play(type))
     }

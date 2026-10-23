@@ -44,7 +44,7 @@ class OutputController(
             is CastSendResult.Failed -> OutputResult(false, r.reason)
         }
         is TvTarget.DlnaTarget -> {
-            val result = dlna.play(t.device, url)
+            val result = dlna.play(t.device, url, DidlLite.forUrl(url, "OpenTV"))
             OutputResult(result == DlnaResult.Ok, DlnaMessages.describe(t.name, DlnaSoap.ACTION_PLAY, result))
         }
     }

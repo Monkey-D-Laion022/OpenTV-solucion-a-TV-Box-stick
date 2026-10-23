@@ -37,6 +37,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.opentv.app.core.BuildInfo
 import com.opentv.app.navigation.PendingFeature
 import com.opentv.app.navigation.Routes
+import com.opentv.app.ui.apps.AddAppCard
+import com.opentv.app.ui.apps.AppPickerDialog
 import com.opentv.app.ui.apps.AppTile
 import com.opentv.app.ui.apps.LaunchMessage
 import com.opentv.app.ui.apps.PortraitWarningDialog
@@ -61,13 +63,14 @@ fun HomeScreen(
     viewModel: HomeViewModel = viewModel(),
 ) {
     val nowMillis by viewModel.nowMillis.collectAsStateWithLifecycle()
-    val rowApps by viewModel.rowApps.collectAsStateWithLifecycle()
-    val totalApps by viewModel.totalApps.collectAsStateWithLifecycle()
+    val allApps by viewModel.allApps.collectAsStateWithLifecycle()
+    val favoriteKeys by viewModel.favoriteKeys.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteApps.collectAsStateWithLifecycle()
     val launchState by viewModel.appLaunch.state.collectAsStateWithLifecycle()
     val externalDisplay by viewModel.externalDisplay.collectAsStateWithLifecycle()
     val outputTarget by viewModel.outputTarget.collectAsStateWithLifecycle()
     var castPickerOpen by remember { mutableStateOf(false) }
+    var appPickerOpen by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val date = Date(nowMillis)
@@ -85,9 +88,17 @@ fun HomeScreen(
         )
     }
     if (castPickerOpen) CastPickerDialog(onDismiss = { castPickerOpen = false })
+    if (appPickerOpen) {
+        AppPickerDialog(
+            apps = allApps,
+            pinned = favoriteKeys,
+            onToggle = viewModel::toggleFavorite,
+            onDismiss = { appPickerOpen = false },
+        )
+    }
 
     val firstFocus = remember { FocusRequester() }
-    LaunchedEffect(rowApps.isNotEmpty()) {
+    LaunchedEffect(favorites.isNotEmpty()) {
         withFrameNanos { }
         runCatching { firstFocus.requestFocus() }
     }
@@ -109,11 +120,11 @@ fun HomeScreen(
                 onCast = { castPickerOpen = true },
             )
 
-            HomeRow(title = if (favorites.isEmpty()) "Aplicaciones" else "Aplicaciones · tus favoritas primero") {
-                itemsIndexed(rowApps, key = { _, app -> app.packageName }) { index, app ->
+            HomeRow(title = "Aplicaciones") {
+                itemsIndexed(favorites, key = { _, app -> app.packageName }) { index, app ->
                     AppTile(
                         app = app,
-                        isFavorite = app in favorites,
+                        isFavorite = true,
                         loadIcon = viewModel.iconLoader::load,
                         onClick = { viewModel.appLaunch.onAppClick(app) },
                         onToggleFavorite = { viewModel.toggleFavorite(app) },
@@ -123,14 +134,13 @@ fun HomeScreen(
                             .then(if (index == 0) Modifier.focusRequester(firstFocus) else Modifier),
                     )
                 }
-                item(key = "all-apps") {
-                    TvCard(
-                        title = "Ver todas",
-                        subtitle = if (totalApps > 0) "$totalApps aplicaciones" else "Tus apps instaladas",
-                        onClick = { onNavigate(Routes.APPS) },
+                item(key = "add-app") {
+                    AddAppCard(
+                        onClick = { appPickerOpen = true },
                         modifier = Modifier
-                            .width(240.dp)
-                            .then(if (rowApps.isEmpty()) Modifier.focusRequester(firstFocus) else Modifier),
+                            .width(150.dp)
+                            .height(148.dp)
+                            .then(if (favorites.isEmpty()) Modifier.focusRequester(firstFocus) else Modifier),
                     )
                 }
             }
@@ -146,6 +156,14 @@ fun HomeScreen(
                         modifier = Modifier.width(CARD_WIDTH),
                     )
                 }
+                item(key = "project") {
+                    TvCard(
+                        title = "Proyectar OpenTV en el TV",
+                        subtitle = "Pantalla propia 16:9 por DLNA",
+                        onClick = { onNavigate(Routes.REMOTE) },
+                        modifier = Modifier.width(CARD_WIDTH),
+                    )
+                }
                 item(key = "cast") {
                     TvCard(
                         title = "Transmitir a TV",
@@ -157,6 +175,14 @@ fun HomeScreen(
             }
 
             HomeRow(title = "Ajustes") {
+                item(key = "all-apps") {
+                    TvCard(
+                        title = "Todas las apps",
+                        subtitle = "Lista completa de tu teléfono",
+                        onClick = { onNavigate(Routes.APPS) },
+                        modifier = Modifier.width(CARD_WIDTH),
+                    )
+                }
                 item(key = "connect") {
                     TvCard(
                         title = "Conectar TV",

@@ -56,13 +56,15 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     /** TV elegido como salida, si hay uno. */
     val outputTarget: StateFlow<TvTarget?> get() = container.output.target
 
-    private val _rowApps = MutableStateFlow<List<InstalledApp>>(emptyList())
+    private val _allApps = MutableStateFlow<List<InstalledApp>>(emptyList())
 
-    /** Apps de la fila principal del launcher: favoritas primero y después el resto de la A a la Z. */
-    val rowApps: StateFlow<List<InstalledApp>> = _rowApps.asStateFlow()
+    /** Todas las apps instaladas (A–Z), para elegir cuáles van en la fila principal. */
+    val allApps: StateFlow<List<InstalledApp>> = _allApps.asStateFlow()
 
-    private val _totalApps = MutableStateFlow(0)
-    val totalApps: StateFlow<Int> = _totalApps.asStateFlow()
+    private val _favoriteKeys = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Paquetes fijados en la fila principal. */
+    val favoriteKeys: StateFlow<Set<String>> = _favoriteKeys.asStateFlow()
 
     private val _favoriteApps = MutableStateFlow<List<InstalledApp>>(emptyList())
     val favoriteApps: StateFlow<List<InstalledApp>> = _favoriteApps.asStateFlow()
@@ -78,8 +80,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val favorites = container.favorites.load()
                 val apps = withContext(Dispatchers.IO) { container.repository.loadInstalledApps() }
-                _totalApps.value = apps.size
-                _rowApps.value = AppListLogic.sort(apps, SortMode.FAVORITES_FIRST, favorites).take(ROW_LIMIT)
+                _allApps.value = AppListLogic.sort(apps, SortMode.NAME_ASC, favorites)
+                _favoriteKeys.value = favorites
                 _favoriteApps.value = AppListLogic.sort(
                     apps.filter { it.packageName in favorites },
                     SortMode.NAME_ASC,
@@ -90,12 +92,12 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 // Las favoritas son un extra del inicio: si falla la lectura, simplemente no se muestran.
                 _favoriteApps.value = emptyList()
-                _rowApps.value = emptyList()
+                _allApps.value = emptyList()
             }
         }
     }
 
-    /** En el inicio todas las apps mostradas son favoritas: alternar equivale a quitarla. */
+    /** Agrega la app a la fila principal o, si ya estaba, la quita. */
     fun toggleFavorite(app: InstalledApp) {
         container.favorites.toggle(app.packageName)
         refreshFavorites()
@@ -103,6 +105,5 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val CLOCK_TICK_MS = 15_000L
-        const val ROW_LIMIT = 24
     }
 }

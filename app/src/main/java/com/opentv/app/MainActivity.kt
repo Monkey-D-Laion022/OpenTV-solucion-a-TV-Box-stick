@@ -46,6 +46,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        // Al cerrar la app de verdad se corta la proyección: no queda ninguna ventana ni servidor vivos.
+        if (isFinishing) (application as OpenTvApp).container.shutdownProjection()
+        super.onDestroy()
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemBars()

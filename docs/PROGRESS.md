@@ -190,3 +190,12 @@ Corrige un reclamo real: las tarjetas eran texto y no había ícono ni selector.
 - Etiqueta de versión: «Fase 4 · módulo 3A».
 - Verificado: pruebas de lógica pura e imports. NO verificado: compilación, Cast/DLNA contra el LG, foco con D-pad en las filas.
 - PENDIENTE (módulo 3B): proyectar el launcher en la pantalla externa con `Presentation` y control remoto desde el celular. Límite conocido: las apps de terceros se abren en la pantalla del teléfono, no en el TV.
+
+### Módulo 3B: proyección inalámbrica propia 16:9 y fila de apps con «+»
+Pilar fijado por el usuario: nada de HDMI/MHL ni «Emitir» del sistema; todo por Wi‑Fi y propio de OpenTV.
+- Fila «Aplicaciones» del inicio: solo las favoritas fijadas + tarjeta «+» (`ui/apps/AppPickerDialog`) para agregar/quitar. «Todas las apps» pasó a la fila Ajustes.
+- Proyección (`stream/`): pantalla virtual propia de 1920×1080 (`DisplayManager.createVirtualDisplay`, sin MediaProjection) donde se dibuja la interfaz del TV (`ui/remote/TvPresentation` + `TvLauncherContent`) → `ScreenEncoder` (MediaCodec H.264, repite cuadro si no hay cambios) → `TsMuxer` (MPEG-TS propio) → `StreamHub` + `HttpStreamServer` (solo IPv4 privadas, ruta con código aleatorio, máx. 2 clientes) → DLNA `SetAVTransportURI` con metadatos DIDL-Lite (`DidlLite`) y `Play`. Orquesta `TvProjection`.
+- Control remoto táctil (`ui/remote/RemoteScreen`, `RemoteViewModel`, `stream/TvNavigation`): cruceta, OK e Inicio mueven el cursor de la interfaz que se ve en el TV.
+- DIDL-Lite también se envía ahora con cualquier enlace DLNA (muchos LG lo exigen).
+- Verificado en la JVM: 129 pruebas (TsMuxer: ida y vuelta del video para 13 tamaños, CRC de PAT/PMT, contadores, PCR, PTS; servidor HTTP por loopback; hub; navegación; DIDL). NO verificado: compilación; MediaCodec, pantalla virtual y `Presentation` en el Redmi 14C; que el LG 42LB5800 (NetCast) acepte un MPEG-TS en vivo por DLNA; retraso real; Compose dentro de la `Presentation`.
+- Límites: retraso de varios segundos (búfer del TV); sin audio; solo DLNA (no Cast); las apps de terceros se abren en el teléfono; si OpenTV pasa a segundo plano la imagen del TV puede congelarse (falta un servicio en primer plano).

@@ -9,12 +9,12 @@ object DlnaSoap {
 
     fun soapAction(serviceType: String, action: String): String = "\"$serviceType#$action\""
 
-    fun setUri(serviceType: String, mediaUrl: String): String = envelope(
+    fun setUri(serviceType: String, mediaUrl: String, metadata: String? = null): String = envelope(
         serviceType,
         ACTION_SET_URI,
         "<InstanceID>0</InstanceID>" +
             "<CurrentURI>${xmlEscape(mediaUrl)}</CurrentURI>" +
-            "<CurrentURIMetaData></CurrentURIMetaData>",
+            "<CurrentURIMetaData>${xmlEscape(metadata.orEmpty())}</CurrentURIMetaData>",
     )
 
     fun play(serviceType: String): String =
