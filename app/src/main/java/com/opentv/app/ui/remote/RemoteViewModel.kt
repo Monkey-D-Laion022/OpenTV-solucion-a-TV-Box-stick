@@ -103,10 +103,13 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
         }
         _message.value = null
         loadApps()
+        val loader = iconLoader
+        val tvUi = tvState
         viewModelScope.launch {
             container.projection.start(target.device) { display ->
                 TvPresentation(activity, display) {
-                    TvLauncherContent(state = tvState, loadIcon = iconLoader::load)
+                    // Lambda (y no referencia a `load`): el parámetro es `suspend` y así se compila sin ambigüedad.
+                    TvLauncherContent(state = tvUi, loadIcon = { app -> loader.load(app) })
                 }
             }
         }
