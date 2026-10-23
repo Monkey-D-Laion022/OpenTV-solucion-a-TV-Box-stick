@@ -54,7 +54,8 @@ class HttpStreamServerTest {
             assertTrue(headers.startsWith("HTTP/1.0 200 OK"))
             assertTrue(headers.contains("Content-Type: video/mpeg"))
             assertTrue(headers.contains("transferMode.dlna.org: Streaming"))
-            assertTrue(headers.contains("DLNA.ORG_PN=MPEG_TS_HD_NA_ISO"))
+            assertTrue(headers.contains("DLNA.ORG_PN=AVC_TS_HD_NA_ISO"))
+            assertTrue(headers.contains("Accept-Ranges: none"))
 
             // Espera a que el cliente quede suscrito y publica una clave.
             val deadline = System.currentTimeMillis() + 2_000
@@ -73,6 +74,39 @@ class HttpStreamServerTest {
             }
             assertArrayEquals(chunk, received.toByteArray())
         }
+    }
+
+    @Test
+    fun genericProfileOmitsDlnaFeaturesAndUsesItsMime() {
+        val s = HttpStreamServer(hub, "tok123", { true }, 2, StreamProfile.DLNA_TTS)
+        server = s
+        val port = s.start(InetAddress.getLoopbackAddress())
+        request(port, "GET /screen-tok123.ts HTTP/1.1").use {
+            val h = readHeaders(it)
+            assertTrue(h.contains("Content-Type: video/vnd.dlna.mpeg-tts"))
+        }
+        server?.stop()
+        val g = HttpStreamServer(hub, "tok123", { true }, 2, StreamProfile.GENERIC)
+        server = g
+        val port2 = g.start(InetAddress.getLoopbackAddress())
+        request(port2, "GET /screen-tok123.ts HTTP/1.1").use {
+            val h = readHeaders(it)
+            assertTrue(!h.contains("contentFeatures.dlna.org"))
+            assertTrue(h.contains("transferMode.dlna.org: Streaming"))
+        }
+    }
+
+    @Test
+    fun recordsWhatTheTvAsked() {
+        val port = start()
+        val socket = Socket(InetAddress.getLoopbackAddress(), port)
+        socket.soTimeout = 3_000
+        socket.getOutputStream().apply {
+            write("HEAD /screen-tok123.ts HTTP/1.1\r\nUser-Agent: LGE NetCast\r\n\r\n".toByteArray()); flush()
+        }
+        socket.use { readHeaders(it) }
+        assertEquals(1, server!!.requests)
+        assertTrue(server!!.lastRequest, server!!.lastRequest.contains("HEAD") && server!!.lastRequest.contains("LGE NetCast"))
     }
 
     @Test

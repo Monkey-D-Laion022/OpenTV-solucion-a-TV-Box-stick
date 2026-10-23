@@ -3,7 +3,11 @@ package com.opentv.app.stream
 import android.app.Presentation
 import android.content.Context
 import android.hardware.display.DisplayManager
+import android.graphics.PixelFormat
 import android.hardware.display.VirtualDisplay
+import android.media.ImageReader
+import android.os.Handler
+import android.os.Looper
 import android.view.Display
 import com.opentv.app.connect.DidlLite
 import com.opentv.app.connect.DlnaController
@@ -43,13 +47,30 @@ class TvProjection(
     private val _state = MutableStateFlow<ProjectionState>(ProjectionState.Idle)
     val state: StateFlow<ProjectionState> = _state.asStateFlow()
 
+    private val _stats = MutableStateFlow(ProjectionStats())
+    val stats: StateFlow<ProjectionStats> = _stats.asStateFlow()
+
+    private val _profile = MutableStateFlow(StreamProfile.AVC_TS)
+    val profile: StateFlow<StreamProfile> = _profile.asStateFlow()
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** Cambia a la siguiente combinación de formato; solo con la proyección detenida. */
+    fun cycleProfile() {
+        if (session == null) _profile.value = _profile.value.next()
+    }
+
     private class Session(
         val hub: StreamHub,
         val server: HttpStreamServer,
         val encoder: ScreenEncoder,
+        val audio: SilentAudioEncoder?,
+        val feeder: ViewFrameFeeder,
+        val reader: ImageReader,
         val virtualDisplay: VirtualDisplay,
         val presentation: Presentation,
         val target: UpnpDevice,
+        val profile: StreamProfile,
     )
 
     private var session: Session? = null
@@ -69,34 +90,60 @@ class TvProjection(
             return
         }
 
+        val profile = _profile.value
         val hub = StreamHub()
         val token = randomToken()
-        val server = HttpStreamServer(hub, token, acceptClient = ::isLanClient)
+        val server = HttpStreamServer(hub, token, acceptClient = ::isLanClient, profile = profile)
+        val originUs = System.nanoTime() / 1000
+        var audio: SilentAudioEncoder? = null
         var encoder: ScreenEncoder? = null
+        var feeder: ViewFrameFeeder? = null
+        var reader: ImageReader? = null
         var virtualDisplay: VirtualDisplay? = null
         var presentation: Presentation? = null
         try {
             val port = server.start(ip)
-            val enc = ScreenEncoder { chunk, keyStart -> hub.publish(chunk, keyStart) }
+
+            // Pista de audio en silencio: muchos TV no abren video sin audio. Si no hay codificador, sigue sin audio.
+            val withAudio = SilentAudioEncoder.isAvailable()
+            val muxer = TsMuxer(withAudio)
+            val enc = ScreenEncoder(profile, muxer, originUs) { chunk, keyStart -> hub.publish(chunk, keyStart) }
             encoder = enc
-            val surface = enc.start()
+            val encoderSurface = enc.start()
+            hub.onSubscribe = { enc.requestKeyFrame() }
+            if (withAudio) {
+                audio = SilentAudioEncoder(originUs) { adts, pts -> hub.publish(muxer.muxAudio(adts, pts), false) }
+                    .also { it.start() }
+            }
+
+            // La interfaz se dibuja en una pantalla virtual cuyo resultado no se usa (se descarta); lo que va
+            // al TV lo dibujamos nosotros directo sobre el codificador a ritmo fijo, así nunca queda sin cuadros.
+            val sink = ImageReader.newInstance(profile.width, profile.height, PixelFormat.RGBA_8888, 2)
+            reader = sink
+            sink.setOnImageAvailableListener({ r -> runCatching { r.acquireLatestImage()?.close() } }, mainHandler)
             val vd = displayManager.createVirtualDisplay(
-                "OpenTV-TV", WIDTH, HEIGHT, DENSITY_DPI, surface,
+                "OpenTV-TV", profile.width, profile.height, DENSITY_DPI, sink.surface,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION or
                     DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY,
-            )
-            if (vd == null) {
-                throw IllegalStateException("Android no creó la pantalla virtual.")
-            }
+            ) ?: throw IllegalStateException("Android no creó la pantalla virtual.")
             virtualDisplay = vd
             val shown = createPresentation(vd.display)
             presentation = shown
             shown.show()
 
-            val url = "http://${ip.hostAddress}:$port${server.path}"
-            session = Session(hub, server, enc, vd, shown, target)
+            val feed = ViewFrameFeeder(encoderSurface, profile.width, profile.height, ScreenEncoder.FPS) {
+                shown.window?.decorView
+            }
+            feeder = feed
+            feed.start()
 
-            val result = dlna.play(target, url, DidlLite.forUrl(url, "OpenTV"))
+            val url = "http://${ip.hostAddress}:$port${server.path}"
+            val current = Session(hub, server, enc, audio, feed, sink, vd, shown, target, profile)
+            session = current
+            startStats(current, withAudio)
+
+            val metadata = if (profile.sendMetadata) DidlLite.forUrl(url, "OpenTV", profile.protocolInfo()) else null
+            val result = dlna.play(target, url, metadata)
             if (result == DlnaResult.Ok) {
                 _state.value = ProjectionState.Streaming(url, target.friendlyName)
             } else {
@@ -104,13 +151,35 @@ class TvProjection(
                 fail(DlnaMessages.describe(target.friendlyName, DlnaSoap.ACTION_PLAY, result))
             }
         } catch (e: IOException) {
-            cleanup(server, encoder, virtualDisplay, presentation)
+            cleanup(server, encoder, audio, feeder, reader, virtualDisplay, presentation)
+            session = null
             fail("No se pudo abrir el servidor de video local (${e.message ?: "error de red"}).")
         } catch (e: RuntimeException) {
-            cleanup(server, encoder, virtualDisplay, presentation)
+            cleanup(server, encoder, audio, feeder, reader, virtualDisplay, presentation)
             session = null
             fail("No se pudo iniciar la proyección (${e.javaClass.simpleName}: ${e.message ?: "sin detalle"}).")
         }
+    }
+
+    private fun startStats(current: Session, withAudio: Boolean) {
+        val tick = object : Runnable {
+            override fun run() {
+                if (session !== current) return
+                _stats.value = ProjectionStats(
+                    profileLabel = current.profile.label,
+                    audio = withAudio,
+                    drawnFrames = current.feeder.drawnFrames.get(),
+                    encodedFrames = current.encoder.encodedFrames.get(),
+                    bytesSent = current.server.bytesSent.get(),
+                    clients = current.server.activeClients,
+                    requests = current.server.requests,
+                    lastRequest = current.server.lastRequest,
+                    uiVisible = current.feeder.uiVisible,
+                )
+                mainHandler.postDelayed(this, 1_000L)
+            }
+        }
+        mainHandler.post(tick)
     }
 
     /** Pide al TV que pare y libera todo. */
@@ -129,18 +198,26 @@ class TvProjection(
     private fun release() {
         val current = session
         session = null
-        if (current != null) cleanup(current.server, current.encoder, current.virtualDisplay, current.presentation)
+        if (current != null) {
+            cleanup(current.server, current.encoder, current.audio, current.feeder, current.reader, current.virtualDisplay, current.presentation)
+        }
         _state.value = ProjectionState.Idle
     }
 
     private fun cleanup(
         server: HttpStreamServer?,
         encoder: ScreenEncoder?,
+        audio: SilentAudioEncoder?,
+        feeder: ViewFrameFeeder?,
+        reader: ImageReader?,
         virtualDisplay: VirtualDisplay?,
         presentation: Presentation?,
     ) {
+        runCatching { feeder?.stop() }
         runCatching { presentation?.dismiss() }
         runCatching { virtualDisplay?.release() }
+        runCatching { reader?.close() }
+        runCatching { audio?.stop() }
         runCatching { encoder?.stop() }
         runCatching { server?.stop() }
     }
@@ -159,8 +236,6 @@ class TvProjection(
     }
 
     private companion object {
-        const val WIDTH = 1920
-        const val HEIGHT = 1080
         const val DENSITY_DPI = 240
     }
 }

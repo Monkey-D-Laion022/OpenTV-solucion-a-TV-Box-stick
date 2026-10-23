@@ -25,9 +25,15 @@ class StreamHub(private val maxQueuedChunks: Int = 300) {
 
     private val subscribers = CopyOnWriteArrayList<Subscriber>()
 
+    /** Se invoca al conectarse un cliente: sirve para pedir al codificador un fotograma clave ya mismo. */
+    @Volatile var onSubscribe: (() -> Unit)? = null
+
     val subscriberCount: Int get() = subscribers.size
 
-    fun subscribe(): Subscriber = Subscriber(maxQueuedChunks).also { subscribers.add(it) }
+    fun subscribe(): Subscriber = Subscriber(maxQueuedChunks).also {
+        subscribers.add(it)
+        onSubscribe?.invoke()
+    }
 
     fun unsubscribe(subscriber: Subscriber) {
         subscribers.remove(subscriber)

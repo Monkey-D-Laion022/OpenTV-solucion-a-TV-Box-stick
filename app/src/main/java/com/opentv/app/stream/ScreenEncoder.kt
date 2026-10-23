@@ -3,46 +3,76 @@ package com.opentv.app.stream
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
+import android.os.Bundle
 import android.view.Surface
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.abs
 
 /**
- * Codifica en H.264 lo que se dibuje en su [Surface] (una pantalla virtual de 1920×1080) y entrega
- * el resultado ya empaquetado en MPEG-TS. Repite el último cuadro cuando la imagen no cambia, así el
- * TV recibe video continuo aunque la interfaz esté quieta.
+ * Codifica en H.264 lo que se dibuje en su [Surface] y entrega el resultado empaquetado en MPEG-TS.
+ * Perfil y nivel quedan fijos (Main, nivel 4.0 o 3.1) porque los televisores viejos no abren perfiles
+ * desconocidos. Los tiempos se miden desde [originUs] para quedar alineados con el audio.
  */
 class ScreenEncoder(
-    private val width: Int = 1920,
-    private val height: Int = 1080,
-    private val fps: Int = 30,
-    private val bitrate: Int = 6_000_000,
+    private val profile: StreamProfile,
+    private val muxer: TsMuxer,
+    private val originUs: Long,
+    private val fps: Int = FPS,
+    private val bitrate: Int = BITRATE,
     private val onChunk: (chunk: ByteArray, keyStart: Boolean) -> Unit,
 ) {
     private var codec: MediaCodec? = null
     private var thread: Thread? = null
     @Volatile private var running = false
-    private val muxer = TsMuxer()
+
+    val encodedFrames = AtomicLong(0)
 
     /** Prepara el codificador y devuelve la superficie donde hay que dibujar. */
     fun start(): Surface {
-        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
+        val encoder = try {
+            create(withProfile = true)
+        } catch (e: RuntimeException) {
+            create(withProfile = false) // algunos codificadores rechazan perfil/nivel explícitos
+        }
+        val surface = encoder.createInputSurface()
+        encoder.start()
+        codec = encoder
+        running = true
+        thread = Thread({ drain(encoder) }, "opentv-encoder").apply { isDaemon = true; start() }
+        return surface
+    }
+
+    private fun create(withProfile: Boolean): MediaCodec {
+        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, profile.width, profile.height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
-            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 100_000L)
+            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
+            if (withProfile) {
+                setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileMain)
+                setInteger(
+                    MediaFormat.KEY_LEVEL,
+                    if (profile.height >= 1080) MediaCodecInfo.CodecProfileLevel.AVCLevel4 else MediaCodecInfo.CodecProfileLevel.AVCLevel31,
+                )
+            }
         }
         val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
         try {
             encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-            val surface = encoder.createInputSurface()
-            encoder.start()
-            codec = encoder
-            running = true
-            thread = Thread({ drain(encoder) }, "opentv-encoder").apply { isDaemon = true; start() }
-            return surface
         } catch (e: RuntimeException) {
             encoder.release()
             throw e
+        }
+        return encoder
+    }
+
+    /** Pide un fotograma clave ya (cuando se conecta el TV) para que no espere hasta 1 s. */
+    fun requestKeyFrame() {
+        try {
+            codec?.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) })
+        } catch (e: RuntimeException) {
+            // El codificador ya se detuvo.
         }
     }
 
@@ -63,7 +93,7 @@ class ScreenEncoder(
 
     private fun drain(encoder: MediaCodec) {
         val info = MediaCodec.BufferInfo()
-        var firstPtsUs = -1L
+        var lastPts = 0L
         try {
             while (running) {
                 val index = encoder.dequeueOutputBuffer(info, 100_000L)
@@ -76,10 +106,15 @@ class ScreenEncoder(
                     if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
                         muxer.setCodecConfig(data)
                     } else {
-                        if (firstPtsUs < 0) firstPtsUs = info.presentationTimeUs
+                        val now = System.nanoTime() / 1000 - originUs
+                        val raw = info.presentationTimeUs - originUs
+                        // Si el reloj del codificador no coincide con el del sistema, se usa el del sistema.
+                        var pts = if (abs(raw - now) < 5_000_000L) raw else now
+                        if (pts < lastPts) pts = lastPts
+                        lastPts = pts
                         val key = info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0
-                        val ts = muxer.mux(data, info.presentationTimeUs - firstPtsUs, key)
-                        onChunk(ts, key)
+                        onChunk(muxer.mux(data, pts, key), key)
+                        encodedFrames.incrementAndGet()
                     }
                 }
                 encoder.releaseOutputBuffer(index, false)
@@ -87,5 +122,10 @@ class ScreenEncoder(
         } catch (e: IllegalStateException) {
             // El codificador se detuvo mientras se leía: es parte del cierre normal.
         }
+    }
+
+    companion object {
+        const val FPS = 15
+        const val BITRATE = 4_000_000
     }
 }

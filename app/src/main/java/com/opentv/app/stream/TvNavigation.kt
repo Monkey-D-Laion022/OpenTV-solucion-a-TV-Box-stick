@@ -29,6 +29,10 @@ object TvNavigation {
         }
     }
 
+    /** Índice del primer elemento visible para que [selected] se vea en una ventana de [visible] elementos. */
+    fun firstVisible(selected: Int, size: Int, visible: Int): Int =
+        (selected - visible + 1).coerceAtLeast(0).coerceAtMost((size - visible).coerceAtLeast(0))
+
     private fun verticalStep(rowSizes: List<Int>, cursor: TvCursor, step: Int): TvCursor {
         var row = cursor.row + step
         while (row in rowSizes.indices) {

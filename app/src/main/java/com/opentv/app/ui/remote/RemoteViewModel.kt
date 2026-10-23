@@ -13,6 +13,8 @@ import com.opentv.app.apps.SortMode
 import com.opentv.app.connect.TvTarget
 import com.opentv.app.stream.Direction
 import com.opentv.app.stream.ProjectionState
+import com.opentv.app.stream.ProjectionStats
+import com.opentv.app.stream.StreamProfile
 import com.opentv.app.stream.TvCursor
 import com.opentv.app.stream.TvNavigation
 import kotlinx.coroutines.CancellationException
@@ -47,6 +49,8 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     val message: StateFlow<String?> = _message.asStateFlow()
 
     val projection: StateFlow<ProjectionState> get() = container.projection.state
+    val stats: StateFlow<ProjectionStats> get() = container.projection.stats
+    val profile: StateFlow<StreamProfile> get() = container.projection.profile
     val outputTarget: StateFlow<TvTarget?> get() = container.output.target
     val iconLoader: AppIconLoader get() = container.iconLoader
     val appLaunch = AppLaunchController(opener = container.launcher, onAppMissing = { loadApps() })
@@ -114,6 +118,8 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
     }
+
+    fun cycleProfile() = container.projection.cycleProfile()
 
     fun stop() {
         viewModelScope.launch { container.projection.stop() }

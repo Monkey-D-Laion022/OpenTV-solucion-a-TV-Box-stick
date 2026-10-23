@@ -107,3 +107,68 @@ class TsMuxerTest {
         assertEquals(243_000L, pts)
     }
 }
+
+class TsMuxerAudioTest {
+
+    private fun packets(ts: ByteArray) = ts.toList().chunked(188).map { it.toByteArray() }
+    private fun pid(p: ByteArray) = ((p[1].toInt() and 0x1F) shl 8) or (p[2].toInt() and 0xFF)
+    private fun payload(p: ByteArray): ByteArray {
+        val afc = (p[3].toInt() shr 4) and 0x3
+        var start = 4
+        if (afc and 0x2 != 0) start += 1 + (p[4].toInt() and 0xFF)
+        return if (afc and 0x1 != 0) p.copyOfRange(start, 188) else ByteArray(0)
+    }
+
+    @Test
+    fun audioFramesRoundTripAndKeepOwnContinuity() {
+        val muxer = TsMuxer(withAudio = true)
+        var expectedCc = 0
+        for (size in listOf(1, 50, 183, 184, 185, 400, 1500)) {
+            val adts = Adts.header(size) + ByteArray(size) { it.toByte() }
+            val ts = muxer.muxAudio(adts, 1_000_000L + size)
+            val pk = packets(ts)
+            assertEquals(0, ts.size % 188)
+            pk.forEach {
+                assertEquals(0x47, it[0].toInt())
+                assertEquals(TsMuxer.PID_AUDIO, pid(it))
+                assertEquals(expectedCc, it[3].toInt() and 0xF)
+                expectedCc = (expectedCc + 1) and 0xF
+            }
+            val pes = pk.map { payload(it) }.reduce { a, b -> a + b }
+            assertEquals(listOf<Byte>(0, 0, 1, 0xC0.toByte()), pes.take(4))
+            val declared = ((pes[4].toInt() and 0xFF) shl 8) or (pes[5].toInt() and 0xFF)
+            assertEquals(pes.size - 6, declared)
+            assertArrayEquals(adts, pes.copyOfRange(14, pes.size))
+        }
+    }
+
+    @Test
+    fun pmtListsAudioOnlyWhenEnabledAndStillPassesCrc() {
+        for (withAudio in listOf(false, true)) {
+            val muxer = TsMuxer(withAudio).apply { setCodecConfig(byteArrayOf(0, 0, 0, 1, 0x67)) }
+            val pmt = packets(muxer.mux(ByteArray(10), 0, true))[1]
+            val sectionLength = ((pmt[6].toInt() and 0x0F) shl 8) or (pmt[7].toInt() and 0xFF)
+            val section = pmt.copyOfRange(5, 5 + 3 + sectionLength)
+            assertEquals(0, TsMuxer.crc32Mpeg(section))
+            val streams = (sectionLength - 13) / 5
+            assertEquals(if (withAudio) 2 else 1, streams)
+        }
+    }
+
+    @Test
+    fun adtsHeaderEncodesLengthAndFormat() {
+        val h = Adts.header(aacSize = 100, freqIndex = 3, channels = 2)
+        assertEquals(7, h.size)
+        assertEquals(0xFF, h[0].toInt() and 0xFF)
+        assertEquals(0xF1, h[1].toInt() and 0xFF)
+        val length = ((h[3].toInt() and 0x3) shl 11) or ((h[4].toInt() and 0xFF) shl 3) or ((h[5].toInt() and 0xFF) shr 5)
+        assertEquals(107, length)
+        assertEquals(2, ((h[2].toInt() and 1) shl 2) or ((h[3].toInt() and 0xC0) shr 6))
+        assertEquals(3, (h[2].toInt() shr 2) and 0xF)
+    }
+
+    @Test(expected = IllegalStateException::class)
+    fun audioWithoutEnablingItFails() {
+        TsMuxer().muxAudio(ByteArray(10), 0)
+    }
+}

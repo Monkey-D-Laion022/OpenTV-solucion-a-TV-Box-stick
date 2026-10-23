@@ -199,3 +199,12 @@ Pilar fijado por el usuario: nada de HDMI/MHL ni «Emitir» del sistema; todo po
 - DIDL-Lite también se envía ahora con cualquier enlace DLNA (muchos LG lo exigen).
 - Verificado en la JVM: 129 pruebas (TsMuxer: ida y vuelta del video para 13 tamaños, CRC de PAT/PMT, contadores, PCR, PTS; servidor HTTP por loopback; hub; navegación; DIDL). NO verificado: compilación; MediaCodec, pantalla virtual y `Presentation` en el Redmi 14C; que el LG 42LB5800 (NetCast) acepte un MPEG-TS en vivo por DLNA; retraso real; Compose dentro de la `Presentation`.
 - Límites: retraso de varios segundos (búfer del TV); sin audio; solo DLNA (no Cast); las apps de terceros se abren en el teléfono; si OpenTV pasa a segundo plano la imagen del TV puede congelarse (falta un servicio en primer plano).
+
+### Módulo 3C: compatibilidad con TV viejos y pantalla negra
+Reporte real: LG 42LB5800 (NetCast) dijo «Archivo no compatible»; un TV Linux de 32" aceptó pero quedó en negro.
+- Causa probable LG: se anunciaba `MPEG_TS_HD_NA_ISO` (perfil MPEG-2) con video H.264, y el TS no tenía audio. Ahora: perfil `AVC_TS_HD_NA_ISO`, pista de audio AAC muda (`SilentAudioEncoder`, `Adts`, `TsMuxer(withAudio)`), H.264 Main nivel 4.0 (3.1 en 720p) a bitrate constante, `Accept-Ranges: none`, `realTimeInfo`.
+- Causa probable pantalla negra: el codificador solo recibía cuadros si la ventana de la pantalla virtual dibujaba; si no dibujaba, no salía nada. Ahora `ViewFrameFeeder` dibuja la interfaz directo sobre el codificador a 15 cuadros/s (o un cartel «OpenTV» si la interfaz no está visible). La pantalla virtual solo aloja la ventana (su imagen se descarta en un `ImageReader`).
+- 5 formatos seleccionables en la app (`StreamProfile`, botón «Cambiar formato»): H.264 con perfil DLNA, TS genérico, MIME `video/vnd.dlna.mpeg-tts`, sin metadatos DIDL, 720p.
+- Diagnóstico en pantalla (`ProjectionStats`): cuadros dibujados/codificados, bytes enviados, conexiones y último pedido del TV (método + user-agent), si la interfaz se ve, y una pista de dónde está el corte.
+- El TV pide un fotograma clave al conectarse (`StreamHub.onSubscribe`).
+- Verificado en la JVM: 143 pruebas (audio TS ida y vuelta, PMT con/sin audio y CRC, ADTS, perfiles, cabeceras HTTP por perfil, registro del pedido, estadísticas). NO verificado: compilación; MediaCodec AAC/H.264; dibujar la vista Compose con `lockHardwareCanvas`; que cualquiera de los 5 formatos lo acepte el LG o el TV de 32".

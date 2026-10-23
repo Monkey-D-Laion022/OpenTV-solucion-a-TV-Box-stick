@@ -23,8 +23,9 @@ object DidlLite {
         }
     }
 
-    fun forUrl(url: String, title: String): String {
-        val isAudio = protocolInfoFor(url).contains(":audio/")
+    fun forUrl(url: String, title: String, protocolInfo: String? = null): String {
+        val info = protocolInfo ?: protocolInfoFor(url)
+        val isAudio = info.contains(":audio/")
         val upnpClass = if (isAudio) "object.item.audioItem" else "object.item.videoItem"
         return "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" " +
             "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" " +
@@ -32,7 +33,7 @@ object DidlLite {
             "<item id=\"0\" parentID=\"-1\" restricted=\"1\">" +
             "<dc:title>${DlnaSoap.xmlEscape(title)}</dc:title>" +
             "<upnp:class>$upnpClass</upnp:class>" +
-            "<res protocolInfo=\"${DlnaSoap.xmlEscape(protocolInfoFor(url))}\">${DlnaSoap.xmlEscape(url)}</res>" +
+            "<res protocolInfo=\"${DlnaSoap.xmlEscape(info)}\">${DlnaSoap.xmlEscape(url)}</res>" +
             "</item></DIDL-Lite>"
     }
 }

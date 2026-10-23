@@ -46,3 +46,15 @@ class TvNavigationTest {
         }
     }
 }
+
+class TvNavigationWindowTest {
+    @Test
+    fun keepsSelectedItemInsideTheVisibleWindow() {
+        assertEquals(0, TvNavigation.firstVisible(0, 10, 5))
+        assertEquals(0, TvNavigation.firstVisible(4, 10, 5))
+        assertEquals(1, TvNavigation.firstVisible(5, 10, 5))
+        assertEquals(5, TvNavigation.firstVisible(9, 10, 5))
+        assertEquals(0, TvNavigation.firstVisible(2, 3, 5))
+        assertEquals(0, TvNavigation.firstVisible(0, 0, 5))
+    }
+}

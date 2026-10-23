@@ -52,6 +52,8 @@ fun RemoteScreen(
 ) {
     val activity = LocalContext.current.findActivity()
     val projection by viewModel.projection.collectAsStateWithLifecycle()
+    val stats by viewModel.stats.collectAsStateWithLifecycle()
+    val profile by viewModel.profile.collectAsStateWithLifecycle()
     val target by viewModel.outputTarget.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val launchState by viewModel.appLaunch.state.collectAsStateWithLifecycle()
@@ -108,6 +110,20 @@ fun RemoteScreen(
                     style = MaterialTheme.typography.bodyLarge,
                     color = if (projection is ProjectionState.Failed) OpenTvColors.Warning else OpenTvColors.OnBackground,
                 )
+                if (streaming) {
+                    Text(
+                        text = stats.describe(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = OpenTvColors.Muted,
+                    )
+                } else {
+                    Text(
+                        text = "Formato de video: ${profile.label}. Si el TV dice «archivo no compatible» o queda en negro, " +
+                            "detené la proyección, tocá «Cambiar formato» y probá de nuevo.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = OpenTvColors.Muted,
+                    )
+                }
                 message?.let { Text(it, style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.Warning) }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -125,6 +141,9 @@ fun RemoteScreen(
                             onClick = { activity?.let(viewModel::start) },
                             horizontalPadding = 20.dp,
                         )
+                    }
+                    if (!streaming && !busy) {
+                        TvButton(text = "Cambiar formato", onClick = viewModel::cycleProfile, horizontalPadding = 20.dp)
                     }
                     TvButton(text = "Volver", onClick = onBack, horizontalPadding = 20.dp)
                 }

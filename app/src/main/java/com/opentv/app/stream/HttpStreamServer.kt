@@ -19,12 +19,21 @@ class HttpStreamServer(
     token: String,
     private val acceptClient: (InetAddress) -> Boolean,
     private val maxClients: Int = 2,
+    private val profile: StreamProfile = StreamProfile.AVC_TS,
 ) {
     val path: String = "/screen-$token.ts"
 
     private var server: ServerSocket? = null
     private val clients = AtomicInteger(0)
     @Volatile private var running = false
+
+    /** Conexiones abiertas ahora, pedidos recibidos y el último pedido (para diagnóstico en el teléfono). */
+    val activeClients: Int get() = clients.get()
+    private val requestCount = AtomicInteger(0)
+    val requests: Int get() = requestCount.get()
+    @Volatile var lastRequest: String = ""
+        private set
+    val bytesSent = java.util.concurrent.atomic.AtomicLong(0)
 
     /** Empieza a escuchar y devuelve el puerto. Con [bindAddress] nulo escucha en todas las interfaces. */
     fun start(bindAddress: InetAddress?): Int {
@@ -72,10 +81,13 @@ class HttpStreamServer(
         val subscriber = hub.subscribe()
         try {
             client.soTimeout = REQUEST_TIMEOUT_MS
-            val requestLine = readRequestLine(client) ?: return
+            val request = readRequest(client) ?: return
+            val requestLine = request.line
             val parts = requestLine.split(" ")
             val method = parts.getOrNull(0)
             val target = parts.getOrNull(1)?.substringBefore('?')
+            requestCount.incrementAndGet()
+            lastRequest = "$method ${if (target == path) "(enlace correcto)" else target} · ${request.userAgent.ifEmpty { "sin user-agent" }}"
             when {
                 method != "GET" && method != "HEAD" -> respond(client, "405 Method Not Allowed")
                 target != path -> respond(client, "404 Not Found")
@@ -89,6 +101,7 @@ class HttpStreamServer(
                             val chunk = subscriber.poll(POLL_MS) ?: continue
                             out.write(chunk)
                             out.flush()
+                            bytesSent.addAndGet(chunk.size.toLong())
                         }
                     }
                 }
@@ -102,27 +115,31 @@ class HttpStreamServer(
         }
     }
 
-    private fun readRequestLine(client: Socket): String? {
+    private class Request(val line: String, val userAgent: String)
+
+    private fun readRequest(client: Socket): Request? {
         val input = BufferedInputStream(client.getInputStream())
         val line = StringBuilder()
         var total = 0
         var first: String? = null
+        var userAgent = ""
         try {
             while (total < MAX_REQUEST_BYTES) {
                 val b = input.read()
-                if (b < 0) return first
+                if (b < 0) return first?.let { Request(it, userAgent) }
                 total++
                 if (b == '\n'.code) {
                     val text = line.toString().trimEnd('\r')
                     if (first == null) first = text
-                    if (text.isEmpty()) return first // fin de cabeceras
+                    else if (text.startsWith("user-agent:", ignoreCase = true)) userAgent = text.substringAfter(':').trim().take(80)
+                    if (text.isEmpty()) return Request(first!!, userAgent) // fin de cabeceras
                     line.setLength(0)
                 } else {
                     line.append(b.toChar())
                 }
             }
         } catch (e: SocketTimeoutException) {
-            return first
+            return first?.let { Request(it, userAgent) }
         }
         return null
     }
@@ -144,14 +161,19 @@ class HttpStreamServer(
         }
     }
 
-    private fun headers(status: String): String =
-        "HTTP/1.0 $status\r\n" +
-            "Content-Type: video/mpeg\r\n" +
-            "Cache-Control: no-cache\r\n" +
-            "Connection: close\r\n" +
-            "transferMode.dlna.org: Streaming\r\n" +
-            "contentFeatures.dlna.org: DLNA.ORG_PN=MPEG_TS_HD_NA_ISO;DLNA.ORG_OP=00;DLNA.ORG_CI=0;" +
-            "DLNA.ORG_FLAGS=01700000000000000000000000000000\r\n\r\n"
+    private fun headers(status: String): String = buildString {
+        append("HTTP/1.0 ").append(status).append("\r\n")
+        append("Content-Type: ").append(profile.mime).append("\r\n")
+        append("Cache-Control: no-cache\r\n")
+        append("Pragma: no-cache\r\n")
+        append("Accept-Ranges: none\r\n")
+        append("Connection: close\r\n")
+        append("Server: Linux/3.0 UPnP/1.0 DLNADOC/1.50 OpenTV/1.0\r\n")
+        append("transferMode.dlna.org: Streaming\r\n")
+        append("realTimeInfo.dlna.org: DLNA.ORG_TLAG=*\r\n")
+        profile.contentFeatures()?.let { append("contentFeatures.dlna.org: ").append(it).append("\r\n") }
+        append("\r\n")
+    }
 
     private fun closeQuietly(socket: Socket) {
         try {
