@@ -58,6 +58,13 @@ class TvProjection(
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    private val _latency = MutableStateFlow(StreamLatency.STABLE)
+    val latency: StateFlow<StreamLatency> = _latency.asStateFlow()
+
+    fun cycleLatency() {
+        if (session == null) _latency.value = _latency.value.next()
+    }
+
     private val _testPattern = MutableStateFlow(false)
     val testPattern: StateFlow<Boolean> = _testPattern.asStateFlow()
 
@@ -91,6 +98,7 @@ class TvProjection(
         val target: UpnpDevice,
         val profile: StreamProfile,
         val testPattern: Boolean,
+        val latency: StreamLatency,
     )
 
     private var session: Session? = null
@@ -113,6 +121,7 @@ class TvProjection(
         ProjectionService.start(appContext)
         val profile = _profile.value
         val test = _testPattern.value
+        val latency = _latency.value
         log.clear()
         originMs = System.currentTimeMillis()
         note("inicio · formato «${profile.label}»${if (test) " · imagen de prueba" else ""}")
@@ -132,8 +141,11 @@ class TvProjection(
 
             // Pista de audio en silencio: muchos TV no abren video sin audio. Si no hay codificador, sigue sin audio.
             val withAudio = SilentAudioEncoder.isAvailable()
-            val muxer = TsMuxer(withAudio)
-            val enc = ScreenEncoder(profile, muxer, originUs) { chunk, keyStart -> hub.publish(chunk, keyStart) }
+            val muxer = TsMuxer(withAudio, latency.ptsOffset90, latency.pcrLead90)
+            val enc = ScreenEncoder(
+                profile, muxer, originUs,
+                fps = latency.fps, iFrameSeconds = latency.iFrameSeconds, lowLatency = latency.lowLatencyEncoder,
+            ) { chunk, keyStart -> hub.publish(chunk, keyStart) }
             encoder = enc
             val encoderSurface = enc.start()
             hub.onSubscribe = { enc.requestKeyFrame() }
@@ -158,15 +170,15 @@ class TvProjection(
             shown.show()
 
             note("pantalla virtual y ventana listas")
-            val feed = ViewFrameFeeder(encoderSurface, profile.width, profile.height, ScreenEncoder.FPS, test) {
+            val feed = ViewFrameFeeder(encoderSurface, profile.width, profile.height, latency.fps, test) {
                 shown.window?.decorView
             }
             feeder = feed
             feed.start()
 
             val url = "http://${ip.hostAddress}:$port${server.path}"
-            val pad = startPadder(hub)
-            val current = Session(hub, server, enc, audio, feed, sink, pad, vd, shown, target, profile, test)
+            val pad = startPadder(hub, latency.minRateBps)
+            val current = Session(hub, server, enc, audio, feed, sink, pad, vd, shown, target, profile, test, latency)
             session = current
             startStats(current)
 
@@ -207,12 +219,12 @@ class TvProjection(
     }
 
     /** Mantiene un caudal mínimo constante con paquetes nulos; se detiene al interrumpir el hilo. */
-    private fun startPadder(hub: StreamHub): Thread = Thread({
+    private fun startPadder(hub: StreamHub, rateBps: Long): Thread = Thread({
         val start = System.nanoTime()
         try {
             while (!Thread.currentThread().isInterrupted) {
                 val elapsedMs = (System.nanoTime() - start) / 1_000_000
-                val n = TsPadding.packetsNeeded(MIN_RATE_BPS, elapsedMs, hub.publishedBytes.get())
+                val n = TsPadding.packetsNeeded(rateBps, elapsedMs, hub.publishedBytes.get())
                 if (n > 0) hub.publish(TsPadding.nullPackets(n), false)
                 Thread.sleep(20)
             }
@@ -222,7 +234,7 @@ class TvProjection(
     }, "opentv-padding").apply { isDaemon = true; start() }
 
     private fun snapshot(current: Session, phase: String) = ProjectionStats(
-        profileLabel = current.profile.label,
+        profileLabel = current.profile.label + " · latencia " + current.latency.label,
         audio = current.audio != null,
         drawnFrames = current.feeder.drawnFrames.get(),
         encodedFrames = current.encoder.encodedFrames.get(),
@@ -316,7 +328,5 @@ class TvProjection(
         /** Espera máxima a que un TV que no confirmó el Play empiece a descargar el video. */
         const val PULL_GRACE_MS = 4_000L
 
-        /** Caudal mínimo del flujo (video + audio + relleno): 2 Mbps. */
-        const val MIN_RATE_BPS = 2_000_000L
     }
 }

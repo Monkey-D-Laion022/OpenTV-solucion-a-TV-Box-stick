@@ -25,7 +25,11 @@ object Adts {
  * Sin B-frames. Lógica pura: se prueba en la JVM. Cada llamada devuelve paquetes de 188 bytes
  * completos. El audio y el video pueden llamarse desde hilos distintos.
  */
-class TsMuxer(private val withAudio: Boolean = false) {
+class TsMuxer(
+    private val withAudio: Boolean = false,
+    private val ptsOffset: Long = DEFAULT_PTS_OFFSET,
+    private val pcrLead: Long = DEFAULT_PCR_LEAD,
+) {
 
     private class Stream(val pid: Int, val streamId: Int) {
         var cc = 0
@@ -58,8 +62,8 @@ class TsMuxer(private val withAudio: Boolean = false) {
         es.write(frame)
         val pes = buildPes(video.streamId, es.toByteArray(), ptsUs, unbounded = true)
 
-        val pts90 = ptsUs * 9 / 100 + PTS_OFFSET
-        val pcr = (pts90 - PCR_LEAD).coerceAtLeast(0)
+        val pts90 = ptsUs * 9 / 100 + ptsOffset
+        val pcr = (pts90 - pcrLead).coerceAtLeast(0)
         writePes(out, video, pes, pcr, keyFrame)
         return out.toByteArray()
     }
@@ -76,7 +80,7 @@ class TsMuxer(private val withAudio: Boolean = false) {
     // --- PES ---------------------------------------------------------------------------------
 
     private fun buildPes(streamId: Int, es: ByteArray, ptsUs: Long, unbounded: Boolean): ByteArray {
-        val pts = ptsUs * 9 / 100 + PTS_OFFSET
+        val pts = ptsUs * 9 / 100 + ptsOffset
         val header = ByteArray(14)
         header[0] = 0; header[1] = 0; header[2] = 1
         header[3] = streamId.toByte()
@@ -211,8 +215,8 @@ class TsMuxer(private val withAudio: Boolean = false) {
         const val PID_AUDIO = 0x0101
 
         /** Desfase para que el PCR (que debe ir antes del PTS) nunca sea negativo. */
-        private const val PTS_OFFSET = 63_000L // 0,7 s a 90 kHz
-        private const val PCR_LEAD = 45_000L // 0,5 s
+        const val DEFAULT_PTS_OFFSET = 63_000L // 0,7 s a 90 kHz
+        const val DEFAULT_PCR_LEAD = 45_000L // 0,5 s
 
         private val AUD = byteArrayOf(0, 0, 0, 1, 0x09, 0xF0.toByte())
 

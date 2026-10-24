@@ -235,3 +235,11 @@ Registro real en la LG NetCast: el TV hizo GET del video y leyó más de 500 KB,
 - `stream/PlayOutcome`: si el TV no confirma el Play pero ya descarga el video, se sigue transmitiendo; solo se corta si no confirma Y no pide el video (con 4 s de gracia).
 - Etiqueta: «módulo 3C-5 (Play tolerante)».
 - Verificado en la JVM: 151 pruebas. NO verificado: compilación, y que la LG sostenga la reproducción después de esto; la TV de 32" no mandó registro.
+
+### Módulo 3D: latencia y verificación de 1920×1080
+Confirmado en la LG NetCast: con el Play tolerante (3C-5) la transmisión es continua y estable; la interfaz responde al control remoto. Queda el retraso entre pulsar y ver el cambio.
+- `stream/StreamLatency` (botón «Latencia» en la pantalla de proyección): «Estable» (lo probado) y «Baja latencia» (30 cuadros/s, márgenes de tiempo del flujo reducidos: PTS +0,2 s y PCR 0,1 s antes en lugar de 0,7/0,5 s, caudal mínimo 4 Mbps, `latency`/`priority` del codificador). `TsMuxer` recibe los márgenes por parámetro (valores por defecto sin cambios).
+- El piso del retraso es el búfer interno del TV: no se controla desde la app. El GOP ya era de 1 s; `KEY_INTRA_REFRESH` no se usó porque el retraso no viene de los fotogramas clave.
+- El lienzo ya es exactamente 1920×1080 (pantalla virtual, ventana y codificador); la «Prueba sin interfaz» ahora dibuja un marco naranja en los 4 bordes y «1920×1080» para ver en el TV si recorta o deja franjas (overscan/zoom del propio TV).
+- Etiqueta: «módulo 3D (latencia + marco de prueba)». Verificado en la JVM: 153 pruebas. NO verificado: compilación, cuánto baja el retraso real, ni que el modo de baja latencia lo acepte la LG.
+- Espejo del teléfono (MediaProjection + Shizuku/`wm size`): diseñado, no implementado (ver mensaje al usuario).

@@ -19,6 +19,8 @@ class ScreenEncoder(
     private val originUs: Long,
     private val fps: Int = FPS,
     private val bitrate: Int = BITRATE,
+    private val iFrameSeconds: Int = 1,
+    private val lowLatency: Boolean = false,
     private val onChunk: (chunk: ByteArray, keyStart: Boolean) -> Unit,
 ) {
     private var codec: MediaCodec? = null
@@ -47,7 +49,12 @@ class ScreenEncoder(
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, iFrameSeconds)
+            if (lowLatency) {
+                // Claves de texto: los equipos que no las conocen las ignoran (KEY_LATENCY existe desde Android 11).
+                setInteger("latency", 1)
+                setInteger("priority", 0)
+            }
             setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 200_000L) // red de seguridad si se frena el dibujo
             setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
             if (withProfile) {

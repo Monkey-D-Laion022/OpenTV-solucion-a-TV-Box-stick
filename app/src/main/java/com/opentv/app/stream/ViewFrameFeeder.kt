@@ -75,6 +75,14 @@ class ViewFrameFeeder(
                 canvas.drawRect(((n * 24) % (width - 200)).toFloat(), height * 0.6f, ((n * 24) % (width - 200)) + 200f, height * 0.75f, paint)
                 paint.color = Color.WHITE
                 canvas.drawText("PRUEBA $n", width / 2f, height * 0.4f, paint)
+                canvas.drawText("$width×$height", width / 2f, height * 0.9f, paint)
+                // Marco en los 4 bordes: si el TV recorta o deja franjas, se ve dónde.
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 12f
+                paint.color = Color.rgb(255, 180, 84)
+                canvas.drawRect(6f, 6f, width - 6f, height - 6f, paint)
+                paint.style = Paint.Style.FILL
+                paint.color = Color.WHITE
                 uiVisible = false
             } else if (view != null && view.width > 0 && view.height > 0) {
                 canvas.save()

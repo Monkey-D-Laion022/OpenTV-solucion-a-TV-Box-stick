@@ -52,6 +52,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     val stats: StateFlow<ProjectionStats> get() = container.projection.stats
     val profile: StateFlow<StreamProfile> get() = container.projection.profile
     val testPattern: StateFlow<Boolean> get() = container.projection.testPattern
+    val latency: StateFlow<com.opentv.app.stream.StreamLatency> get() = container.projection.latency
     val outputTarget: StateFlow<TvTarget?> get() = container.output.target
     val iconLoader: AppIconLoader get() = container.iconLoader
     val appLaunch = AppLaunchController(opener = container.launcher, onAppMissing = { loadApps() })
@@ -121,6 +122,8 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun cycleProfile() = container.projection.cycleProfile()
+
+    fun cycleLatency() = container.projection.cycleLatency()
 
     fun toggleTestPattern() = container.projection.toggleTestPattern()
 

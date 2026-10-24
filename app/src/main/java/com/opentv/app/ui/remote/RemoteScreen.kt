@@ -58,6 +58,7 @@ fun RemoteScreen(
     val stats by viewModel.stats.collectAsStateWithLifecycle()
     val profile by viewModel.profile.collectAsStateWithLifecycle()
     val testPattern by viewModel.testPattern.collectAsStateWithLifecycle()
+    val latency by viewModel.latency.collectAsStateWithLifecycle()
     val clipboard = LocalClipboardManager.current
     val target by viewModel.outputTarget.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
@@ -161,6 +162,7 @@ fun RemoteScreen(
                 }
                 if (!streaming && !busy) {
                     TvButton(text = "Prueba sin interfaz", onClick = viewModel::toggleTestPattern, horizontalPadding = 20.dp)
+                    TvButton(text = "Latencia: ${latency.label}", onClick = viewModel::cycleLatency, horizontalPadding = 20.dp)
                 }
                 if (stats.phase.isNotEmpty()) {
                     TvButton(
