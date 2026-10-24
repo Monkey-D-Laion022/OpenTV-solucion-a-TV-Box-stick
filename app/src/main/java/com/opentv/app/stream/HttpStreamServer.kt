@@ -35,6 +35,16 @@ class HttpStreamServer(
         private set
     val bytesSent = java.util.concurrent.atomic.AtomicLong(0)
 
+    private val events = java.util.concurrent.CopyOnWriteArrayList<String>()
+    private var startedMs = 0L
+
+    /** Últimos eventos de red con su tiempo, para ver qué hizo el TV y cuándo. */
+    val history: List<String> get() = events.takeLast(10)
+
+    private fun note(message: String) {
+        events.add("+%.1f s %s".format(java.util.Locale.US, (System.currentTimeMillis() - startedMs) / 1000.0, message))
+    }
+
     /** Cómo terminó la última conexión de video (quién cortó y cuánto duró). */
     @Volatile var lastClose: String = ""
         private set
@@ -46,6 +56,7 @@ class HttpStreamServer(
         socket.bind(InetSocketAddress(bindAddress, 0), BACKLOG)
         server = socket
         running = true
+        startedMs = System.currentTimeMillis()
         Thread({ acceptLoop(socket) }, "opentv-stream-accept").apply { isDaemon = true }.start()
         return socket.localPort
     }
@@ -68,7 +79,9 @@ class HttpStreamServer(
             } catch (e: IOException) {
                 return
             }
+            note("conexión desde ${client.inetAddress.hostAddress}")
             if (!acceptClient(client.inetAddress)) {
+                note("rechazada (no es de la red local)")
                 closeQuietly(client)
                 continue
             }
@@ -91,6 +104,7 @@ class HttpStreamServer(
             val method = parts.getOrNull(0)
             val target = parts.getOrNull(1)?.substringBefore('?')
             requestCount.incrementAndGet()
+            note("pidió $method ${if (target == path) "(enlace correcto)" else target}")
             lastRequest = "$method ${if (target == path) "(enlace correcto)" else target} · ${request.userAgent.ifEmpty { "sin user-agent" }}"
             when {
                 method != "GET" && method != "HEAD" -> respond(client, "405 Method Not Allowed")
@@ -118,12 +132,13 @@ class HttpStreamServer(
                             reason = "el TV cerró la conexión"
                         } finally {
                             lastClose = "$reason tras ${(System.currentTimeMillis() - startMs) / 1000.0} s y ${sent / 1024} KB"
+                            note(lastClose)
                         }
                     }
                 }
             }
         } catch (e: IOException) {
-            // El TV cerró la conexión: es lo normal al detener la reproducción.
+            note("error de red antes o durante el pedido: ${e.javaClass.simpleName} ${e.message.orEmpty().take(40)}")
         } finally {
             hub.unsubscribe(subscriber)
             closeQuietly(client)

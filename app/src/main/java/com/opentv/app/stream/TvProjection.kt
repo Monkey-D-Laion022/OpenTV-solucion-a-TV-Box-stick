@@ -42,7 +42,8 @@ class TvProjection(
     context: Context,
     private val dlna: DlnaController,
 ) {
-    private val displayManager = context.applicationContext.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+    private val appContext = context.applicationContext
+    private val displayManager = appContext.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
 
     private val _state = MutableStateFlow<ProjectionState>(ProjectionState.Idle)
     val state: StateFlow<ProjectionState> = _state.asStateFlow()
@@ -91,6 +92,7 @@ class TvProjection(
             return
         }
 
+        ProjectionService.start(appContext)
         val profile = _profile.value
         val hub = StreamHub()
         val token = randomToken()
@@ -196,6 +198,7 @@ class TvProjection(
                     drawErrors = current.feeder.errors.get(),
                     lastDrawError = current.feeder.lastError,
                     lastClose = current.server.lastClose,
+                    history = current.server.history,
                 )
                 mainHandler.postDelayed(this, 1_000L)
             }
@@ -222,6 +225,7 @@ class TvProjection(
         if (current != null) {
             cleanup(current.server, current.encoder, current.audio, current.feeder, current.reader, current.padder, current.virtualDisplay, current.presentation)
         }
+        ProjectionService.stop(appContext)
         _state.value = ProjectionState.Idle
     }
 
@@ -246,6 +250,7 @@ class TvProjection(
     }
 
     private fun fail(message: String) {
+        ProjectionService.stop(appContext)
         _state.value = ProjectionState.Failed(message)
     }
 

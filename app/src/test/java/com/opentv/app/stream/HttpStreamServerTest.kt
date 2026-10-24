@@ -146,3 +146,32 @@ class HttpStreamServerTest {
         }
     }
 }
+
+class HttpStreamServerHistoryTest {
+    @Test
+    fun historyRecordsConnectionRequestAndClose() {
+        val hub = StreamHub()
+        val server = HttpStreamServer(hub, "tok", { true })
+        val port = server.start(InetAddress.getLoopbackAddress())
+        try {
+            Socket(InetAddress.getLoopbackAddress(), port).use { s ->
+                s.soTimeout = 3_000
+                s.getOutputStream().apply { write("GET /screen-tok.ts HTTP/1.1\r\nUser-Agent: X\r\n\r\n".toByteArray()); flush() }
+                val deadline = System.currentTimeMillis() + 2_000
+                while (hub.subscriberCount == 0 && System.currentTimeMillis() < deadline) Thread.sleep(10)
+                hub.publish(ByteArray(188), true)
+                s.getInputStream().read(ByteArray(2000))
+            }
+            val deadline = System.currentTimeMillis() + 3_000
+            while (server.lastClose.isEmpty() && System.currentTimeMillis() < deadline) {
+                hub.publish(ByteArray(188), true)
+                Thread.sleep(20)
+            }
+            val h = server.history.joinToString("\n")
+            assertTrue(h, h.contains("conexión desde") && h.contains("pidió GET (enlace correcto)"))
+            assertTrue(h, server.lastClose.contains("el TV cerró la conexión"))
+        } finally {
+            server.stop()
+        }
+    }
+}

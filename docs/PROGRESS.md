@@ -216,3 +216,9 @@ Reporte real: ambos TV abren el formato (sin error) y muestran la interfaz, pero
 - Diagnóstico nuevo en el teléfono: cómo terminó la última conexión («el TV cerró…» u «OpenTV detuvo…», con segundos y KB), errores al dibujar y su texto.
 - Verificado en la JVM: 146 pruebas (relleno nulo válido, cálculo de relleno, contador del hub). NO verificado: compilación y que el relleno corrija el corte.
 - Pendiente probable: servicio en primer plano (si Android pone la app en segundo plano al cambiar de pantalla, el dibujo se frena).
+
+### Módulo 3C-3: servicio en primer plano e historial de red
+Reporte real: el relleno a 2 Mbps no cambió nada; sigue 1 s de imagen y salida del TV en ambos televisores y todos los formatos. La hipótesis del caudal queda debilitada (no descartada: no se vio el bloque de estado).
+- `stream/ProjectionService`: servicio en primer plano (tipo `mediaPlayback`, permisos normales `FOREGROUND_SERVICE` y `FOREGROUND_SERVICE_MEDIA_PLAYBACK`) que vive mientras dura la proyección; lo inicia y detiene `TvProjection`.
+- `HttpStreamServer.history`: últimos 10 eventos con tiempo (conexión, pedido, cierre y quién cortó); se muestra en el estado de la pantalla de proyección.
+- Verificado en la JVM: 147 pruebas. NO verificado: compilación, el servicio en el Redmi 14C ni la causa del corte.

@@ -9,6 +9,9 @@
     -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Servicio en primer plano de la proyección al TV (mantiene viva la transmisión con la app en segundo plano). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
     <!-- OpenTV se puede instalar en teléfonos (sin leanback ni pantalla táctil obligatoria para TV). -->
     <uses-feature
@@ -68,6 +71,11 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".stream.ProjectionService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <!--
             Permite elegir OpenTV como «App de inicio» en los ajustes de Android. Solo aparece como

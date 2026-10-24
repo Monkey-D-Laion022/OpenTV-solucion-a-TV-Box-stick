@@ -18,6 +18,8 @@ data class ProjectionStats(
     val lastDrawError: String = "",
     val lastClose: String = "",
     val paddingBytes: Long = 0,
+    /** Últimos eventos de red con su tiempo (desde que arrancó el servidor). */
+    val history: List<String> = emptyList(),
 ) {
     /** Texto de diagnóstico en lenguaje llano. */
     fun describe(): String = buildString {
@@ -29,6 +31,7 @@ data class ProjectionStats(
         if (drawErrors > 0) append("\nErrores al dibujar: ").append(drawErrors).append(" · ").append(lastDrawError)
         if (lastClose.isNotEmpty()) append("\nÚltima conexión: ").append(lastClose)
         if (lastRequest.isNotEmpty()) append("\nÚltimo pedido del TV: ").append(lastRequest)
+        if (history.isNotEmpty()) append("\nHistorial:\n").append(history.joinToString("\n"))
         append('\n').append(hint())
     }
 
