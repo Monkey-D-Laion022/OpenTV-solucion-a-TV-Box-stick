@@ -270,3 +270,8 @@ Decisión del usuario: dejar DLNA y usar el espejo nativo del sistema (Miracast 
 - En la pantalla del espejo propio el botón se renombró «16:9 en espejo propio» para no confundir.
 - Etiqueta: «módulo 3G (espejo nativo + Shizuku)». Verificado en la JVM: 171 pruebas. NO verificado: compilación; que `ShizukuShell.exec` ejecute realmente `wm size`/`wm density` (nunca se probó el servicio con permisos de shell: es la primera prueba real); que Miracast acepte el cambio de resolución sin cortarse; el cierre de la app con la resolución forzada.
 - Límite: si el proceso muere con el panel de transmisión abierto, la restauración ocurre al abrir OpenTV de nuevo (o con el botón / Termux).
+
+### Módulo 3G-2: Shizuku por vía directa
+Reporte real (3G): Shizuku «lista», pero al forzar 16:9: «Timed out waiting for 8000 ms». Era el `withTimeout` de `ShizukuShell.connect()`: el servicio auxiliar (`ShellUserService`) nunca llamó a `onServiceConnected`; el comando `wm` ni se ejecutó. Causa de fondo NO confirmada (sin registros del proceso auxiliar).
+- `ShizukuShell.exec` ahora prueba primero la vía directa (`Shizuku.newProcess` por reflexión: `sh -c` con permisos de shell, sin proceso auxiliar; timeout 6 s) y, si falla, el servicio auxiliar (timeout 4 s). Si ambas fallan, el error lista cada motivo («directo: … | servicio auxiliar: …»). El timeout de coroutines se trata como error, no como cancelación. La lista blanca de comandos (`wm size|density`) se exige también en la app.
+- Etiqueta: «módulo 3G-2 (Shizuku por vía directa)». Verificado en la JVM: 171 pruebas (la lógica no cambió). NO verificado: compilación; que `newProcess` exista con esa firma en la API 13.1.5 (privado, firma tomada de memoria); que funcione en el Redmi 14C.
