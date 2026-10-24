@@ -22,7 +22,7 @@ enum class StreamLatency(
     val lowLatencyEncoder: Boolean = false,
 ) {
     STABLE("Estable", 15, 1, 63_000L, 45_000L, 2_000_000L, 256 * 1024, 1024 * 1024),
-    SHORT_QUEUE("Cola corta, sin relleno", 15, 1, 63_000L, 45_000L, 0L, 32 * 1024, 192 * 1024),
+    SHORT_QUEUE("Cola corta, sin relleno", 15, 1, 63_000L, 45_000L, 0L, 16 * 1024, 192 * 1024),
     SHORT_MARGIN("Margen de tiempo corto", 15, 1, 18_000L, 9_000L, 2_000_000L, 256 * 1024, 1024 * 1024);
 
     fun next(): StreamLatency = values()[(ordinal + 1) % values().size]

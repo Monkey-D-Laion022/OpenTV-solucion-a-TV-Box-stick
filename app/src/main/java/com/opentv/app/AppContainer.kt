@@ -14,6 +14,12 @@ import com.opentv.app.connect.OutputController
 import com.opentv.app.connect.SocketLanHttp
 import com.opentv.app.connect.SystemCastLauncher
 import com.opentv.app.connect.UdpSsdpSearch
+import com.opentv.app.display.PrefsResizeStore
+import com.opentv.app.display.ScreenResizer
+import com.opentv.app.display.ShizukuShell
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.opentv.app.stream.TvProjection
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -38,7 +44,18 @@ class AppContainer(context: Context) {
     val castSender: CastSender by lazy { CastSender(appContext) }
     val output: OutputController by lazy { OutputController(castSender, dlna) }
 
-    private val projectionHolder = lazy { TvProjection(appContext, dlna) }
+    // Resolución 16:9 forzada con Shizuku (solo al espejar la pantalla).
+    val shizuku: ShizukuShell by lazy { ShizukuShell(appContext) }
+    val resizer: ScreenResizer by lazy { ScreenResizer(shizuku, PrefsResizeStore(appContext)) }
+
+    /** Si la app se cerró con la resolución forzada, la restaura al abrir (si Shizuku está lista). */
+    fun restorePendingResize() {
+        if (!resizer.hasPending) return
+        if (shizuku.status() != ShizukuShell.Status.READY) return
+        CoroutineScope(Dispatchers.IO).launch { resizer.restore() }
+    }
+
+    private val projectionHolder = lazy { TvProjection(appContext, dlna, resizer) }
     val projection: TvProjection get() = projectionHolder.value
 
     /** Corta la proyección al TV si estaba activa; no crea nada si nunca se usó. */

@@ -38,6 +38,7 @@ android {
 
     buildFeatures {
         compose = true
+        aidl = true
     }
 
     composeOptions {
@@ -62,6 +63,8 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer.hls)
     implementation(libs.androidx.media3.exoplayer.dash)
     implementation(libs.androidx.media3.ui)
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

@@ -49,10 +49,10 @@ class ProjectionService : Service() {
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(if (mirror) "OpenTV está espejando la pantalla en el TV" else "OpenTV está proyectando en el TV")
-            .setContentText("Tocá «Detener» para cortar la transmisión.")
+            .setContentText(if (mirror) "«Detener» corta la transmisión y restaura la resolución." else "Tocá «Detener» para cortar la transmisión.")
             .setOngoing(true)
             .setContentIntent(open)
-            .addAction(android.R.drawable.ic_media_pause, "Detener", stop)
+            .addAction(android.R.drawable.ic_media_pause, if (mirror) "Detener y restaurar" else "Detener", stop)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
         try {

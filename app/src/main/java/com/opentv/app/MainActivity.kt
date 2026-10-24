@@ -22,6 +22,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        (application as OpenTvApp).container.restorePendingResize()
 
         // Dibujar detrás de las barras del sistema y de la muesca: sin franjas negras propias.
         WindowCompat.setDecorFitsSystemWindows(window, false)

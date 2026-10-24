@@ -15,6 +15,8 @@ playServicesCast = "21.4.0"
 mediarouter = "1.6.0"
 # Fase 4 (reproductor). Versión sin verificar contra el repositorio.
 media3 = "1.4.1"
+# Fase 4 (resolución 16:9 vía Shizuku). Versión sin verificar contra el repositorio.
+shizuku = "13.1.5"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -34,6 +36,8 @@ androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplaye
 androidx-media3-exoplayer-hls = { group = "androidx.media3", name = "media3-exoplayer-hls", version.ref = "media3" }
 androidx-media3-exoplayer-dash = { group = "androidx.media3", name = "media3-exoplayer-dash", version.ref = "media3" }
 androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
+shizuku-api = { group = "dev.rikka.shizuku", name = "api", version.ref = "shizuku" }
+shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref = "shizuku" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 [plugins]

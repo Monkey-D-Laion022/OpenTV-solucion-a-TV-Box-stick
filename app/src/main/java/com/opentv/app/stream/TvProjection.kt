@@ -14,6 +14,8 @@ import android.os.Looper
 import android.view.Display
 import com.opentv.app.connect.DidlLite
 import com.opentv.app.core.BuildInfo
+import com.opentv.app.display.ResizeResult
+import com.opentv.app.display.ScreenResizer
 import com.opentv.app.connect.DlnaController
 import com.opentv.app.connect.DlnaMessages
 import com.opentv.app.connect.DlnaResult
@@ -23,7 +25,11 @@ import com.opentv.app.connect.UpnpDevice
 import java.io.IOException
 import java.net.Inet4Address
 import java.security.SecureRandom
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -49,7 +55,31 @@ sealed interface ProjectionState {
 class TvProjection(
     context: Context,
     private val dlna: DlnaController,
+    private val resizer: ScreenResizer,
 ) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val _force169 = MutableStateFlow(false)
+
+    /** Al espejar, llevar el teléfono a 16:9 con Shizuku (se restaura al detener). */
+    val force169: StateFlow<Boolean> = _force169.asStateFlow()
+
+    fun toggleForce169() {
+        if (session == null) _force169.value = !_force169.value
+    }
+
+    private fun restoreInBackground() {
+        if (!resizer.hasPending) return
+        scope.launch {
+            val text = when (val r = resizer.restore()) {
+                ResizeResult.Restored -> "resolución del teléfono restaurada"
+                is ResizeResult.Failed -> r.message
+                else -> "sin cambios de resolución que restaurar"
+            }
+            note(text)
+        }
+    }
+
     private val appContext = context.applicationContext
     private val displayManager = appContext.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
 
@@ -64,7 +94,7 @@ class TvProjection(
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private val _latency = MutableStateFlow(StreamLatency.STABLE)
+    private val _latency = MutableStateFlow(StreamLatency.SHORT_QUEUE)
     val latency: StateFlow<StreamLatency> = _latency.asStateFlow()
 
     fun cycleLatency() {
@@ -123,7 +153,7 @@ class TvProjection(
     ) {
         if (_state.value is ProjectionState.Starting || _state.value is ProjectionState.Streaming) return
         _state.value = ProjectionState.Starting
-        release("reinicio")
+        release("reinicio", restore = false)
 
         val ip = LanIp.pick()
         if (ip == null) {
@@ -176,6 +206,16 @@ class TvProjection(
                 // cuadros nuevos; el codificador repite el último (KEY_REPEAT_PREVIOUS_FRAME_AFTER).
                 note("espejo: esperando el servicio en primer plano")
                 ProjectionService.awaitReady()
+                if (_force169.value) {
+                    note("forzando 16:9 en el teléfono (Shizuku)")
+                    when (val r = resizer.apply()) {
+                        is ResizeResult.Applied -> note("resolución del teléfono: ${r.plan.sizeArg}, densidad ${r.plan.density}")
+                        ResizeResult.AlreadyApplied -> note("la resolución ya estaba forzada")
+                        is ResizeResult.Failed -> note("no se pudo forzar 16:9: ${r.message}")
+                        else -> Unit
+                    }
+                    delay(600) // el sistema tarda un instante en reacomodar la pantalla
+                }
                 val manager = appContext.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                 val projection = manager.getMediaProjection(mirror.resultCode, mirror.data)
                     ?: throw IllegalStateException("Android no entregó la captura de pantalla.")
@@ -322,7 +362,7 @@ class TvProjection(
     /** Libera todo sin hablar con el TV; se usa al cerrar la app. */
     fun shutdown() = release("se cerró la app")
 
-    private fun release(reason: String) {
+    private fun release(reason: String, restore: Boolean = true) {
         val current = session
         session = null
         if (current != null) {
@@ -331,6 +371,7 @@ class TvProjection(
             cleanup(current.server, current.encoder, current.audio, current.feeder, current.reader, current.padder, current.virtualDisplay, current.presentation)
         }
         ProjectionService.stop(appContext)
+        if (restore) restoreInBackground()
         _state.value = ProjectionState.Idle
     }
 
@@ -358,6 +399,7 @@ class TvProjection(
 
     private fun fail(message: String) {
         ProjectionService.stop(appContext)
+        restoreInBackground()
         _state.value = ProjectionState.Failed(message)
     }
 

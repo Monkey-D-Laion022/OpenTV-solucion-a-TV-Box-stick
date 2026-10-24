@@ -31,6 +31,8 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.opentv.app.stream.Direction
@@ -63,6 +65,10 @@ fun RemoteScreen(
     val profile by viewModel.profile.collectAsStateWithLifecycle()
     val testPattern by viewModel.testPattern.collectAsStateWithLifecycle()
     val latency by viewModel.latency.collectAsStateWithLifecycle()
+    val shizuku by viewModel.shizukuStatus.collectAsStateWithLifecycle()
+    val resizePending by viewModel.resizePending.collectAsStateWithLifecycle()
+    val force169 by viewModel.force169.collectAsStateWithLifecycle()
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refreshShizuku() }
     val clipboard = LocalClipboardManager.current
     val target by viewModel.outputTarget.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
@@ -145,6 +151,35 @@ fun RemoteScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = OpenTvColors.Muted,
                     )
+                }
+                Text(
+                    text = "16:9 forzado al espejar: ${if (force169) "SÍ" else "no"}. ${shizuku.message} " +
+                        "Cambia la resolución de TODO el teléfono mientras espeja y la restaura al detener; para que no haya " +
+                        "franjas, usá las apps en horizontal.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (force169 && shizuku != com.opentv.app.display.ShizukuShell.Status.READY) OpenTvColors.Warning else OpenTvColors.Muted,
+                )
+                if (resizePending) {
+                    Text(
+                        text = "La resolución del teléfono está modificada por OpenTV. Tocá «Restaurar resolución» si no vuelve sola.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = OpenTvColors.Warning,
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (!streaming && !busy) {
+                        TvButton(
+                            text = "16:9 forzado: ${if (force169) "Sí" else "No"}",
+                            onClick = viewModel::toggleForce169,
+                            horizontalPadding = 20.dp,
+                        )
+                    }
+                    if (shizuku == com.opentv.app.display.ShizukuShell.Status.NEEDS_PERMISSION) {
+                        TvButton(text = "Permiso de Shizuku", onClick = viewModel::requestShizuku, horizontalPadding = 20.dp)
+                    }
+                    if (resizePending || shizuku == com.opentv.app.display.ShizukuShell.Status.READY) {
+                        TvButton(text = "Restaurar resolución", onClick = viewModel::restoreResolution, horizontalPadding = 20.dp)
+                    }
                 }
                 message?.let { Text(it, style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.Warning) }
 

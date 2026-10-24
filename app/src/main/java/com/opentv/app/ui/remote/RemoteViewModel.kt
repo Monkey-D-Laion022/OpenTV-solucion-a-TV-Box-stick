@@ -12,6 +12,7 @@ import com.opentv.app.apps.InstalledApp
 import com.opentv.app.apps.SortMode
 import com.opentv.app.connect.TvTarget
 import com.opentv.app.stream.Direction
+import com.opentv.app.display.ResizeResult
 import com.opentv.app.stream.MirrorRequest
 import com.opentv.app.stream.ProjectionState
 import com.opentv.app.stream.ProjectionStats
@@ -53,6 +54,9 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     val stats: StateFlow<ProjectionStats> get() = container.projection.stats
     val profile: StateFlow<StreamProfile> get() = container.projection.profile
     val testPattern: StateFlow<Boolean> get() = container.projection.testPattern
+    val shizukuStatus = MutableStateFlow(container.shizuku.status())
+    val resizePending: StateFlow<Boolean> get() = container.resizer.pending
+    val force169: StateFlow<Boolean> get() = container.projection.force169
     val latency: StateFlow<com.opentv.app.stream.StreamLatency> get() = container.projection.latency
     val outputTarget: StateFlow<TvTarget?> get() = container.output.target
     val iconLoader: AppIconLoader get() = container.iconLoader
@@ -134,6 +138,29 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
                     TvLauncherContent(state = tvUi, loadIcon = { app -> loader.load(app) })
                 }
             }
+        }
+    }
+
+    fun refreshShizuku() {
+        shizukuStatus.value = container.shizuku.status()
+    }
+
+    fun requestShizuku() {
+        container.shizuku.requestPermission { refreshShizuku() }
+    }
+
+    fun toggleForce169() = container.projection.toggleForce169()
+
+    /** Botón de seguridad: devuelve el teléfono a su resolución normal. */
+    fun restoreResolution() {
+        viewModelScope.launch {
+            _message.value = when (val r = container.resizer.restore()) {
+                ResizeResult.Restored -> "Resolución restaurada."
+                ResizeResult.NothingToRestore -> "No había nada que restaurar."
+                is ResizeResult.Failed -> r.message
+                else -> null
+            }
+            refreshShizuku()
         }
     }
 
