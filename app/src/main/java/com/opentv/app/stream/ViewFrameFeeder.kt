@@ -31,16 +31,17 @@ class ViewFrameFeeder(
     @Volatile private var running = false
 
     val drawnFrames = AtomicLong(0)
+    val errors = AtomicLong(0)
+    @Volatile var lastError: String = ""
+        private set
     @Volatile var uiVisible = false
         private set
 
     private val tick = object : Runnable {
         override fun run() {
             if (!running) return
-            if (!drawOnce()) {
-                running = false
-                return
-            }
+            // Un cuadro que falla no corta el flujo: se cuenta el error y se sigue intentando.
+            if (!drawOnce()) errors.incrementAndGet()
             handler.postDelayed(this, (1000L / fps))
         }
     }
@@ -60,6 +61,7 @@ class ViewFrameFeeder(
         val canvas: Canvas = try {
             lock()
         } catch (e: RuntimeException) {
+            lastError = "lock: ${e.javaClass.simpleName} ${e.message.orEmpty().take(60)}"
             return false
         }
         try {
@@ -77,11 +79,12 @@ class ViewFrameFeeder(
             }
             drawnFrames.incrementAndGet()
         } catch (e: RuntimeException) {
-            // Un cuadro que falla no debe cortar la proyección.
+            lastError = "draw: ${e.javaClass.simpleName} ${e.message.orEmpty().take(60)}"
         } finally {
             try {
                 surface.unlockCanvasAndPost(canvas)
             } catch (e: RuntimeException) {
+                lastError = "post: ${e.javaClass.simpleName} ${e.message.orEmpty().take(60)}"
                 return false
             }
         }

@@ -67,6 +67,7 @@ class TvProjection(
         val audio: SilentAudioEncoder?,
         val feeder: ViewFrameFeeder,
         val reader: ImageReader,
+        val padder: Thread,
         val virtualDisplay: VirtualDisplay,
         val presentation: Presentation,
         val target: UpnpDevice,
@@ -138,7 +139,8 @@ class TvProjection(
             feed.start()
 
             val url = "http://${ip.hostAddress}:$port${server.path}"
-            val current = Session(hub, server, enc, audio, feed, sink, vd, shown, target, profile)
+            val pad = startPadder(hub)
+            val current = Session(hub, server, enc, audio, feed, sink, pad, vd, shown, target, profile)
             session = current
             startStats(current, withAudio)
 
@@ -151,15 +153,31 @@ class TvProjection(
                 fail(DlnaMessages.describe(target.friendlyName, DlnaSoap.ACTION_PLAY, result))
             }
         } catch (e: IOException) {
-            cleanup(server, encoder, audio, feeder, reader, virtualDisplay, presentation)
+            cleanup(server, encoder, audio, feeder, reader, null, virtualDisplay, presentation)
             session = null
             fail("No se pudo abrir el servidor de video local (${e.message ?: "error de red"}).")
         } catch (e: RuntimeException) {
-            cleanup(server, encoder, audio, feeder, reader, virtualDisplay, presentation)
+            session?.padder?.interrupt()
+            cleanup(server, encoder, audio, feeder, reader, null, virtualDisplay, presentation)
             session = null
             fail("No se pudo iniciar la proyección (${e.javaClass.simpleName}: ${e.message ?: "sin detalle"}).")
         }
     }
+
+    /** Mantiene un caudal mínimo constante con paquetes nulos; se detiene al interrumpir el hilo. */
+    private fun startPadder(hub: StreamHub): Thread = Thread({
+        val start = System.nanoTime()
+        try {
+            while (!Thread.currentThread().isInterrupted) {
+                val elapsedMs = (System.nanoTime() - start) / 1_000_000
+                val n = TsPadding.packetsNeeded(MIN_RATE_BPS, elapsedMs, hub.publishedBytes.get())
+                if (n > 0) hub.publish(TsPadding.nullPackets(n), false)
+                Thread.sleep(20)
+            }
+        } catch (e: InterruptedException) {
+            // Cierre normal.
+        }
+    }, "opentv-padding").apply { isDaemon = true; start() }
 
     private fun startStats(current: Session, withAudio: Boolean) {
         val tick = object : Runnable {
@@ -175,6 +193,9 @@ class TvProjection(
                     requests = current.server.requests,
                     lastRequest = current.server.lastRequest,
                     uiVisible = current.feeder.uiVisible,
+                    drawErrors = current.feeder.errors.get(),
+                    lastDrawError = current.feeder.lastError,
+                    lastClose = current.server.lastClose,
                 )
                 mainHandler.postDelayed(this, 1_000L)
             }
@@ -199,7 +220,7 @@ class TvProjection(
         val current = session
         session = null
         if (current != null) {
-            cleanup(current.server, current.encoder, current.audio, current.feeder, current.reader, current.virtualDisplay, current.presentation)
+            cleanup(current.server, current.encoder, current.audio, current.feeder, current.reader, current.padder, current.virtualDisplay, current.presentation)
         }
         _state.value = ProjectionState.Idle
     }
@@ -210,9 +231,11 @@ class TvProjection(
         audio: SilentAudioEncoder?,
         feeder: ViewFrameFeeder?,
         reader: ImageReader?,
+        padder: Thread?,
         virtualDisplay: VirtualDisplay?,
         presentation: Presentation?,
     ) {
+        runCatching { padder?.interrupt() }
         runCatching { feeder?.stop() }
         runCatching { presentation?.dismiss() }
         runCatching { virtualDisplay?.release() }
@@ -237,5 +260,8 @@ class TvProjection(
 
     private companion object {
         const val DENSITY_DPI = 240
+
+        /** Caudal mínimo del flujo (video + audio + relleno): 2 Mbps. */
+        const val MIN_RATE_BPS = 2_000_000L
     }
 }

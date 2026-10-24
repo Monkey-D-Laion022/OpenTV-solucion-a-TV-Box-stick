@@ -25,6 +25,9 @@ class StreamHub(private val maxQueuedChunks: Int = 300) {
 
     private val subscribers = CopyOnWriteArrayList<Subscriber>()
 
+    /** Bytes publicados en total (video, audio y relleno); lo usa el relleno de caudal. */
+    val publishedBytes = java.util.concurrent.atomic.AtomicLong(0)
+
     /** Se invoca al conectarse un cliente: sirve para pedir al codificador un fotograma clave ya mismo. */
     @Volatile var onSubscribe: (() -> Unit)? = null
 
@@ -42,6 +45,7 @@ class StreamHub(private val maxQueuedChunks: Int = 300) {
 
     /** [keyStart] indica que el bloque empieza en un fotograma clave (lleva PAT/PMT al principio). */
     fun publish(chunk: ByteArray, keyStart: Boolean) {
+        publishedBytes.addAndGet(chunk.size.toLong())
         for (sub in subscribers) {
             if (!sub.active) {
                 if (!keyStart) continue

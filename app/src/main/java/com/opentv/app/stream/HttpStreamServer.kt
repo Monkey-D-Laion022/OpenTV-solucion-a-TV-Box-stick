@@ -35,6 +35,10 @@ class HttpStreamServer(
         private set
     val bytesSent = java.util.concurrent.atomic.AtomicLong(0)
 
+    /** Cómo terminó la última conexión de video (quién cortó y cuánto duró). */
+    @Volatile var lastClose: String = ""
+        private set
+
     /** Empieza a escuchar y devuelve el puerto. Con [bindAddress] nulo escucha en todas las interfaces. */
     fun start(bindAddress: InetAddress?): Int {
         val socket = ServerSocket()
@@ -93,15 +97,27 @@ class HttpStreamServer(
                 target != path -> respond(client, "404 Not Found")
                 else -> {
                     client.soTimeout = 0
+                    client.tcpNoDelay = true
+                    runCatching { client.sendBufferSize = 256 * 1024 }
                     val out = client.getOutputStream()
                     out.write(headers("200 OK").toByteArray(Charsets.US_ASCII))
                     out.flush()
                     if (method == "GET") {
-                        while (running && !subscriber.closed) {
-                            val chunk = subscriber.poll(POLL_MS) ?: continue
-                            out.write(chunk)
-                            out.flush()
-                            bytesSent.addAndGet(chunk.size.toLong())
+                        val startMs = System.currentTimeMillis()
+                        var sent = 0L
+                        var reason = "OpenTV detuvo el envío"
+                        try {
+                            while (running && !subscriber.closed) {
+                                val chunk = subscriber.poll(POLL_MS) ?: continue
+                                out.write(chunk)
+                                out.flush()
+                                sent += chunk.size
+                                bytesSent.addAndGet(chunk.size.toLong())
+                            }
+                        } catch (e: IOException) {
+                            reason = "el TV cerró la conexión"
+                        } finally {
+                            lastClose = "$reason tras ${(System.currentTimeMillis() - startMs) / 1000.0} s y ${sent / 1024} KB"
                         }
                     }
                 }

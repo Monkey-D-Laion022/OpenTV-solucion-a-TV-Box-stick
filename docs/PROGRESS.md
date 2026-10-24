@@ -208,3 +208,11 @@ Reporte real: LG 42LB5800 (NetCast) dijo «Archivo no compatible»; un TV Linux 
 - Diagnóstico en pantalla (`ProjectionStats`): cuadros dibujados/codificados, bytes enviados, conexiones y último pedido del TV (método + user-agent), si la interfaz se ve, y una pista de dónde está el corte.
 - El TV pide un fotograma clave al conectarse (`StreamHub.onSubscribe`).
 - Verificado en la JVM: 143 pruebas (audio TS ida y vuelta, PMT con/sin audio y CRC, ADTS, perfiles, cabeceras HTTP por perfil, registro del pedido, estadísticas). NO verificado: compilación; MediaCodec AAC/H.264; dibujar la vista Compose con `lockHardwareCanvas`; que cualquiera de los 5 formatos lo acepte el LG o el TV de 32".
+
+### Módulo 3C-2: corte al segundo de reproducción
+Reporte real: ambos TV abren el formato (sin error) y muestran la interfaz, pero tras ~1 s salen de la reproducción, en los 5 formatos.
+- Causa probable (hipótesis, no confirmada): con la interfaz quieta el codificador casi no entrega datos (unos kbps + audio mudo); el TV vacía su búfer y abandona. Corrección: relleno con paquetes nulos TS (`TsPadding`, PID 0x1FFF) hasta un caudal mínimo constante de 2 Mbps, emitido por un hilo (`TvProjection.startPadder`).
+- El dibujo ya no se detiene ante un error (`ViewFrameFeeder` cuenta errores y reintenta); el codificador repite el último cuadro si se frena el dibujo; TCP_NODELAY y búfer de envío de 256 KB.
+- Diagnóstico nuevo en el teléfono: cómo terminó la última conexión («el TV cerró…» u «OpenTV detuvo…», con segundos y KB), errores al dibujar y su texto.
+- Verificado en la JVM: 146 pruebas (relleno nulo válido, cálculo de relleno, contador del hub). NO verificado: compilación y que el relleno corrija el corte.
+- Pendiente probable: servicio en primer plano (si Android pone la app en segundo plano al cambiar de pantalla, el dibujo se frena).

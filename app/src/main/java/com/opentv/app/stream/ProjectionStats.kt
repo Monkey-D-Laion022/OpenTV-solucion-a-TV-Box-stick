@@ -14,6 +14,10 @@ data class ProjectionStats(
     val lastRequest: String = "",
     /** El contenido de OpenTV (la interfaz) ya se dibujó en la pantalla virtual. */
     val uiVisible: Boolean = false,
+    val drawErrors: Long = 0,
+    val lastDrawError: String = "",
+    val lastClose: String = "",
+    val paddingBytes: Long = 0,
 ) {
     /** Texto de diagnóstico en lenguaje llano. */
     fun describe(): String = buildString {
@@ -22,6 +26,8 @@ data class ProjectionStats(
         append("Enviado al TV: ").append(formatBytes(bytesSent)).append(" · conexiones del TV: ").append(clients)
         append(" (pedidos: ").append(requests).append(")\n")
         append("Interfaz en pantalla virtual: ").append(if (uiVisible) "sí" else "NO (se envía un cartel de OpenTV)")
+        if (drawErrors > 0) append("\nErrores al dibujar: ").append(drawErrors).append(" · ").append(lastDrawError)
+        if (lastClose.isNotEmpty()) append("\nÚltima conexión: ").append(lastClose)
         if (lastRequest.isNotEmpty()) append("\nÚltimo pedido del TV: ").append(lastRequest)
         append('\n').append(hint())
     }
