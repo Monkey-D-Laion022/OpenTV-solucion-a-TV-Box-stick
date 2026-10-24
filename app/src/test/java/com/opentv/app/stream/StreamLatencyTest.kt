@@ -8,13 +8,25 @@ class StreamLatencyTest {
     @Test
     fun lowModeShrinksTheTimingMargins() {
         val s = StreamLatency.STABLE
-        val l = StreamLatency.LOW
-        assertTrue(l.ptsOffset90 < s.ptsOffset90)
-        assertTrue(l.pcrLead90 < s.pcrLead90)
-        assertTrue(l.fps > s.fps)
-        assertTrue(l.ptsOffset90 > l.pcrLead90) // el PCR siempre va antes del PTS
-        assertTrue(s.ptsOffset90 > s.pcrLead90)
-        assertEquals(StreamLatency.STABLE, s.next().next())
+        val m = StreamLatency.SHORT_MARGIN
+        assertTrue(m.ptsOffset90 < s.ptsOffset90)
+        assertTrue(m.pcrLead90 < s.pcrLead90)
+        StreamLatency.values().forEach { assertTrue(it.label, it.ptsOffset90 > it.pcrLead90) } // el PCR siempre va antes del PTS
+        assertEquals(StreamLatency.STABLE, s.next().next().next())
+    }
+
+    @Test
+    fun eachVariantChangesOnlyItsOwnThing() {
+        val s = StreamLatency.STABLE
+        val q = StreamLatency.SHORT_QUEUE
+        assertEquals(s.fps, q.fps)
+        assertEquals(s.ptsOffset90, q.ptsOffset90)
+        assertEquals(0L, q.minRateBps)
+        assertTrue(q.sendBufferBytes < s.sendBufferBytes && q.hubQueueBytes < s.hubQueueBytes)
+        val m = StreamLatency.SHORT_MARGIN
+        assertEquals(s.fps, m.fps)
+        assertEquals(s.sendBufferBytes, m.sendBufferBytes)
+        assertEquals(s.minRateBps, m.minRateBps)
     }
 
     @Test

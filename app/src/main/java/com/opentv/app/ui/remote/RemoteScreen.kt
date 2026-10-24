@@ -2,7 +2,11 @@ package com.opentv.app.ui.remote
 
 import android.content.Context
 import android.content.ContextWrapper
+import android.app.Activity
+import android.media.projection.MediaProjectionManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -63,6 +67,11 @@ fun RemoteScreen(
     val target by viewModel.outputTarget.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val launchState by viewModel.appLaunch.state.collectAsStateWithLifecycle()
+    val mirrorLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val data = result.data
+        if (result.resultCode == Activity.RESULT_OK && data != null) viewModel.startMirror(result.resultCode, data) else viewModel.mirrorDenied()
+    }
+    val context = LocalContext.current
     var pickerOpen by remember { mutableStateOf(false) }
 
     if (pickerOpen) CastPickerDialog(onDismiss = { pickerOpen = false })
@@ -156,6 +165,14 @@ fun RemoteScreen(
                         )
                     }
                     if (!streaming && !busy) {
+                        TvButton(
+                            text = "Espejar pantalla del teléfono",
+                            onClick = {
+                                val manager = context.getSystemService(MediaProjectionManager::class.java)
+                                mirrorLauncher.launch(manager.createScreenCaptureIntent())
+                            },
+                            horizontalPadding = 20.dp,
+                        )
                         TvButton(text = "Cambiar formato", onClick = viewModel::cycleProfile, horizontalPadding = 20.dp)
                     }
                     TvButton(text = "Volver", onClick = onBack, horizontalPadding = 20.dp)

@@ -20,6 +20,7 @@ class HttpStreamServer(
     private val acceptClient: (InetAddress) -> Boolean,
     private val maxClients: Int = 2,
     private val profile: StreamProfile = StreamProfile.AVC_TS,
+    private val sendBufferBytes: Int = 256 * 1024,
 ) {
     val path: String = "/screen-$token.ts"
 
@@ -113,7 +114,7 @@ class HttpStreamServer(
                 else -> {
                     client.soTimeout = 0
                     client.tcpNoDelay = true
-                    runCatching { client.sendBufferSize = 256 * 1024 }
+                    runCatching { client.sendBufferSize = sendBufferBytes }
                     val out = client.getOutputStream()
                     out.write(headers("200 OK").toByteArray(Charsets.US_ASCII))
                     out.flush()

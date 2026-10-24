@@ -2,10 +2,13 @@ package com.opentv.app.stream
 
 import android.app.Presentation
 import android.content.Context
+import android.content.Intent
 import android.hardware.display.DisplayManager
 import android.graphics.PixelFormat
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
+import android.media.projection.MediaProjection
+import android.media.projection.MediaProjectionManager
 import android.os.Handler
 import android.os.Looper
 import android.view.Display
@@ -24,6 +27,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+
+/** Permiso de captura de pantalla que el usuario concedió (resultado de `createScreenCaptureIntent`). */
+class MirrorRequest(val resultCode: Int, val data: Intent)
 
 sealed interface ProjectionState {
     data object Idle : ProjectionState
@@ -90,16 +96,19 @@ class TvProjection(
         val server: HttpStreamServer,
         val encoder: ScreenEncoder,
         val audio: SilentAudioEncoder?,
-        val feeder: ViewFrameFeeder,
-        val reader: ImageReader,
+        val feeder: ViewFrameFeeder?,
+        val reader: ImageReader?,
         val padder: Thread,
         val virtualDisplay: VirtualDisplay,
-        val presentation: Presentation,
+        val presentation: Presentation?,
         val target: UpnpDevice,
         val profile: StreamProfile,
         val testPattern: Boolean,
         val latency: StreamLatency,
+        val mirror: Boolean,
     )
+
+    private var mediaProjection: MediaProjection? = null
 
     private var session: Session? = null
 
@@ -107,7 +116,11 @@ class TvProjection(
      * Arma todo y le pide al TV que reproduzca. [createPresentation] construye la ventana con la
      * interfaz que se verá en el TV, sobre la pantalla virtual que se le entrega.
      */
-    suspend fun start(target: UpnpDevice, createPresentation: (Display) -> Presentation) {
+    suspend fun start(
+        target: UpnpDevice,
+        mirror: MirrorRequest? = null,
+        createPresentation: ((Display) -> Presentation)? = null,
+    ) {
         if (_state.value is ProjectionState.Starting || _state.value is ProjectionState.Streaming) return
         _state.value = ProjectionState.Starting
         release("reinicio")
@@ -118,16 +131,16 @@ class TvProjection(
             return
         }
 
-        ProjectionService.start(appContext)
+        ProjectionService.start(appContext, mirror = mirror != null)
         val profile = _profile.value
         val test = _testPattern.value
         val latency = _latency.value
         log.clear()
         originMs = System.currentTimeMillis()
-        note("inicio · formato «${profile.label}»${if (test) " · imagen de prueba" else ""}")
-        val hub = StreamHub()
+        note("inicio${if (mirror != null) " (espejo de pantalla)" else ""} · formato «${profile.label}»${if (test) " · imagen de prueba" else ""}")
+        val hub = StreamHub(maxQueuedBytes = latency.hubQueueBytes)
         val token = randomToken()
-        val server = HttpStreamServer(hub, token, acceptClient = ::isLanClient, profile = profile)
+        val server = HttpStreamServer(hub, token, acceptClient = ::isLanClient, profile = profile, sendBufferBytes = latency.sendBufferBytes)
         server.originMs = originMs
         val originUs = System.nanoTime() / 1000
         var audio: SilentAudioEncoder? = null
@@ -154,31 +167,64 @@ class TvProjection(
                     .also { it.start() }
             }
 
-            // La interfaz se dibuja en una pantalla virtual cuyo resultado no se usa (se descarta); lo que va
-            // al TV lo dibujamos nosotros directo sobre el codificador a ritmo fijo, así nunca queda sin cuadros.
-            val sink = ImageReader.newInstance(profile.width, profile.height, PixelFormat.RGBA_8888, 2)
-            reader = sink
-            sink.setOnImageAvailableListener({ r -> runCatching { r.acquireLatestImage()?.close() } }, mainHandler)
-            val vd = displayManager.createVirtualDisplay(
-                "OpenTV-TV", profile.width, profile.height, DENSITY_DPI, sink.surface,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION or
-                    DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY,
-            ) ?: throw IllegalStateException("Android no creó la pantalla virtual.")
-            virtualDisplay = vd
-            val shown = createPresentation(vd.display)
-            presentation = shown
-            shown.show()
+            var vd: VirtualDisplay
+            var feed: ViewFrameFeeder? = null
+            var sink: ImageReader? = null
+            var shown: Presentation? = null
+            if (mirror != null) {
+                // Espejo: la captura de pantalla del sistema va directo al codificador. Si la pantalla no cambia no hay
+                // cuadros nuevos; el codificador repite el último (KEY_REPEAT_PREVIOUS_FRAME_AFTER).
+                note("espejo: esperando el servicio en primer plano")
+                ProjectionService.awaitReady()
+                val manager = appContext.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                val projection = manager.getMediaProjection(mirror.resultCode, mirror.data)
+                    ?: throw IllegalStateException("Android no entregó la captura de pantalla.")
+                mediaProjection = projection
+                // Desde Android 14 hay que registrar el callback antes de crear la pantalla virtual.
+                projection.registerCallback(
+                    object : MediaProjection.Callback() {
+                        override fun onStop() {
+                            mainHandler.post { if (session != null) shutdown() }
+                        }
+                    },
+                    mainHandler,
+                )
+                vd = projection.createVirtualDisplay(
+                    "OpenTV-Espejo", profile.width, profile.height, appContext.resources.displayMetrics.densityDpi,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, encoderSurface, null, null,
+                ) ?: throw IllegalStateException("Android no creó la pantalla de captura.")
+                virtualDisplay = vd
+                note("captura de pantalla lista (${profile.width}×${profile.height}; el sistema la encaja sin deformar)")
+            } else {
+                // La interfaz se dibuja en una pantalla virtual cuyo resultado no se usa (se descarta); lo que va
+                // al TV lo dibujamos nosotros directo sobre el codificador a ritmo fijo, así nunca queda sin cuadros.
+                val reader2 = ImageReader.newInstance(profile.width, profile.height, PixelFormat.RGBA_8888, 2)
+                sink = reader2
+                reader = reader2
+                reader2.setOnImageAvailableListener({ r -> runCatching { r.acquireLatestImage()?.close() } }, mainHandler)
+                vd = displayManager.createVirtualDisplay(
+                    "OpenTV-TV", profile.width, profile.height, DENSITY_DPI, reader2.surface,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION or
+                        DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY,
+                ) ?: throw IllegalStateException("Android no creó la pantalla virtual.")
+                virtualDisplay = vd
+                val window = (createPresentation ?: throw IllegalStateException("Falta la ventana de la interfaz."))(vd.display)
+                shown = window
+                presentation = window
+                window.show()
 
-            note("pantalla virtual y ventana listas")
-            val feed = ViewFrameFeeder(encoderSurface, profile.width, profile.height, latency.fps, test) {
-                shown.window?.decorView
+                note("pantalla virtual y ventana listas")
+                val feeder2 = ViewFrameFeeder(encoderSurface, profile.width, profile.height, latency.fps, test) {
+                    window.window?.decorView
+                }
+                feed = feeder2
+                feeder = feeder2
+                feeder2.start()
             }
-            feeder = feed
-            feed.start()
 
             val url = "http://${ip.hostAddress}:$port${server.path}"
             val pad = startPadder(hub, latency.minRateBps)
-            val current = Session(hub, server, enc, audio, feed, sink, pad, vd, shown, target, profile, test, latency)
+            val current = Session(hub, server, enc, audio, feed, sink, pad, vd, shown, target, profile, test, latency, mirror != null)
             session = current
             startStats(current)
 
@@ -236,20 +282,20 @@ class TvProjection(
     private fun snapshot(current: Session, phase: String) = ProjectionStats(
         profileLabel = current.profile.label + " · latencia " + current.latency.label,
         audio = current.audio != null,
-        drawnFrames = current.feeder.drawnFrames.get(),
+        drawnFrames = current.feeder?.drawnFrames?.get() ?: current.encoder.encodedFrames.get(),
         encodedFrames = current.encoder.encodedFrames.get(),
         bytesSent = current.server.bytesSent.get(),
         clients = current.server.activeClients,
         requests = current.server.requests,
         lastRequest = current.server.lastRequest,
-        uiVisible = current.feeder.uiVisible,
-        drawErrors = current.feeder.errors.get(),
-        lastDrawError = current.feeder.lastError,
+        uiVisible = current.feeder?.uiVisible ?: true,
+        drawErrors = current.feeder?.errors?.get() ?: 0,
+        lastDrawError = current.feeder?.lastError.orEmpty(),
         lastClose = current.server.lastClose,
         history = (log.toList() + current.server.history).sortedBy { it.substringAfter('+').substringBefore(' ').toDoubleOrNull() ?: 0.0 }.takeLast(14),
         buildLabel = BuildInfo.LABEL,
         testPattern = current.testPattern,
-        phase = phase,
+        phase = if (current.mirror) "$phase (espejo de pantalla)" else phase,
     )
 
     private fun startStats(current: Session) {
@@ -299,6 +345,8 @@ class TvProjection(
         presentation: Presentation?,
     ) {
         runCatching { padder?.interrupt() }
+        runCatching { mediaProjection?.stop() }
+        mediaProjection = null
         runCatching { feeder?.stop() }
         runCatching { presentation?.dismiss() }
         runCatching { virtualDisplay?.release() }

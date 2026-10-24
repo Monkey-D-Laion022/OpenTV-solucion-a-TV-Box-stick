@@ -12,6 +12,7 @@ import com.opentv.app.apps.InstalledApp
 import com.opentv.app.apps.SortMode
 import com.opentv.app.connect.TvTarget
 import com.opentv.app.stream.Direction
+import com.opentv.app.stream.MirrorRequest
 import com.opentv.app.stream.ProjectionState
 import com.opentv.app.stream.ProjectionStats
 import com.opentv.app.stream.StreamProfile
@@ -97,7 +98,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
         _tv.update { it.copy(cursor = TvCursor(0, 0), notice = null) }
     }
 
-    fun start(activity: ComponentActivity) {
+    private fun dlnaTargetOrNull(): TvTarget.DlnaTarget? {
         val target = outputTarget.value
         if (target !is TvTarget.DlnaTarget) {
             _message.value = if (target == null) {
@@ -105,9 +106,24 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
             } else {
                 "La proyección usa DLNA. El TV elegido es ${target.protocol}: elegí uno que aparezca como DLNA."
             }
-            return
+            return null
         }
         _message.value = null
+        return target
+    }
+
+    /** Espejo de la pantalla del teléfono (captura del sistema) hacia el TV elegido. */
+    fun startMirror(resultCode: Int, data: android.content.Intent) {
+        val target = dlnaTargetOrNull() ?: return
+        viewModelScope.launch { container.projection.start(target.device, MirrorRequest(resultCode, data)) }
+    }
+
+    fun mirrorDenied() {
+        _message.value = "No se concedió el permiso de captura de pantalla: sin él no se puede espejar."
+    }
+
+    fun start(activity: ComponentActivity) {
+        val target = dlnaTargetOrNull() ?: return
         loadApps()
         val loader = iconLoader
         val tvUi = tvState
