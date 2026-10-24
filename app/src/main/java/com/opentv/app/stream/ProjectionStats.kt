@@ -20,9 +20,14 @@ data class ProjectionStats(
     val paddingBytes: Long = 0,
     /** Últimos eventos de red con su tiempo (desde que arrancó el servidor). */
     val history: List<String> = emptyList(),
+    val buildLabel: String = "",
+    val testPattern: Boolean = false,
+    val phase: String = "",
 ) {
     /** Texto de diagnóstico en lenguaje llano. */
     fun describe(): String = buildString {
+        if (buildLabel.isNotEmpty()) append("Versión: ").append(buildLabel).append('\n')
+        if (phase.isNotEmpty()) append("Fase: ").append(phase).append(if (testPattern) " · PRUEBA SIN INTERFAZ" else "").append('\n')
         append("Modo: ").append(profileLabel).append(if (audio) " · con audio mudo" else " · sin audio").append('\n')
         append("Cuadros dibujados: ").append(drawnFrames).append(" · codificados: ").append(encodedFrames).append('\n')
         append("Enviado al TV: ").append(formatBytes(bytesSent)).append(" · conexiones del TV: ").append(clients)

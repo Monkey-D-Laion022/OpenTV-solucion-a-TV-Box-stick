@@ -20,6 +20,7 @@ class ViewFrameFeeder(
     private val width: Int,
     private val height: Int,
     private val fps: Int,
+    private val testPattern: Boolean = false,
     private val viewProvider: () -> View?,
 ) {
     private val handler = Handler(Looper.getMainLooper())
@@ -66,8 +67,16 @@ class ViewFrameFeeder(
         }
         try {
             canvas.drawColor(BACKGROUND)
-            val view = viewProvider()
-            if (view != null && view.width > 0 && view.height > 0) {
+            val view = if (testPattern) null else viewProvider()
+            if (testPattern) {
+                // Imagen de prueba sin interfaz: una barra que se mueve y el número de cuadro.
+                val n = drawnFrames.get()
+                paint.color = Color.rgb(79, 209, 197)
+                canvas.drawRect(((n * 24) % (width - 200)).toFloat(), height * 0.6f, ((n * 24) % (width - 200)) + 200f, height * 0.75f, paint)
+                paint.color = Color.WHITE
+                canvas.drawText("PRUEBA $n", width / 2f, height * 0.4f, paint)
+                uiVisible = false
+            } else if (view != null && view.width > 0 && view.height > 0) {
                 canvas.save()
                 canvas.scale(width.toFloat() / view.width, height.toFloat() / view.height)
                 view.draw(canvas)

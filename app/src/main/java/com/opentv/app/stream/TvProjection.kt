@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Display
 import com.opentv.app.connect.DidlLite
+import com.opentv.app.core.BuildInfo
 import com.opentv.app.connect.DlnaController
 import com.opentv.app.connect.DlnaMessages
 import com.opentv.app.connect.DlnaResult
@@ -56,6 +57,21 @@ class TvProjection(
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    private val _testPattern = MutableStateFlow(false)
+    val testPattern: StateFlow<Boolean> = _testPattern.asStateFlow()
+
+    /** Alterna la imagen de prueba (sin interfaz): sirve para saber si el corte depende de dibujar la interfaz. */
+    fun toggleTestPattern() {
+        if (session == null) _testPattern.value = !_testPattern.value
+    }
+
+    private val log = java.util.concurrent.CopyOnWriteArrayList<String>()
+    private var originMs = 0L
+
+    private fun note(message: String) {
+        log.add("+%.1f s APP: %s".format(java.util.Locale.US, (System.currentTimeMillis() - originMs) / 1000.0, message))
+    }
+
     /** Cambia a la siguiente combinación de formato; solo con la proyección detenida. */
     fun cycleProfile() {
         if (session == null) _profile.value = _profile.value.next()
@@ -73,6 +89,7 @@ class TvProjection(
         val presentation: Presentation,
         val target: UpnpDevice,
         val profile: StreamProfile,
+        val testPattern: Boolean,
     )
 
     private var session: Session? = null
@@ -84,7 +101,7 @@ class TvProjection(
     suspend fun start(target: UpnpDevice, createPresentation: (Display) -> Presentation) {
         if (_state.value is ProjectionState.Starting || _state.value is ProjectionState.Streaming) return
         _state.value = ProjectionState.Starting
-        release()
+        release("reinicio")
 
         val ip = LanIp.pick()
         if (ip == null) {
@@ -94,9 +111,14 @@ class TvProjection(
 
         ProjectionService.start(appContext)
         val profile = _profile.value
+        val test = _testPattern.value
+        log.clear()
+        originMs = System.currentTimeMillis()
+        note("inicio · formato «${profile.label}»${if (test) " · imagen de prueba" else ""}")
         val hub = StreamHub()
         val token = randomToken()
         val server = HttpStreamServer(hub, token, acceptClient = ::isLanClient, profile = profile)
+        server.originMs = originMs
         val originUs = System.nanoTime() / 1000
         var audio: SilentAudioEncoder? = null
         var encoder: ScreenEncoder? = null
@@ -134,7 +156,8 @@ class TvProjection(
             presentation = shown
             shown.show()
 
-            val feed = ViewFrameFeeder(encoderSurface, profile.width, profile.height, ScreenEncoder.FPS) {
+            note("pantalla virtual y ventana listas")
+            val feed = ViewFrameFeeder(encoderSurface, profile.width, profile.height, ScreenEncoder.FPS, test) {
                 shown.window?.decorView
             }
             feeder = feed
@@ -142,16 +165,18 @@ class TvProjection(
 
             val url = "http://${ip.hostAddress}:$port${server.path}"
             val pad = startPadder(hub)
-            val current = Session(hub, server, enc, audio, feed, sink, pad, vd, shown, target, profile)
+            val current = Session(hub, server, enc, audio, feed, sink, pad, vd, shown, target, profile, test)
             session = current
-            startStats(current, withAudio)
+            startStats(current)
 
             val metadata = if (profile.sendMetadata) DidlLite.forUrl(url, "OpenTV", profile.protocolInfo()) else null
+            note("enviando el enlace al TV (SetAVTransportURI + Play)")
             val result = dlna.play(target, url, metadata)
+            note("el TV respondió: ${result::class.simpleName}")
             if (result == DlnaResult.Ok) {
                 _state.value = ProjectionState.Streaming(url, target.friendlyName)
             } else {
-                release()
+                release("el TV rechazó el Play")
                 fail(DlnaMessages.describe(target.friendlyName, DlnaSoap.ACTION_PLAY, result))
             }
         } catch (e: IOException) {
@@ -181,25 +206,30 @@ class TvProjection(
         }
     }, "opentv-padding").apply { isDaemon = true; start() }
 
-    private fun startStats(current: Session, withAudio: Boolean) {
+    private fun snapshot(current: Session, phase: String) = ProjectionStats(
+        profileLabel = current.profile.label,
+        audio = current.audio != null,
+        drawnFrames = current.feeder.drawnFrames.get(),
+        encodedFrames = current.encoder.encodedFrames.get(),
+        bytesSent = current.server.bytesSent.get(),
+        clients = current.server.activeClients,
+        requests = current.server.requests,
+        lastRequest = current.server.lastRequest,
+        uiVisible = current.feeder.uiVisible,
+        drawErrors = current.feeder.errors.get(),
+        lastDrawError = current.feeder.lastError,
+        lastClose = current.server.lastClose,
+        history = (log.toList() + current.server.history).sortedBy { it.substringAfter('+').substringBefore(' ').toDoubleOrNull() ?: 0.0 }.takeLast(14),
+        buildLabel = BuildInfo.LABEL,
+        testPattern = current.testPattern,
+        phase = phase,
+    )
+
+    private fun startStats(current: Session) {
         val tick = object : Runnable {
             override fun run() {
                 if (session !== current) return
-                _stats.value = ProjectionStats(
-                    profileLabel = current.profile.label,
-                    audio = withAudio,
-                    drawnFrames = current.feeder.drawnFrames.get(),
-                    encodedFrames = current.encoder.encodedFrames.get(),
-                    bytesSent = current.server.bytesSent.get(),
-                    clients = current.server.activeClients,
-                    requests = current.server.requests,
-                    lastRequest = current.server.lastRequest,
-                    uiVisible = current.feeder.uiVisible,
-                    drawErrors = current.feeder.errors.get(),
-                    lastDrawError = current.feeder.lastError,
-                    lastClose = current.server.lastClose,
-                    history = current.server.history,
-                )
+                _stats.value = snapshot(current, "en curso")
                 mainHandler.postDelayed(this, 1_000L)
             }
         }
@@ -213,16 +243,18 @@ class TvProjection(
             // Si el TV no responde igual se libera todo: no se deja nada vivo.
             dlna.stop(current.target)
         }
-        release()
+        release("el usuario detuvo la proyección")
     }
 
     /** Libera todo sin hablar con el TV; se usa al cerrar la app. */
-    fun shutdown() = release()
+    fun shutdown() = release("se cerró la app")
 
-    private fun release() {
+    private fun release(reason: String) {
         val current = session
         session = null
         if (current != null) {
+            note("OpenTV detiene todo: $reason")
+            _stats.value = snapshot(current, "detenida")
             cleanup(current.server, current.encoder, current.audio, current.feeder, current.reader, current.padder, current.virtualDisplay, current.presentation)
         }
         ProjectionService.stop(appContext)

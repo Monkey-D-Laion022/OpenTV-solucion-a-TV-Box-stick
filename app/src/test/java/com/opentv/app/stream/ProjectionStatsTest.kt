@@ -27,3 +27,16 @@ class ProjectionStatsTest {
         assertTrue(text.contains("Último pedido del TV: GET"))
     }
 }
+
+class ProjectionStatsPhaseTest {
+    @Test
+    fun describeShowsBuildPhaseAndHistory() {
+        val text = ProjectionStats(
+            buildLabel = "3C-4", phase = "detenida", testPattern = true,
+            history = listOf("+0.1 s APP: inicio", "+1.2 s el TV cerró"),
+        ).describe()
+        assertTrue(text.contains("Versión: 3C-4"))
+        assertTrue(text.contains("Fase: detenida · PRUEBA SIN INTERFAZ"))
+        assertTrue(text.contains("Historial:\n+0.1 s APP: inicio\n+1.2 s el TV cerró"))
+    }
+}

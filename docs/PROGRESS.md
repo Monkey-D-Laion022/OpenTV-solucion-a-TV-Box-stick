@@ -222,3 +222,10 @@ Reporte real: el relleno a 2 Mbps no cambió nada; sigue 1 s de imagen y salida 
 - `stream/ProjectionService`: servicio en primer plano (tipo `mediaPlayback`, permisos normales `FOREGROUND_SERVICE` y `FOREGROUND_SERVICE_MEDIA_PLAYBACK`) que vive mientras dura la proyección; lo inicia y detiene `TvProjection`.
 - `HttpStreamServer.history`: últimos 10 eventos con tiempo (conexión, pedido, cierre y quién cortó); se muestra en el estado de la pantalla de proyección.
 - Verificado en la JVM: 147 pruebas. NO verificado: compilación, el servicio en el Redmi 14C ni la causa del corte.
+
+### Módulo 3C-4: diagnóstico siempre visible y prueba aislada
+Reporte real: con el 3C-3 el bloque de estado no mostró nada. Causas halladas: el bloque solo se dibujaba en el estado «proyectando» y la etiqueta de versión no se había actualizado desde el 3C (no había forma de confirmar el APK instalado). Revisado: nada dentro de la app detiene la proyección por su cuenta (solo el botón, OK en la fila «Detener» o cerrar la app).
+- El bloque de estado se ve siempre que haya datos, también después de detenerse o fallar, con la versión instalada, la fase, el historial combinado de la app (inicio, pantalla virtual, envío al TV, respuesta del TV, quién detiene) y de la red (conexión, pedido, cierre) ordenado por tiempo, y un botón «Copiar diagnóstico».
+- «Prueba sin interfaz»: envía una barra que se mueve y un contador en lugar de la interfaz de OpenTV. Si el TV también corta, el problema no está en dibujar la interfaz.
+- Etiqueta: «módulo 3C-4 (diagnóstico siempre visible)».
+- Verificado en la JVM: 148 pruebas. NO verificado: compilación ni la causa del corte.

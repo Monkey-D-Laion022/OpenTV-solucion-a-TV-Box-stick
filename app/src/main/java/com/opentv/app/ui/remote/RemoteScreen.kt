@@ -23,11 +23,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.opentv.app.stream.Direction
+import com.opentv.app.core.BuildInfo
 import com.opentv.app.stream.ProjectionState
 import com.opentv.app.ui.apps.PortraitWarningDialog
 import com.opentv.app.ui.components.SafeArea
@@ -54,6 +57,8 @@ fun RemoteScreen(
     val projection by viewModel.projection.collectAsStateWithLifecycle()
     val stats by viewModel.stats.collectAsStateWithLifecycle()
     val profile by viewModel.profile.collectAsStateWithLifecycle()
+    val testPattern by viewModel.testPattern.collectAsStateWithLifecycle()
+    val clipboard = LocalClipboardManager.current
     val target by viewModel.outputTarget.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val launchState by viewModel.appLaunch.state.collectAsStateWithLifecycle()
@@ -110,15 +115,22 @@ fun RemoteScreen(
                     style = MaterialTheme.typography.bodyLarge,
                     color = if (projection is ProjectionState.Failed) OpenTvColors.Warning else OpenTvColors.OnBackground,
                 )
-                if (streaming) {
+                Text(
+                    text = "Versión instalada: ${BuildInfo.LABEL}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OpenTvColors.Muted,
+                )
+                if (stats.phase.isNotEmpty()) {
                     Text(
                         text = stats.describe(),
                         style = MaterialTheme.typography.bodyMedium,
                         color = OpenTvColors.Muted,
                     )
-                } else {
+                }
+                if (!streaming && !busy) {
                     Text(
-                        text = "Formato de video: ${profile.label}. Si el TV dice «archivo no compatible» o queda en negro, " +
+                        text = "Prueba sin interfaz: ${if (testPattern) "ACTIVADA (se envía una barra que se mueve)" else "desactivada"}. " +
+                            "Formato de video: ${profile.label}. Si el TV dice «archivo no compatible» o queda en negro, " +
                             "detené la proyección, tocá «Cambiar formato» y probá de nuevo.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = OpenTvColors.Muted,
@@ -146,6 +158,16 @@ fun RemoteScreen(
                         TvButton(text = "Cambiar formato", onClick = viewModel::cycleProfile, horizontalPadding = 20.dp)
                     }
                     TvButton(text = "Volver", onClick = onBack, horizontalPadding = 20.dp)
+                }
+                if (!streaming && !busy) {
+                    TvButton(text = "Prueba sin interfaz", onClick = viewModel::toggleTestPattern, horizontalPadding = 20.dp)
+                }
+                if (stats.phase.isNotEmpty()) {
+                    TvButton(
+                        text = "Copiar diagnóstico",
+                        onClick = { clipboard.setText(AnnotatedString(stats.describe())) },
+                        horizontalPadding = 20.dp,
+                    )
                 }
             }
 

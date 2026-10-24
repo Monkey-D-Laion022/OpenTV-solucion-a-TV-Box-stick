@@ -36,13 +36,14 @@ class HttpStreamServer(
     val bytesSent = java.util.concurrent.atomic.AtomicLong(0)
 
     private val events = java.util.concurrent.CopyOnWriteArrayList<String>()
-    private var startedMs = 0L
+    /** Instante de referencia de los tiempos del historial; si no se fija antes, es el arranque del servidor. */
+    var originMs = 0L
 
     /** Últimos eventos de red con su tiempo, para ver qué hizo el TV y cuándo. */
     val history: List<String> get() = events.takeLast(10)
 
     private fun note(message: String) {
-        events.add("+%.1f s %s".format(java.util.Locale.US, (System.currentTimeMillis() - startedMs) / 1000.0, message))
+        events.add("+%.1f s %s".format(java.util.Locale.US, (System.currentTimeMillis() - originMs) / 1000.0, message))
     }
 
     /** Cómo terminó la última conexión de video (quién cortó y cuánto duró). */
@@ -56,7 +57,7 @@ class HttpStreamServer(
         socket.bind(InetSocketAddress(bindAddress, 0), BACKLOG)
         server = socket
         running = true
-        startedMs = System.currentTimeMillis()
+        if (originMs == 0L) originMs = System.currentTimeMillis()
         Thread({ acceptLoop(socket) }, "opentv-stream-accept").apply { isDaemon = true }.start()
         return socket.localPort
     }

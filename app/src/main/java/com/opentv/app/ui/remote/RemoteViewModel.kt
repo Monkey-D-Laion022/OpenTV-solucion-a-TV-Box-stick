@@ -51,6 +51,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     val projection: StateFlow<ProjectionState> get() = container.projection.state
     val stats: StateFlow<ProjectionStats> get() = container.projection.stats
     val profile: StateFlow<StreamProfile> get() = container.projection.profile
+    val testPattern: StateFlow<Boolean> get() = container.projection.testPattern
     val outputTarget: StateFlow<TvTarget?> get() = container.output.target
     val iconLoader: AppIconLoader get() = container.iconLoader
     val appLaunch = AppLaunchController(opener = container.launcher, onAppMissing = { loadApps() })
@@ -120,6 +121,8 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun cycleProfile() = container.projection.cycleProfile()
+
+    fun toggleTestPattern() = container.projection.toggleTestPattern()
 
     fun stop() {
         viewModelScope.launch { container.projection.stop() }
