@@ -156,6 +156,14 @@ fun HomeScreen(
                         modifier = Modifier.width(CARD_WIDTH),
                     )
                 }
+                item(key = "mirror") {
+                    TvCard(
+                        title = "Espejo nativo 16:9",
+                        subtitle = "Miracast del sistema + Shizuku, sin franjas",
+                        onClick = { onNavigate(Routes.MIRROR) },
+                        modifier = Modifier.width(CARD_WIDTH),
+                    )
+                }
                 item(key = "project") {
                     TvCard(
                         title = "Proyectar OpenTV en el TV",

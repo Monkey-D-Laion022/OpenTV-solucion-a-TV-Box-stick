@@ -14,10 +14,14 @@ import com.opentv.app.connect.OutputController
 import com.opentv.app.connect.SocketLanHttp
 import com.opentv.app.connect.SystemCastLauncher
 import com.opentv.app.connect.UdpSsdpSearch
+import com.opentv.app.display.CastOpener
+import com.opentv.app.display.NativeMirrorFlow
 import com.opentv.app.display.PrefsResizeStore
 import com.opentv.app.display.ScreenResizer
 import com.opentv.app.display.ShizukuShell
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.opentv.app.stream.TvProjection
@@ -47,6 +51,18 @@ class AppContainer(context: Context) {
     // Resolución 16:9 forzada con Shizuku (solo al espejar la pantalla).
     val shizuku: ShizukuShell by lazy { ShizukuShell(appContext) }
     val resizer: ScreenResizer by lazy { ScreenResizer(shizuku, PrefsResizeStore(appContext)) }
+
+    // Espejo nativo del sistema con 16:9 forzado. Usa un alcance propio de la app: debe seguir vigilando aunque OpenTV
+    // pase a segundo plano mientras el usuario elige el TV en el panel del sistema.
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    val nativeMirror: NativeMirrorFlow by lazy {
+        NativeMirrorFlow(
+            resizer = resizer,
+            cast = CastOpener { systemCast.open() },
+            displayConnected = { displayMonitor.observe().map { it != null } },
+            scope = appScope,
+        )
+    }
 
     /** Si la app se cerró con la resolución forzada, la restaura al abrir (si Shizuku está lista). */
     fun restorePendingResize() {

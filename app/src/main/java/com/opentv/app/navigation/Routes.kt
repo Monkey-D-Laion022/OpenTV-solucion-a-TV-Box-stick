@@ -10,6 +10,7 @@ object Routes {
     const val PLAYER = "player"
     const val TOOLS = "tools"
     const val REMOTE = "remote"
+    const val MIRROR = "mirror"
 
     const val PENDING_ARG = "id"
     const val PENDING_PATTERN = "pending/{$PENDING_ARG}"

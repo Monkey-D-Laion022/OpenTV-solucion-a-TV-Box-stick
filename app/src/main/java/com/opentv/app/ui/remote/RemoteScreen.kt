@@ -153,7 +153,7 @@ fun RemoteScreen(
                     )
                 }
                 Text(
-                    text = "16:9 forzado al espejar: ${if (force169) "SÍ" else "no"}. ${shizuku.message} " +
+                    text = "16:9 forzado SOLO en el espejo propio por DLNA (para el espejo nativo usá la tarjeta «Espejo nativo 16:9» del inicio): ${if (force169) "SÍ" else "no"}. ${shizuku.message} " +
                         "Cambia la resolución de TODO el teléfono mientras espeja y la restaura al detener; para que no haya " +
                         "franjas, usá las apps en horizontal.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -169,7 +169,7 @@ fun RemoteScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (!streaming && !busy) {
                         TvButton(
-                            text = "16:9 forzado: ${if (force169) "Sí" else "No"}",
+                            text = "16:9 en espejo propio: ${if (force169) "Sí" else "No"}",
                             onClick = viewModel::toggleForce169,
                             horizontalPadding = 20.dp,
                         )
