@@ -20,6 +20,7 @@ import com.opentv.app.connect.UpnpDevice
 import java.io.IOException
 import java.net.Inet4Address
 import java.security.SecureRandom
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -173,11 +174,25 @@ class TvProjection(
             note("enviando el enlace al TV (SetAVTransportURI + Play)")
             val result = dlna.play(target, url, metadata)
             note("el TV respondió: ${result::class.simpleName}")
-            if (result == DlnaResult.Ok) {
-                _state.value = ProjectionState.Streaming(url, target.friendlyName)
-            } else {
-                release("el TV rechazó el Play")
-                fail(DlnaMessages.describe(target.friendlyName, DlnaSoap.ACTION_PLAY, result))
+            var pulling = current.server.bytesSent.get() > 0
+            if (result != DlnaResult.Ok && !pulling) {
+                // Algunos TV contestan el Play tarde o mal; se les da unos segundos para empezar a pedir el video.
+                val deadline = System.currentTimeMillis() + PULL_GRACE_MS
+                while (!pulling && System.currentTimeMillis() < deadline) {
+                    delay(100)
+                    pulling = current.server.bytesSent.get() > 0
+                }
+            }
+            when (PlayOutcome.decide(result == DlnaResult.Ok, pulling)) {
+                PlayOutcome.CONFIRMED -> _state.value = ProjectionState.Streaming(url, target.friendlyName)
+                PlayOutcome.TV_IS_PULLING -> {
+                    note("el TV no confirmó el Play pero ya descarga el video: se sigue transmitiendo")
+                    _state.value = ProjectionState.Streaming(url, target.friendlyName)
+                }
+                PlayOutcome.FAILED -> {
+                    release("el TV rechazó el Play y no pidió el video")
+                    fail(DlnaMessages.describe(target.friendlyName, DlnaSoap.ACTION_PLAY, result))
+                }
             }
         } catch (e: IOException) {
             cleanup(server, encoder, audio, feeder, reader, null, virtualDisplay, presentation)
@@ -297,6 +312,9 @@ class TvProjection(
 
     private companion object {
         const val DENSITY_DPI = 240
+
+        /** Espera máxima a que un TV que no confirmó el Play empiece a descargar el video. */
+        const val PULL_GRACE_MS = 4_000L
 
         /** Caudal mínimo del flujo (video + audio + relleno): 2 Mbps. */
         const val MIN_RATE_BPS = 2_000_000L

@@ -229,3 +229,9 @@ Reporte real: con el 3C-3 el bloque de estado no mostró nada. Causas halladas: 
 - «Prueba sin interfaz»: envía una barra que se mueve y un contador en lugar de la interfaz de OpenTV. Si el TV también corta, el problema no está en dibujar la interfaz.
 - Etiqueta: «módulo 3C-4 (diagnóstico siempre visible)».
 - Verificado en la JVM: 148 pruebas. NO verificado: compilación ni la causa del corte.
+
+### Módulo 3C-5: el corte lo causaba OpenTV (causa confirmada con datos)
+Registro real en la LG NetCast: el TV hizo GET del video y leyó más de 500 KB, pero ~2 s después el comando `Play` terminó en «Unreachable» (el TV no contesta el SOAP mientras abre el flujo) y OpenTV, al tomarlo como fallo, se detuvo a sí mismo. Las hipótesis anteriores (caudal, cierre del socket, segundo plano) no eran la causa; el relleno nulo y el servicio en primer plano quedan, son inofensivos.
+- `stream/PlayOutcome`: si el TV no confirma el Play pero ya descarga el video, se sigue transmitiendo; solo se corta si no confirma Y no pide el video (con 4 s de gracia).
+- Etiqueta: «módulo 3C-5 (Play tolerante)».
+- Verificado en la JVM: 151 pruebas. NO verificado: compilación, y que la LG sostenga la reproducción después de esto; la TV de 32" no mandó registro.
