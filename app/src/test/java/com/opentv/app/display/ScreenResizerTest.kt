@@ -68,9 +68,10 @@ class ScreenResizerTest {
         val r = resizer.apply()
         assertTrue(r.toString(), r is ResizeResult.Applied)
         assertEquals("1080x1920", phone.overrideSize)
-        assertEquals(480, phone.overrideDensity)
+        assertNull(phone.overrideDensity) // por defecto no se toca la densidad
+        assertFalse(phone.commands.any { it.startsWith("wm density ") && it != "wm density" })
         assertTrue(resizer.pending.value)
-        assertEquals(PendingResize(null, null, "1080x1920", 480), store.pending)
+        assertEquals(PendingResize(null, null, "1080x1920", 320, densityChanged = false), store.pending)
 
         assertEquals(ResizeResult.Restored, resizer.restore())
         assertNull(phone.overrideSize); assertNull(phone.overrideDensity)
@@ -79,10 +80,41 @@ class ScreenResizerTest {
     }
 
     @Test
+    fun withDensityChangeBothAreAppliedAndRestored() = runBlocking {
+        val phone = FakePhone()
+        val resizer = ScreenResizer(phone, MemoryStore())
+        val r = resizer.apply(changeDensity = true)
+        assertTrue(r is ResizeResult.Applied && r.densityChanged)
+        assertEquals("1080x1920", phone.overrideSize)
+        assertEquals(480, phone.overrideDensity)
+        assertEquals(ResizeResult.Restored, resizer.restore())
+        assertNull(phone.overrideSize)
+        assertNull(phone.overrideDensity)
+    }
+
+    @Test
+    fun sizeOnlyRestoreNeverTouchesTheUsersDensity() = runBlocking {
+        val phone = FakePhone(overrideDensity = 300)
+        val resizer = ScreenResizer(phone, MemoryStore())
+        resizer.apply()
+        resizer.restore()
+        assertEquals(300, phone.overrideDensity)
+        assertFalse(phone.commands.any { it == "wm density reset" || it == "wm density 300" })
+    }
+
+    @Test
+    fun pendingFromOlderVersionsRestoresDensityToo() = runBlocking {
+        val phone = FakePhone(overrideSize = "1080x1920", overrideDensity = 480)
+        val store = MemoryStore().apply { pending = PendingResize(null, null, "1080x1920", 480) } // densityChanged por defecto
+        assertEquals(ResizeResult.Restored, ScreenResizer(phone, store).restore())
+        assertNull(phone.overrideDensity)
+    }
+
+    @Test
     fun restoresThePreviousCustomOverrideInsteadOfResetting() = runBlocking {
         val phone = FakePhone(overrideSize = "720x1560", overrideDensity = 300)
         val resizer = ScreenResizer(phone, MemoryStore())
-        resizer.apply()
+        resizer.apply(changeDensity = true)
         resizer.restore()
         assertEquals("720x1560", phone.overrideSize)
         assertEquals(300, phone.overrideDensity)

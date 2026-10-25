@@ -2,48 +2,46 @@ package com.opentv.app.display
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** Abre la pantalla de transmisión del sistema; `false` si el teléfono no la tiene. */
+/** Abre la pantalla de transmisión del sistema; `false` si el teléfono no pudo abrirla. */
 fun interface CastOpener {
     fun open(): Boolean
 }
 
 sealed interface NativeMirrorState {
-    /** Sin espejo. [note] explica cómo terminó el anterior, si corresponde. */
+    /** Sin resolución forzada. [note] explica cómo terminó la anterior, si corresponde. */
     data class Idle(val note: String? = null) : NativeMirrorState
 
     data object Applying : NativeMirrorState
 
-    /** Resolución ya forzada; falta que el usuario toque el TV en el panel del sistema. */
-    data class WaitingForTv(val size: String) : NativeMirrorState
-
-    /** Hay una pantalla externa conectada (la transmisión del sistema está activa). */
-    data class Mirroring(val size: String) : NativeMirrorState
+    /**
+     * Resolución 16:9 forzada (modo global): dura hasta que el usuario la restaure.
+     * [tvConnected]: hay una pantalla externa conectada ahora. [panelNote]: resultado del último intento de abrir la transmisión.
+     */
+    data class Forced(val size: String, val tvConnected: Boolean, val panelNote: String? = null) : NativeMirrorState
 
     data class Failed(val message: String) : NativeMirrorState
 }
 
 /**
- * Espejo nativo del sistema (Miracast / pantalla inalámbrica) con el teléfono en 16:9:
- * 1) fuerza la resolución (obligatorio: si no se logra, NO se abre el panel de transmisión),
- * 2) abre el panel de transmisión del sistema, donde el usuario toca su TV,
- * 3) vigila la pantalla externa SOLO para informar el estado: la resolución queda forzada (modo global) hasta que el
- *    usuario la restaure; así puede salir de OpenTV, abrir otras apps y transmitirlas. Opcionalmente [restoreOnDisconnect].
- * No transmite nada por su cuenta: la conexión la crea y la corta Android. Lógica pura.
+ * Espejo nativo del sistema (Miracast / pantalla inalámbrica) con el teléfono en 16:9, en DOS pasos que el usuario
+ * controla por separado:
+ * 1) [forceResolution]: fuerza 16:9 (si no se logra, queda en error y no hay nada que restaurar);
+ * 2) [openPanel]: abre la transmisión del sistema, cuando el usuario quiera; ahí toca su TV.
+ * La resolución queda forzada hasta [stop] (no se restaura sola, salvo que se active [restoreOnDisconnect]). La
+ * pantalla externa se vigila solo para informar. No transmite nada por su cuenta: la conexión la crea y la corta
+ * Android. Lógica pura.
  */
 class NativeMirrorFlow(
     private val resizer: ScreenResizer,
     private val cast: CastOpener,
     private val displayConnected: () -> Flow<Boolean>,
     private val scope: CoroutineScope,
-    private val settleMs: Long = 700,
-    /** Restaura sola al cortarse la transmisión. Desactivado: la resolución dura hasta que el usuario la restaure. */
     private val restoreOnDisconnect: Boolean = false,
 ) {
     private val _state = MutableStateFlow<NativeMirrorState>(NativeMirrorState.Idle())
@@ -52,22 +50,34 @@ class NativeMirrorFlow(
     private var job: Job? = null
 
     private val busy: Boolean
-        get() = when (_state.value) {
-            NativeMirrorState.Applying, is NativeMirrorState.WaitingForTv, is NativeMirrorState.Mirroring -> true
-            else -> false
-        }
+        get() = _state.value is NativeMirrorState.Applying || _state.value is NativeMirrorState.Forced
 
-    fun start() {
+    /** Paso 1. */
+    fun forceResolution() {
         if (busy) return
         _state.value = NativeMirrorState.Applying // antes de lanzar: un segundo toque no arranca otro flujo
         job = scope.launch { run() }
     }
 
-    /** Corta la espera/vigilancia y restaura la resolución. */
+    /** Paso 2. Solo con la resolución ya forzada. Devuelve `false` si no se pudo abrir. */
+    fun openPanel(opener: CastOpener = cast): Boolean {
+        val current = _state.value as? NativeMirrorState.Forced ?: return false
+        val opened = opener.open()
+        _state.value = current.copy(
+            panelNote = if (opened) {
+                null
+            } else {
+                "No se pudo abrir el panel de transmisión. Probá con el botón «Emitir» / «Smart View» del panel rápido (deslizá desde arriba)."
+            },
+        )
+        return opened
+    }
+
+    /** Restaura la resolución y corta la vigilancia. */
     fun stop() {
         job?.cancel()
         job = scope.launch {
-            _state.value = restoreToState("Espejo detenido.")
+            _state.value = restoreToState("Resolución restaurada.")
         }
     }
 
@@ -76,7 +86,7 @@ class NativeMirrorFlow(
             is ResizeResult.Applied -> r.plan.sizeArg
             ResizeResult.AlreadyApplied -> "ya forzada"
             is ResizeResult.Failed -> {
-                _state.value = NativeMirrorState.Failed("No se abrió la transmisión porque no se pudo forzar 16:9. ${r.message}")
+                _state.value = NativeMirrorState.Failed("No se pudo forzar 16:9. ${r.message}")
                 return
             }
             else -> {
@@ -84,29 +94,17 @@ class NativeMirrorFlow(
                 return
             }
         }
-        delay(settleMs) // el sistema tarda un instante en reacomodar la pantalla
+        _state.value = NativeMirrorState.Forced(size, tvConnected = false)
 
-        if (!cast.open()) {
-            val back = restoreToState(null)
-            _state.value = NativeMirrorState.Failed(
-                "Este teléfono no tiene pantalla de transmisión." + if (back is NativeMirrorState.Failed) " ${back.message}" else " Se restauró la resolución.",
-            )
-            return
-        }
-        _state.value = NativeMirrorState.WaitingForTv(size)
-
-        // Solo informa: no restaura por tiempo ni al desconectarse (salvo restoreOnDisconnect).
+        // Solo informa si hay una pantalla externa conectada.
         var wasConnected = false
         displayConnected().collect { connected ->
-            if (connected) {
-                wasConnected = true
-                _state.value = NativeMirrorState.Mirroring(size)
-            } else {
-                _state.value = NativeMirrorState.WaitingForTv(size)
-                if (wasConnected && restoreOnDisconnect) {
-                    _state.value = restoreToState("La transmisión terminó.")
-                    job?.cancel()
-                }
+            val s = _state.value as? NativeMirrorState.Forced ?: return@collect
+            _state.value = s.copy(tvConnected = connected)
+            if (connected) wasConnected = true
+            if (!connected && wasConnected && restoreOnDisconnect) {
+                _state.value = restoreToState("La transmisión terminó.")
+                job?.cancel()
             }
         }
     }
@@ -114,7 +112,7 @@ class NativeMirrorFlow(
     /** Restaura y devuelve el estado resultante: Idle con la nota, o Failed si no se pudo. */
     private suspend fun restoreToState(note: String?): NativeMirrorState =
         when (val r = resizer.restore()) {
-            ResizeResult.Restored -> NativeMirrorState.Idle(listOfNotNull(note, "Resolución restaurada.").joinToString(" "))
+            ResizeResult.Restored -> NativeMirrorState.Idle(note)
             ResizeResult.NothingToRestore -> NativeMirrorState.Idle(note)
             is ResizeResult.Failed -> NativeMirrorState.Failed(r.message)
             else -> NativeMirrorState.Idle(note)

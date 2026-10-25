@@ -32,8 +32,12 @@ class NativeMirrorViewModel(application: Application) : AndroidViewModel(applica
         container.shizuku.requestPermission { refresh() }
     }
 
-    /** Fuerza 16:9 con Shizuku y, solo si se logró, abre el panel de transmisión del sistema. */
-    fun start() {
+    /** Soporte de transmisión nativa de este teléfono (Miracast / Smart View), para avisar al usuario. */
+    val castAvailable: Boolean = container.systemCast.isAvailable()
+    val wifiDirect: Boolean = application.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_WIFI_DIRECT)
+
+    /** Paso 1: fuerza 16:9 con Shizuku (solo tamaño). No abre nada más. */
+    fun force() {
         refresh()
         val status = shizuku.value
         if (status != ShizukuShell.Status.READY) {
@@ -41,7 +45,12 @@ class NativeMirrorViewModel(application: Application) : AndroidViewModel(applica
             return
         }
         _message.value = null
-        container.nativeMirror.start()
+        container.nativeMirror.forceResolution()
+    }
+
+    /** Paso 2: abre la transmisión del sistema desde la Activity visible. */
+    fun openPanel(from: android.content.Context) {
+        container.nativeMirror.openPanel(com.opentv.app.display.CastOpener { container.systemCast.open(from) })
     }
 
     fun stop() = container.nativeMirror.stop()

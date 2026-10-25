@@ -46,9 +46,9 @@ fun NativeMirrorScreen(
     val firstFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
 
-    val active = state is NativeMirrorState.Applying ||
-        state is NativeMirrorState.WaitingForTv ||
-        state is NativeMirrorState.Mirroring
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val forced = state as? NativeMirrorState.Forced
+    val active = state is NativeMirrorState.Applying || forced != null
 
     SafeArea {
         Column(
@@ -57,9 +57,9 @@ fun NativeMirrorScreen(
         ) {
             Text("Espejo nativo 16:9", style = MaterialTheme.typography.headlineMedium, color = OpenTvColors.OnBackground)
             Text(
-                text = "OpenTV pone el teléfono en 16:9 con Shizuku y abre la transmisión de pantalla del sistema; ahí " +
-                    "tocás tu TV. La resolución queda forzada en todo el teléfono hasta que toques «Detener y restaurar» " +
-                    "(o «Restaurar resolución»). Para que no haya franjas, usá el teléfono y las apps en horizontal.",
+                text = "Dos pasos manuales: 1) «Forzar 16:9» (solo el tamaño; la densidad no se toca para no reacomodar los íconos) " +
+                    "y 2) «Abrir transmisión» cuando quieras; ahí tocás tu TV. La resolución queda forzada en todo el teléfono " +
+                    "hasta que toques «Restaurar». Para que no haya franjas, usá el teléfono y las apps en horizontal.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = OpenTvColors.Muted,
             )
@@ -77,9 +77,11 @@ fun NativeMirrorScreen(
                 text = when (val s = state) {
                     is NativeMirrorState.Idle -> s.note ?: "Estado: detenido."
                     NativeMirrorState.Applying -> "Aplicando 16:9 al teléfono…"
-                    is NativeMirrorState.WaitingForTv ->
-                        "Resolución forzada (${s.size}) y se mantiene hasta que la restaures. Elegí tu TV en el panel del sistema; después podés salir de OpenTV y abrir cualquier app."
-                    is NativeMirrorState.Mirroring -> "Transmitiendo (${s.size}). La resolución sigue forzada: volvé acá y tocá «Detener y restaurar» cuando termines."
+                    is NativeMirrorState.Forced -> buildString {
+                        append("Resolución forzada (${s.size}); se mantiene hasta que la restaures. ")
+                        append(if (s.tvConnected) "Hay una pantalla externa conectada." else "Todavía no hay pantalla externa conectada.")
+                        s.panelNote?.let { append("\n").append(it) }
+                    }
                     is NativeMirrorState.Failed -> s.message
                 },
                 style = MaterialTheme.typography.bodyLarge,
@@ -92,20 +94,29 @@ fun NativeMirrorScreen(
                     color = OpenTvColors.Warning,
                 )
             }
+            if (!viewModel.castAvailable || !viewModel.wifiDirect) {
+                Text(
+                    text = "Este teléfono no parece tener transmisión Miracast del sistema. Alternativa: «Proyectar OpenTV en el TV» " +
+                        "(DLNA propio): funciona con cualquier teléfono con Wi-Fi, con varios segundos de demora; sirve para video, fotos y menús.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = OpenTvColors.Warning,
+                )
+            }
             message?.let { Text(it, style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.Warning) }
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (active) {
+                if (forced != null) {
                     TvButton(
-                        text = "Detener y restaurar",
-                        onClick = viewModel::stop,
+                        text = "Abrir transmisión",
+                        onClick = { viewModel.openPanel(context) },
                         horizontalPadding = 20.dp,
                         modifier = Modifier.focusRequester(firstFocus),
                     )
+                    TvButton(text = "Restaurar", onClick = viewModel::stop, horizontalPadding = 20.dp)
                 } else {
                     TvButton(
-                        text = "Forzar 16:9 y abrir transmisión",
-                        onClick = viewModel::start,
+                        text = "Forzar 16:9",
+                        onClick = viewModel::force,
                         horizontalPadding = 20.dp,
                         modifier = Modifier.focusRequester(firstFocus),
                     )

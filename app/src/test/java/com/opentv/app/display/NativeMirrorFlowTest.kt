@@ -48,7 +48,6 @@ class NativeMirrorFlowTest {
         CastOpener { castOpened++; castAvailable },
         { screens },
         scope,
-        settleMs = 10,
         restoreOnDisconnect = restoreOnDisconnect,
     )
 
@@ -58,85 +57,95 @@ class NativeMirrorFlowTest {
         assertTrue(what, cond())
     }
 
-    @Test
-    fun resolutionIsForcedBeforeTheCastPanelOpensAndStaysForcedWhenTheScreenGoes() {
-        val f = flow()
-        f.start()
-        await("espera al TV") { f.state.value is NativeMirrorState.WaitingForTv }
-        assertEquals("1080x1920", phone.overrideSize)
-        assertEquals(480, phone.overrideDensity)
-        assertEquals(1, castOpened)
+    private fun forced(f: NativeMirrorFlow) = f.state.value as NativeMirrorState.Forced
 
-        screens.value = true
-        await("espejando") { f.state.value is NativeMirrorState.Mirroring }
-        screens.value = false
-        await("vuelve a esperar") { f.state.value is NativeMirrorState.WaitingForTv }
-        Thread.sleep(300)
-        // Modo global: sigue forzada hasta que el usuario restaure.
+    @Test
+    fun step1ForcesTheResolutionAndDoesNotOpenTheCastPanel() {
+        val f = flow()
+        f.forceResolution()
+        await("forzada") { f.state.value is NativeMirrorState.Forced }
         assertEquals("1080x1920", phone.overrideSize)
-        assertEquals(480, phone.overrideDensity)
+        assertNull(phone.overrideDensity)
+        Thread.sleep(200)
+        assertEquals(0, castOpened) // el panel lo abre el usuario en el paso 2
     }
 
     @Test
-    fun staysForcedForeverWhileNoTvConnects() {
+    fun step2OpensThePanelOnlyWhenForced() {
         val f = flow()
-        f.start()
-        await("espera al TV") { f.state.value is NativeMirrorState.WaitingForTv }
-        Thread.sleep(500)
-        assertTrue(f.state.value is NativeMirrorState.WaitingForTv)
+        assertFalse(f.openPanel())
+        assertEquals(0, castOpened)
+        f.forceResolution()
+        await("forzada") { f.state.value is NativeMirrorState.Forced }
+        assertTrue(f.openPanel())
+        assertEquals(1, castOpened)
+        assertNull(forced(f).panelNote)
+    }
+
+    @Test
+    fun aPanelThatCannotOpenKeepsTheResolutionAndExplainsWhatToDo() {
+        castAvailable = false
+        val f = flow()
+        f.forceResolution()
+        await("forzada") { f.state.value is NativeMirrorState.Forced }
+        assertFalse(f.openPanel())
+        assertEquals("1080x1920", phone.overrideSize) // no se restaura sola
+        assertTrue(forced(f).panelNote!!.contains("panel rápido"))
+    }
+
+    @Test
+    fun stayStaysForcedAcrossConnectAndDisconnect() {
+        val f = flow()
+        f.forceResolution()
+        await("forzada") { f.state.value is NativeMirrorState.Forced }
+        screens.value = true
+        await("conectada") { (f.state.value as? NativeMirrorState.Forced)?.tvConnected == true }
+        screens.value = false
+        await("desconectada") { (f.state.value as? NativeMirrorState.Forced)?.tvConnected == false }
+        Thread.sleep(300)
         assertEquals("1080x1920", phone.overrideSize)
     }
 
     @Test
     fun optionalRestoreOnDisconnect() {
         val f = flow(restoreOnDisconnect = true)
-        f.start()
-        await("espera al TV") { f.state.value is NativeMirrorState.WaitingForTv }
+        f.forceResolution()
+        await("forzada") { f.state.value is NativeMirrorState.Forced }
         screens.value = true
-        await("espejando") { f.state.value is NativeMirrorState.Mirroring }
+        await("conectada") { (f.state.value as? NativeMirrorState.Forced)?.tvConnected == true }
         screens.value = false
-        await("restaurado") { f.state.value is NativeMirrorState.Idle }
+        await("restaurada") { f.state.value is NativeMirrorState.Idle }
         assertNull(phone.overrideSize)
     }
 
     @Test
-    fun ifTheResolutionCannotBeForcedTheCastPanelIsNotOpened() {
+    fun ifTheResolutionCannotBeForcedThereIsNothingToOpen() {
         phone.broken = true
         val f = flow()
-        f.start()
+        f.forceResolution()
         await("falló") { f.state.value is NativeMirrorState.Failed }
+        assertFalse(f.openPanel())
         assertEquals(0, castOpened)
-        assertTrue((f.state.value as NativeMirrorState.Failed).message.contains("no se pudo forzar 16:9"))
+        assertTrue((f.state.value as NativeMirrorState.Failed).message.contains("No se pudo forzar 16:9"))
     }
 
     @Test
-    fun phoneWithoutCastScreenIsRestored() {
-        castAvailable = false
+    fun stopRestores() {
         val f = flow()
-        f.start()
-        await("falló") { f.state.value is NativeMirrorState.Failed }
-        assertNull(phone.overrideSize)
-        assertTrue((f.state.value as NativeMirrorState.Failed).message.contains("no tiene pantalla de transmisión"))
-    }
-
-    @Test
-    fun stopWhileWaitingRestores() {
-        val f = flow()
-        f.start()
-        await("espera al TV") { f.state.value is NativeMirrorState.WaitingForTv }
+        f.forceResolution()
+        await("forzada") { f.state.value is NativeMirrorState.Forced }
         f.stop()
-        await("detenido") { f.state.value is NativeMirrorState.Idle && (f.state.value as NativeMirrorState.Idle).note != null }
+        await("detenida") { (f.state.value as? NativeMirrorState.Idle)?.note != null }
         assertNull(phone.overrideSize)
         assertFalse(f.state.value is NativeMirrorState.Failed)
     }
 
     @Test
-    fun startingTwiceWhileBusyDoesNothing() {
+    fun forcingTwiceWhileBusyDoesNothing() {
         val f = flow()
-        f.start()
-        await("espera al TV") { f.state.value is NativeMirrorState.WaitingForTv }
-        f.start()
-        Thread.sleep(100)
-        assertEquals(1, castOpened)
+        f.forceResolution()
+        f.forceResolution()
+        await("forzada") { f.state.value is NativeMirrorState.Forced }
+        assertEquals("1080x1920", phone.overrideSize)
     }
 }

@@ -2,5 +2,5 @@ package com.opentv.app.core
 
 /** Etiqueta visible de la versión de código instalada, para comprobar que el APK es el nuevo. */
 object BuildInfo {
-    const val LABEL = "Fase 4 · módulo 3G-3 (16:9 persistente)"
+    const val LABEL = "Fase 4 · módulo 3H (16:9 manual, solo tamaño)"
 }

@@ -14,6 +14,8 @@ class PrefsResizeStore(context: Context) : ResizeStore {
                 prevDensity = prefs.getInt(KEY_PREV_DENSITY, -1).takeIf { it >= 0 },
                 appliedSize = prefs.getString(KEY_APPLIED_SIZE, "").orEmpty(),
                 appliedDensity = prefs.getInt(KEY_APPLIED_DENSITY, 0),
+                // Los pendientes guardados por versiones anteriores siempre cambiaron la densidad.
+                densityChanged = prefs.getBoolean(KEY_DENSITY_CHANGED, true),
             )
         }
         set(value) {
@@ -26,6 +28,7 @@ class PrefsResizeStore(context: Context) : ResizeStore {
                     .putInt(KEY_PREV_DENSITY, value.prevDensity ?: -1)
                     .putString(KEY_APPLIED_SIZE, value.appliedSize)
                     .putInt(KEY_APPLIED_DENSITY, value.appliedDensity)
+                    .putBoolean(KEY_DENSITY_CHANGED, value.densityChanged)
             }
             e.commit() // síncrono: tiene que estar en disco antes de cambiar la resolución
         }
@@ -36,5 +39,6 @@ class PrefsResizeStore(context: Context) : ResizeStore {
         const val KEY_PREV_DENSITY = "prevDensity"
         const val KEY_APPLIED_SIZE = "appliedSize"
         const val KEY_APPLIED_DENSITY = "appliedDensity"
+        const val KEY_DENSITY_CHANGED = "densityChanged"
     }
 }

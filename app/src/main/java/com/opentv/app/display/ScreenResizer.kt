@@ -19,6 +19,8 @@ data class PendingResize(
     val prevDensity: Int?,
     val appliedSize: String,
     val appliedDensity: Int,
+    /** Si se cambió también la densidad (si no, al restaurar no se toca). Los pendientes viejos la cambiaban. */
+    val densityChanged: Boolean = true,
 )
 
 interface ResizeStore {
@@ -77,7 +79,7 @@ data class ResizePlan(val width: Int, val height: Int, val density: Int) {
 }
 
 sealed interface ResizeResult {
-    data class Applied(val plan: ResizePlan) : ResizeResult
+    data class Applied(val plan: ResizePlan, val densityChanged: Boolean = false) : ResizeResult
     data object AlreadyApplied : ResizeResult
     data object NothingToRestore : ResizeResult
     data object Restored : ResizeResult
@@ -99,7 +101,12 @@ class ScreenResizer(
     val pending: StateFlow<Boolean> = _pending.asStateFlow()
     val hasPending: Boolean get() = store.pending != null
 
-    suspend fun apply(): ResizeResult = mutex.withLock {
+    /**
+     * @param changeDensity cambiar también la densidad. Por defecto NO: al pasar a 16:9 el alto en dp queda igual o mayor
+     * que en 20:9, así que el launcher no pierde filas y mueve menos íconos. Con `true` el alto en dp baja y el
+     * launcher reacomoda (y guarda) los íconos.
+     */
+    suspend fun apply(changeDensity: Boolean = false): ResizeResult = mutex.withLock {
         if (store.pending != null) return ResizeResult.AlreadyApplied
         try {
             val size = WmParse.size(shell.exec("wm size"))
@@ -107,20 +114,25 @@ class ScreenResizer(
             val density = WmParse.density(shell.exec("wm density"))
                 ?: return ResizeResult.Failed("No se pudo leer la densidad actual (`wm density`).")
             val portraitWidth = minOf(size.width, size.height)
-            val plan = ResizePlan.sixteenByNine(portraitWidth, density.override ?: density.physical)
+            val currentDensity = density.override ?: density.physical
+            val plan = ResizePlan.sixteenByNine(portraitWidth, currentDensity)
 
             // Primero se anota qué hay que deshacer, después se cambia.
-            store.pending = PendingResize(size.override, density.override, plan.sizeArg, plan.density)
+            store.pending = PendingResize(
+                size.override, density.override, plan.sizeArg,
+                appliedDensity = if (changeDensity) plan.density else currentDensity,
+                densityChanged = changeDensity,
+            )
             _pending.value = true
             shell.exec("wm size ${plan.sizeArg}")
-            shell.exec("wm density ${plan.density}")
+            if (changeDensity) shell.exec("wm density ${plan.density}")
 
             val check = WmParse.size(shell.exec("wm size"))
             if (check?.override != plan.sizeArg) {
                 restoreLocked()
                 return ResizeResult.Failed("El sistema no aceptó el cambio de resolución; se dejó como estaba.")
             }
-            ResizeResult.Applied(plan)
+            ResizeResult.Applied(plan, changeDensity)
         } catch (e: Exception) {
             if (store.pending != null) runCatching { restoreLocked() }
             ResizeResult.Failed("No se pudo cambiar la resolución: ${e.message ?: e.javaClass.simpleName}.")
@@ -138,7 +150,9 @@ class ScreenResizer(
     private suspend fun restoreLocked(): ResizeResult {
         val p = store.pending ?: return ResizeResult.NothingToRestore
         shell.exec(if (p.prevSize == null) "wm size reset" else "wm size ${p.prevSize}")
-        shell.exec(if (p.prevDensity == null) "wm density reset" else "wm density ${p.prevDensity}")
+        if (p.densityChanged) {
+            shell.exec(if (p.prevDensity == null) "wm density reset" else "wm density ${p.prevDensity}")
+        }
         val now = WmParse.size(shell.exec("wm size"))
         if (now?.override == p.appliedSize) {
             return ResizeResult.Failed("La resolución sigue modificada. Probá «Restaurar resolución» otra vez.")
