@@ -68,6 +68,7 @@ fun HomeScreen(
     val favorites by viewModel.favoriteApps.collectAsStateWithLifecycle()
     val launchState by viewModel.appLaunch.state.collectAsStateWithLifecycle()
     val externalDisplay by viewModel.externalDisplay.collectAsStateWithLifecycle()
+    val resizePending by viewModel.resizePending.collectAsStateWithLifecycle()
     val outputTarget by viewModel.outputTarget.collectAsStateWithLifecycle()
     var castPickerOpen by remember { mutableStateOf(false) }
     var appPickerOpen by remember { mutableStateOf(false) }
@@ -118,6 +119,8 @@ fun HomeScreen(
                 externalDisplayName = externalDisplay?.name,
                 outputName = outputTarget?.name,
                 onCast = { castPickerOpen = true },
+                resizeForced = resizePending,
+                onRestoreResolution = { onNavigate(Routes.MIRROR) },
             )
 
             HomeRow(title = "Aplicaciones") {
@@ -243,6 +246,8 @@ private fun HomeHeader(
     externalDisplayName: String?,
     outputName: String?,
     onCast: () -> Unit,
+    resizeForced: Boolean,
+    onRestoreResolution: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -288,6 +293,14 @@ private fun HomeHeader(
                 StatusChip(text = "Salida: $outputName", dotColor = OpenTvColors.Success)
             }
             CastButton(onClick = onCast)
+            if (resizeForced) {
+                // La resolución forzada dura hasta restaurarla: se avisa en el inicio para no olvidarla.
+                com.opentv.app.ui.components.TvButton(
+                    text = "Resolución 16:9 forzada · Restaurar",
+                    onClick = onRestoreResolution,
+                    horizontalPadding = 20.dp,
+                )
+            }
         }
     }
 }

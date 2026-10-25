@@ -58,8 +58,8 @@ fun NativeMirrorScreen(
             Text("Espejo nativo 16:9", style = MaterialTheme.typography.headlineMedium, color = OpenTvColors.OnBackground)
             Text(
                 text = "OpenTV pone el teléfono en 16:9 con Shizuku y abre la transmisión de pantalla del sistema; ahí " +
-                    "tocás tu TV. Para que no haya franjas, tené el teléfono en horizontal y usá las apps en horizontal. " +
-                    "Al terminar, OpenTV restaura la resolución.",
+                    "tocás tu TV. La resolución queda forzada en todo el teléfono hasta que toques «Detener y restaurar» " +
+                    "(o «Restaurar resolución»). Para que no haya franjas, usá el teléfono y las apps en horizontal.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = OpenTvColors.Muted,
             )
@@ -78,8 +78,8 @@ fun NativeMirrorScreen(
                     is NativeMirrorState.Idle -> s.note ?: "Estado: detenido."
                     NativeMirrorState.Applying -> "Aplicando 16:9 al teléfono…"
                     is NativeMirrorState.WaitingForTv ->
-                        "Resolución forzada (${s.size}). En el panel de transmisión del sistema tocá tu TV."
-                    is NativeMirrorState.Mirroring -> "Transmitiendo (${s.size}). Al cortarla se restaura la resolución."
+                        "Resolución forzada (${s.size}) y se mantiene hasta que la restaures. Elegí tu TV en el panel del sistema; después podés salir de OpenTV y abrir cualquier app."
+                    is NativeMirrorState.Mirroring -> "Transmitiendo (${s.size}). La resolución sigue forzada: volvé acá y tocá «Detener y restaurar» cuando termines."
                     is NativeMirrorState.Failed -> s.message
                 },
                 style = MaterialTheme.typography.bodyLarge,

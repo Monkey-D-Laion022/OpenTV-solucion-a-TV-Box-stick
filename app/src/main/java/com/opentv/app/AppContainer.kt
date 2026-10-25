@@ -64,13 +64,6 @@ class AppContainer(context: Context) {
         )
     }
 
-    /** Si la app se cerró con la resolución forzada, la restaura al abrir (si Shizuku está lista). */
-    fun restorePendingResize() {
-        if (!resizer.hasPending) return
-        if (shizuku.status() != ShizukuShell.Status.READY) return
-        CoroutineScope(Dispatchers.IO).launch { resizer.restore() }
-    }
-
     private val projectionHolder = lazy { TvProjection(appContext, dlna, resizer) }
     val projection: TvProjection get() = projectionHolder.value
 

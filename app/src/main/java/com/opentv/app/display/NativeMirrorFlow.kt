@@ -7,9 +7,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 
 /** Abre la pantalla de transmisión del sistema; `false` si el teléfono no la tiene. */
 fun interface CastOpener {
@@ -35,7 +33,8 @@ sealed interface NativeMirrorState {
  * Espejo nativo del sistema (Miracast / pantalla inalámbrica) con el teléfono en 16:9:
  * 1) fuerza la resolución (obligatorio: si no se logra, NO se abre el panel de transmisión),
  * 2) abre el panel de transmisión del sistema, donde el usuario toca su TV,
- * 3) vigila la pantalla externa y, al desconectarse (o si nunca se conecta), restaura la resolución.
+ * 3) vigila la pantalla externa SOLO para informar el estado: la resolución queda forzada (modo global) hasta que el
+ *    usuario la restaure; así puede salir de OpenTV, abrir otras apps y transmitirlas. Opcionalmente [restoreOnDisconnect].
  * No transmite nada por su cuenta: la conexión la crea y la corta Android. Lógica pura.
  */
 class NativeMirrorFlow(
@@ -44,7 +43,8 @@ class NativeMirrorFlow(
     private val displayConnected: () -> Flow<Boolean>,
     private val scope: CoroutineScope,
     private val settleMs: Long = 700,
-    private val connectTimeoutMs: Long = 180_000,
+    /** Restaura sola al cortarse la transmisión. Desactivado: la resolución dura hasta que el usuario la restaure. */
+    private val restoreOnDisconnect: Boolean = false,
 ) {
     private val _state = MutableStateFlow<NativeMirrorState>(NativeMirrorState.Idle())
     val state: StateFlow<NativeMirrorState> = _state.asStateFlow()
@@ -95,15 +95,20 @@ class NativeMirrorFlow(
         }
         _state.value = NativeMirrorState.WaitingForTv(size)
 
-        val connected = withTimeoutOrNull(connectTimeoutMs) { displayConnected().first { it } }
-        if (connected == null) {
-            _state.value = restoreToState("No se conectó ninguna pantalla a tiempo.")
-            return
+        // Solo informa: no restaura por tiempo ni al desconectarse (salvo restoreOnDisconnect).
+        var wasConnected = false
+        displayConnected().collect { connected ->
+            if (connected) {
+                wasConnected = true
+                _state.value = NativeMirrorState.Mirroring(size)
+            } else {
+                _state.value = NativeMirrorState.WaitingForTv(size)
+                if (wasConnected && restoreOnDisconnect) {
+                    _state.value = restoreToState("La transmisión terminó.")
+                    job?.cancel()
+                }
+            }
         }
-        _state.value = NativeMirrorState.Mirroring(size)
-
-        displayConnected().first { !it }
-        _state.value = restoreToState("La transmisión terminó.")
     }
 
     /** Restaura y devuelve el estado resultante: Idle con la nota, o Failed si no se pudo. */

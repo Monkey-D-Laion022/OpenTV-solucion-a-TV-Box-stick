@@ -53,6 +53,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = null,
     )
 
+    /** La resolución del teléfono está forzada por OpenTV y falta restaurarla. */
+    val resizePending: StateFlow<Boolean> get() = container.resizer.pending
+
     /** TV elegido como salida, si hay uno. */
     val outputTarget: StateFlow<TvTarget?> get() = container.output.target
 

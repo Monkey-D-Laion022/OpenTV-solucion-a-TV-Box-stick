@@ -43,13 +43,13 @@ class NativeMirrorFlowTest {
     @After
     fun tearDown() = job.cancel()
 
-    private fun flow(timeoutMs: Long = 5_000) = NativeMirrorFlow(
+    private fun flow(restoreOnDisconnect: Boolean = false) = NativeMirrorFlow(
         ScreenResizer(phone, NmStore()),
         CastOpener { castOpened++; castAvailable },
         { screens },
         scope,
         settleMs = 10,
-        connectTimeoutMs = timeoutMs,
+        restoreOnDisconnect = restoreOnDisconnect,
     )
 
     private fun await(what: String, cond: () -> Boolean) {
@@ -59,7 +59,7 @@ class NativeMirrorFlowTest {
     }
 
     @Test
-    fun resolutionIsForcedBeforeTheCastPanelOpensAndRestoredWhenTheScreenGoes() {
+    fun resolutionIsForcedBeforeTheCastPanelOpensAndStaysForcedWhenTheScreenGoes() {
         val f = flow()
         f.start()
         await("espera al TV") { f.state.value is NativeMirrorState.WaitingForTv }
@@ -70,10 +70,33 @@ class NativeMirrorFlowTest {
         screens.value = true
         await("espejando") { f.state.value is NativeMirrorState.Mirroring }
         screens.value = false
+        await("vuelve a esperar") { f.state.value is NativeMirrorState.WaitingForTv }
+        Thread.sleep(300)
+        // Modo global: sigue forzada hasta que el usuario restaure.
+        assertEquals("1080x1920", phone.overrideSize)
+        assertEquals(480, phone.overrideDensity)
+    }
+
+    @Test
+    fun staysForcedForeverWhileNoTvConnects() {
+        val f = flow()
+        f.start()
+        await("espera al TV") { f.state.value is NativeMirrorState.WaitingForTv }
+        Thread.sleep(500)
+        assertTrue(f.state.value is NativeMirrorState.WaitingForTv)
+        assertEquals("1080x1920", phone.overrideSize)
+    }
+
+    @Test
+    fun optionalRestoreOnDisconnect() {
+        val f = flow(restoreOnDisconnect = true)
+        f.start()
+        await("espera al TV") { f.state.value is NativeMirrorState.WaitingForTv }
+        screens.value = true
+        await("espejando") { f.state.value is NativeMirrorState.Mirroring }
+        screens.value = false
         await("restaurado") { f.state.value is NativeMirrorState.Idle }
         assertNull(phone.overrideSize)
-        assertNull(phone.overrideDensity)
-        assertTrue((f.state.value as NativeMirrorState.Idle).note!!.contains("restaurada"))
     }
 
     @Test
@@ -97,21 +120,12 @@ class NativeMirrorFlowTest {
     }
 
     @Test
-    fun noTvConnectingInTimeRestoresTheResolution() {
-        val f = flow(timeoutMs = 150)
-        f.start()
-        await("restaurado por tiempo") { f.state.value is NativeMirrorState.Idle }
-        assertNull(phone.overrideSize)
-        assertTrue((f.state.value as NativeMirrorState.Idle).note!!.contains("a tiempo"))
-    }
-
-    @Test
     fun stopWhileWaitingRestores() {
         val f = flow()
         f.start()
         await("espera al TV") { f.state.value is NativeMirrorState.WaitingForTv }
         f.stop()
-        await("detenido") { f.state.value is NativeMirrorState.Idle }
+        await("detenido") { f.state.value is NativeMirrorState.Idle && (f.state.value as NativeMirrorState.Idle).note != null }
         assertNull(phone.overrideSize)
         assertFalse(f.state.value is NativeMirrorState.Failed)
     }

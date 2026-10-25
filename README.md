@@ -119,5 +119,3 @@ Los paquetes de las fases siguientes (`apps`, `connect`, `player`, `files`, `rem
 - La ventana inmersiva oculta las barras; en algunos equipos se muestran al deslizar desde el borde.
 - `FLAG_KEEP_SCREEN_ON` mantiene la pantalla encendida mientras OpenTV está abierta (consumo de
   batería: usar el teléfono enchufado).
-
-  .
