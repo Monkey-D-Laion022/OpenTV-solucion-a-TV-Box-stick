@@ -35,6 +35,7 @@ import com.opentv.app.ui.theme.OpenTvColors
 @Composable
 fun NativeMirrorScreen(
     onBack: () -> Unit,
+    onOpenGuide: () -> Unit,
     viewModel: NativeMirrorViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -97,7 +98,7 @@ fun NativeMirrorScreen(
             if (!viewModel.castAvailable || !viewModel.wifiDirect) {
                 Text(
                     text = "Este teléfono no parece tener transmisión Miracast del sistema. Alternativa: «Proyectar OpenTV en el TV» " +
-                        "(DLNA propio): funciona con cualquier teléfono con Wi-Fi, con varios segundos de demora; sirve para video, fotos y menús.",
+                        "(DLNA propio) o «Espejo por navegador» (desde el inicio): funcionan con cualquier teléfono con Wi-Fi.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = OpenTvColors.Warning,
                 )
@@ -123,6 +124,9 @@ fun NativeMirrorScreen(
                 }
                 if (shizuku == ShizukuShell.Status.NEEDS_PERMISSION) {
                     TvButton(text = "Permiso de Shizuku", onClick = viewModel::requestPermission, horizontalPadding = 20.dp)
+                }
+                if (shizuku != ShizukuShell.Status.READY) {
+                    TvButton(text = "Cómo activar Shizuku", onClick = onOpenGuide, horizontalPadding = 20.dp)
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

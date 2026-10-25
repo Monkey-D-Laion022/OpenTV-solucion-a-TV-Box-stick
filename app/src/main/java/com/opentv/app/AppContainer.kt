@@ -64,12 +64,16 @@ class AppContainer(context: Context) {
         )
     }
 
+    private val browserMirrorHolder = lazy { com.opentv.app.stream.BrowserMirror(appContext) }
+    val browserMirror: com.opentv.app.stream.BrowserMirror get() = browserMirrorHolder.value
+
     private val projectionHolder = lazy { TvProjection(appContext, dlna, resizer) }
     val projection: TvProjection get() = projectionHolder.value
 
     /** Corta la proyección al TV si estaba activa; no crea nada si nunca se usó. */
     fun shutdownProjection() {
         if (projectionHolder.isInitialized()) projectionHolder.value.shutdown()
+        if (browserMirrorHolder.isInitialized()) browserMirrorHolder.value.shutdown()
     }
 
     /** Último enlace escrito en el reproductor o en «Conectar TV»; se comparte entre ambas pantallas. */

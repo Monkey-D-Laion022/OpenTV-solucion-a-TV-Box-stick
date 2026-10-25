@@ -31,8 +31,11 @@ class ProjectionService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            val projection = (application as OpenTvApp).container.projection
-            CoroutineScope(Dispatchers.Main).launch { projection.stop() }
+            val container = (application as OpenTvApp).container
+            CoroutineScope(Dispatchers.Main).launch {
+                container.projection.stop()
+                container.browserMirror.stop()
+            }
             stopSelf()
             return START_NOT_STICKY
         }

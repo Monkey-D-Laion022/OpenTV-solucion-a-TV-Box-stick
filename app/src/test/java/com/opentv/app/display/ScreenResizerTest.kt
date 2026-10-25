@@ -15,6 +15,8 @@ private class FakePhone(
     var overrideSize: String? = null,
     var overrideDensity: Int? = null,
     var failSizeChange: Boolean = false,
+    val settings: MutableMap<String, String> = mutableMapOf("accelerometer_rotation" to "1"),
+    var failSettings: Boolean = false,
 ) : ShellRunner {
     val commands = mutableListOf<String>()
 
@@ -22,6 +24,14 @@ private class FakePhone(
         commands += command
         require(ScreenResizer.isAllowedCommand(command)) { "comando no permitido: $command" }
         val parts = command.split(" ")
+        if (parts[0] == "settings") {
+            if (failSettings) throw IllegalStateException("settings no disponible")
+            return when (parts[1]) {
+                "get" -> settings[parts[3]] ?: "null"
+                "put" -> { settings[parts[3]] = parts[4]; "" }
+                else -> { settings.remove(parts[3]); "" }
+            }
+        }
         return when {
             command == "wm size" -> "Physical size: ${physW}x$physH\n" + (overrideSize?.let { "Override size: $it\n" } ?: "")
             command == "wm density" -> "Physical density: $physDensity\n" + (overrideDensity?.let { "Override density: $it\n" } ?: "")
@@ -71,7 +81,7 @@ class ScreenResizerTest {
         assertNull(phone.overrideDensity) // por defecto no se toca la densidad
         assertFalse(phone.commands.any { it.startsWith("wm density ") && it != "wm density" })
         assertTrue(resizer.pending.value)
-        assertEquals(PendingResize(null, null, "1080x1920", 320, densityChanged = false), store.pending)
+        assertEquals(PendingResize(null, null, "1080x1920", 320, densityChanged = false, rotationLocked = true, prevAutoRotate = 1, prevUserRotation = null), store.pending)
 
         assertEquals(ResizeResult.Restored, resizer.restore())
         assertNull(phone.overrideSize); assertNull(phone.overrideDensity)
@@ -164,6 +174,46 @@ class ScreenResizerTest {
             assertTrue(it, ScreenResizer.isAllowedCommand(it))
         }
         listOf("rm -rf /", "wm size 1080x1920; reboot", "wm overscan 1,1,1,1", "sh -c ls", "wm size  1080x1920", "").forEach {
+            assertFalse(it, ScreenResizer.isAllowedCommand(it))
+        }
+    }
+
+    @Test
+    fun rotationIsLockedToLandscapeAndRestored() = runBlocking {
+        val phone = FakePhone()
+        val resizer = ScreenResizer(phone, MemoryStore())
+        resizer.apply()
+        assertEquals("0", phone.settings["accelerometer_rotation"])
+        assertEquals("1", phone.settings["user_rotation"])
+        resizer.restore()
+        assertEquals("1", phone.settings["accelerometer_rotation"]) // valor previo
+        assertNull(phone.settings["user_rotation"]) // no existía: se borra
+    }
+
+    @Test
+    fun aRotationFailureDoesNotBreakTheResolutionChange() = runBlocking {
+        val phone = FakePhone(failSettings = true)
+        val resizer = ScreenResizer(phone, MemoryStore())
+        assertTrue(resizer.apply() is ResizeResult.Applied)
+        assertEquals("1080x1920", phone.overrideSize)
+        assertEquals(ResizeResult.Restored, resizer.restore())
+        assertNull(phone.overrideSize)
+    }
+
+    @Test
+    fun rotationCanBeLeftAlone() = runBlocking {
+        val phone = FakePhone()
+        ScreenResizer(phone, MemoryStore()).apply(lockLandscape = false)
+        assertEquals("1", phone.settings["accelerometer_rotation"])
+        assertTrue(phone.commands.none { it.startsWith("settings") })
+    }
+
+    @Test
+    fun onlyRotationSettingsAreAllowed() {
+        listOf("settings get system user_rotation", "settings put system accelerometer_rotation 0", "settings delete system user_rotation").forEach {
+            assertTrue(it, ScreenResizer.isAllowedCommand(it))
+        }
+        listOf("settings put global adb_enabled 1", "settings put system user_rotation 1; reboot", "settings put secure x 1").forEach {
             assertFalse(it, ScreenResizer.isAllowedCommand(it))
         }
     }

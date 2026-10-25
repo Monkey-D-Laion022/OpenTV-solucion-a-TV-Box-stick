@@ -167,6 +167,14 @@ fun HomeScreen(
                         modifier = Modifier.width(CARD_WIDTH),
                     )
                 }
+                item(key = "browser") {
+                    TvCard(
+                        title = "Espejo por navegador",
+                        subtitle = "Sin Miracast: el TV abre una web",
+                        onClick = { onNavigate(Routes.BROWSER) },
+                        modifier = Modifier.width(CARD_WIDTH),
+                    )
+                }
                 item(key = "project") {
                     TvCard(
                         title = "Proyectar OpenTV en el TV",

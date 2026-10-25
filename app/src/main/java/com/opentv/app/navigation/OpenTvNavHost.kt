@@ -59,7 +59,13 @@ fun OpenTvNavHost(
             )
         }
         composable(Routes.MIRROR) {
-            NativeMirrorScreen(onBack = goBack)
+            NativeMirrorScreen(onBack = goBack, onOpenGuide = { navController.navigate(Routes.SHIZUKU_GUIDE) })
+        }
+        composable(Routes.BROWSER) {
+            com.opentv.app.ui.browser.BrowserMirrorScreen(onBack = goBack)
+        }
+        composable(Routes.SHIZUKU_GUIDE) {
+            com.opentv.app.ui.shizuku.ShizukuGuideScreen(onBack = goBack)
         }
         composable(Routes.REMOTE) {
             RemoteScreen(onBack = goBack)

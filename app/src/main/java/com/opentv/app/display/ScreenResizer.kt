@@ -21,6 +21,10 @@ data class PendingResize(
     val appliedDensity: Int,
     /** Si se cambió también la densidad (si no, al restaurar no se toca). Los pendientes viejos la cambiaban. */
     val densityChanged: Boolean = true,
+    /** Si se fijó la rotación en horizontal; en ese caso se guardan los valores previos para devolverlos. */
+    val rotationLocked: Boolean = false,
+    val prevAutoRotate: Int? = null,
+    val prevUserRotation: Int? = null,
 )
 
 interface ResizeStore {
@@ -106,7 +110,7 @@ class ScreenResizer(
      * que en 20:9, así que el launcher no pierde filas y mueve menos íconos. Con `true` el alto en dp baja y el
      * launcher reacomoda (y guarda) los íconos.
      */
-    suspend fun apply(changeDensity: Boolean = false): ResizeResult = mutex.withLock {
+    suspend fun apply(changeDensity: Boolean = false, lockLandscape: Boolean = true): ResizeResult = mutex.withLock {
         if (store.pending != null) return ResizeResult.AlreadyApplied
         try {
             val size = WmParse.size(shell.exec("wm size"))
@@ -117,15 +121,31 @@ class ScreenResizer(
             val currentDensity = density.override ?: density.physical
             val plan = ResizePlan.sixteenByNine(portraitWidth, currentDensity)
 
+            // Rotación: se lee antes de cambiar nada. Si no se puede leer, no se toca (el 16:9 sigue sin ella).
+            val prevAuto = if (lockLandscape) readSetting("accelerometer_rotation") else null
+            val prevUser = if (lockLandscape) readSetting("user_rotation") else null
+            val lock = lockLandscape && (prevAuto != null || prevUser != null)
+
             // Primero se anota qué hay que deshacer, después se cambia.
             store.pending = PendingResize(
                 size.override, density.override, plan.sizeArg,
                 appliedDensity = if (changeDensity) plan.density else currentDensity,
                 densityChanged = changeDensity,
+                rotationLocked = lock,
+                prevAutoRotate = prevAuto,
+                prevUserRotation = prevUser,
             )
             _pending.value = true
             shell.exec("wm size ${plan.sizeArg}")
             if (changeDensity) shell.exec("wm density ${plan.density}")
+            if (lock) {
+                // Rotación fija en horizontal: con el tamaño forzado en vertical (1080x1920), girar a mano o que una
+                // app la pida a mitad del espejo parte la pantalla. Es opcional: si falla no se cancela el 16:9.
+                runCatching {
+                    shell.exec("settings put system accelerometer_rotation 0")
+                    shell.exec("settings put system user_rotation 1")
+                }
+            }
 
             val check = WmParse.size(shell.exec("wm size"))
             if (check?.override != plan.sizeArg) {
@@ -153,6 +173,13 @@ class ScreenResizer(
         if (p.densityChanged) {
             shell.exec(if (p.prevDensity == null) "wm density reset" else "wm density ${p.prevDensity}")
         }
+        if (p.rotationLocked) {
+            // Mejor esfuerzo: la rotación no debe impedir devolver la resolución.
+            runCatching {
+                restoreSetting("user_rotation", p.prevUserRotation)
+                restoreSetting("accelerometer_rotation", p.prevAutoRotate)
+            }
+        }
         val now = WmParse.size(shell.exec("wm size"))
         if (now?.override == p.appliedSize) {
             return ResizeResult.Failed("La resolución sigue modificada. Probá «Restaurar resolución» otra vez.")
@@ -162,10 +189,19 @@ class ScreenResizer(
         return ResizeResult.Restored
     }
 
+    /** Valor entero de un ajuste de sistema, o `null` si no existe o no se pudo leer. */
+    private suspend fun readSetting(name: String): Int? =
+        runCatching { shell.exec("settings get system $name").trim().toIntOrNull() }.getOrNull()
+
+    private suspend fun restoreSetting(name: String, value: Int?) {
+        shell.exec(if (value == null) "settings delete system $name" else "settings put system $name $value")
+    }
+
     companion object {
         /** Comandos que el servicio con permisos de sistema acepta ejecutar (nada más). */
         private val ALLOWED = Regex("""^wm (size|density)( reset| \d+x\d+| \d+)?$""")
+        private val ALLOWED_SETTINGS = Regex("""^settings (get|delete) system (accelerometer_rotation|user_rotation)$|^settings put system (accelerometer_rotation|user_rotation) [0-3]$""")
 
-        fun isAllowedCommand(command: String): Boolean = ALLOWED.matches(command)
+        fun isAllowedCommand(command: String): Boolean = ALLOWED.matches(command) || ALLOWED_SETTINGS.matches(command)
     }
 }

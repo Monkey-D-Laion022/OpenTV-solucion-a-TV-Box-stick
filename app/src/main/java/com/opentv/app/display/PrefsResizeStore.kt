@@ -16,6 +16,9 @@ class PrefsResizeStore(context: Context) : ResizeStore {
                 appliedDensity = prefs.getInt(KEY_APPLIED_DENSITY, 0),
                 // Los pendientes guardados por versiones anteriores siempre cambiaron la densidad.
                 densityChanged = prefs.getBoolean(KEY_DENSITY_CHANGED, true),
+                rotationLocked = prefs.getBoolean(KEY_ROT_LOCKED, false),
+                prevAutoRotate = prefs.getInt(KEY_PREV_AUTO, -1).takeIf { it >= 0 },
+                prevUserRotation = prefs.getInt(KEY_PREV_USER, -1).takeIf { it >= 0 },
             )
         }
         set(value) {
@@ -29,6 +32,9 @@ class PrefsResizeStore(context: Context) : ResizeStore {
                     .putString(KEY_APPLIED_SIZE, value.appliedSize)
                     .putInt(KEY_APPLIED_DENSITY, value.appliedDensity)
                     .putBoolean(KEY_DENSITY_CHANGED, value.densityChanged)
+                    .putBoolean(KEY_ROT_LOCKED, value.rotationLocked)
+                    .putInt(KEY_PREV_AUTO, value.prevAutoRotate ?: -1)
+                    .putInt(KEY_PREV_USER, value.prevUserRotation ?: -1)
             }
             e.commit() // síncrono: tiene que estar en disco antes de cambiar la resolución
         }
@@ -40,5 +46,8 @@ class PrefsResizeStore(context: Context) : ResizeStore {
         const val KEY_APPLIED_SIZE = "appliedSize"
         const val KEY_APPLIED_DENSITY = "appliedDensity"
         const val KEY_DENSITY_CHANGED = "densityChanged"
+        const val KEY_ROT_LOCKED = "rotationLocked"
+        const val KEY_PREV_AUTO = "prevAutoRotate"
+        const val KEY_PREV_USER = "prevUserRotation"
     }
 }
