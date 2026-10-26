@@ -59,6 +59,27 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     /** TV elegido como salida, si hay uno. */
     val outputTarget: StateFlow<TvTarget?> get() = container.output.target
 
+    /**
+     * Botón único de 16:9: si está forzado lo restaura; si no, lo fuerza (con Shizuku lista). Si Shizuku no está lista
+     * llama a [onNeedsSetup] para abrir el asistente en lugar de fallar.
+     */
+    fun toggle169(onNeedsSetup: () -> Unit) {
+        if (container.resizer.hasPending) {
+            container.nativeMirror.stop()
+            return
+        }
+        if (container.shizuku.status() != com.opentv.app.display.ShizukuShell.Status.READY) {
+            onNeedsSetup()
+            return
+        }
+        container.nativeMirror.forceResolution()
+    }
+
+    /** Abre directamente la transmisión del sistema (Cast / Smart View / Miracast). */
+    fun openNativeCast(from: android.content.Context) {
+        container.systemCast.open(from)
+    }
+
     private val _allApps = MutableStateFlow<List<InstalledApp>>(emptyList())
 
     /** Todas las apps instaladas (A–Z), para elegir cuáles van en la fila principal. */

@@ -39,6 +39,7 @@ class ShizukuGuideViewModel(application: Application) : AndroidViewModel(applica
             running = status == ShizukuShell.Status.NEEDS_PERMISSION || status == ShizukuShell.Status.READY,
             granted = status == ShizukuShell.Status.READY,
             developerOptionsOn = devOn,
+            sdkInt = android.os.Build.VERSION.SDK_INT,
         )
     }
 }

@@ -78,6 +78,12 @@ fun RemoteScreen(
         if (result.resultCode == Activity.RESULT_OK && data != null) viewModel.startMirror(result.resultCode, data) else viewModel.mirrorDenied()
     }
     val context = LocalContext.current
+    val launchCapture = {
+        val manager = context.getSystemService(MediaProjectionManager::class.java)
+        mirrorLauncher.launch(manager.createScreenCaptureIntent())
+    }
+    // El audio interno necesita el permiso de micrófono (Android 10+). Si lo niegan, el espejo sigue, sin sonido.
+    val audioPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { launchCapture() }
     var pickerOpen by remember { mutableStateOf(false) }
 
     if (pickerOpen) CastPickerDialog(onDismiss = { pickerOpen = false })
@@ -201,10 +207,15 @@ fun RemoteScreen(
                     }
                     if (!streaming && !busy) {
                         TvButton(
-                            text = "Espejar pantalla del teléfono",
+                            text = "Espejar pantalla (con sonido)",
                             onClick = {
-                                val manager = context.getSystemService(MediaProjectionManager::class.java)
-                                mirrorLauncher.launch(manager.createScreenCaptureIntent())
+                                if (com.opentv.app.stream.PlaybackAudioCapture.supported() &&
+                                    !com.opentv.app.stream.PlaybackAudioCapture.hasPermission(context)
+                                ) {
+                                    audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                                } else {
+                                    launchCapture()
+                                }
                             },
                             horizontalPadding = 20.dp,
                         )

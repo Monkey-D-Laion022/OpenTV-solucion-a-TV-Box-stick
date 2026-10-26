@@ -37,6 +37,7 @@ fun BrowserMirrorScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val quality by viewModel.quality.collectAsStateWithLifecycle()
+    val shortUrl by viewModel.shortUrl.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val data = result.data
@@ -54,8 +55,9 @@ fun BrowserMirrorScreen(
             Text("Espejo por navegador (sin Miracast)", style = MaterialTheme.typography.headlineMedium, color = OpenTvColors.OnBackground)
             Text(
                 "Funciona con cualquier teléfono con Wi‑Fi: el TV abre una dirección web y muestra la pantalla. Hace falta un TV con " +
-                    "navegador, en la misma red Wi‑Fi. Es HTTP simple (sin HTTPS) para que lo abran hasta los navegadores viejos. " +
-                    "Si el TV no tiene navegador, no sirve: usá Miracast o un receptor externo.",
+                    "navegador, en la misma red Wi‑Fi. Es HTTP simple (sin HTTPS) en un puerto fijo (8080). Con la dirección corta, " +
+                    "cualquiera en tu Wi‑Fi que la escriba puede ver la pantalla mientras esté activo: usá «con código» en redes ajenas. " +
+                    "Los navegadores de TV muy viejos pueden no abrirla; no está verificado en ninguno.",
                 style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
             )
             when (val s = state) {
@@ -68,6 +70,16 @@ fun BrowserMirrorScreen(
                     Text(
                         "Si no se ve imagen (navegador muy viejo), probá el modo compatible: ${s.slowUrl}",
                         style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
+                    )
+                    Text(
+                        if (s.requests.isEmpty()) {
+                            "Todavía no llegó ningún pedido del TV. Si el navegador dice «página no disponible», revisá que el TV " +
+                                "y el teléfono estén en la misma red Wi‑Fi (y que el router no aísle los equipos) y que la dirección esté bien escrita."
+                        } else {
+                            "Pedidos recibidos:\n" + s.requests.joinToString("\n")
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (s.requests.isEmpty()) OpenTvColors.Warning else OpenTvColors.Muted,
                     )
                     Text(
                         "TVs conectados: ${s.clients} · ${s.framesPerSecond} cuadros/s · ${s.kbPerSecond} KB/s",
@@ -94,6 +106,11 @@ fun BrowserMirrorScreen(
                         modifier = Modifier.focusRequester(firstFocus),
                     )
                     TvButton(text = "Calidad: ${quality.label}", onClick = viewModel::cycleQuality, horizontalPadding = 20.dp)
+                    TvButton(
+                        text = if (shortUrl) "Dirección: corta (sin código)" else "Dirección: con código",
+                        onClick = viewModel::toggleShortUrl,
+                        horizontalPadding = 20.dp,
+                    )
                 }
                 TvButton(text = "Volver", onClick = onBack, horizontalPadding = 20.dp)
             }

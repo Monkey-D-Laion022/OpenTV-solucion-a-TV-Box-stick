@@ -7,10 +7,10 @@ object Routes {
     const val DEVICE = "device"
     const val APPS = "apps"
     const val CONNECT = "connect"
+    const val HUB = "hub"
     const val PLAYER = "player"
     const val TOOLS = "tools"
     const val REMOTE = "remote"
-    const val MIRROR = "mirror"
     const val BROWSER = "browser"
     const val SHIZUKU_GUIDE = "shizuku-guide"
 

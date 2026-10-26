@@ -22,8 +22,15 @@ import kotlinx.coroutines.flow.asStateFlow
 sealed interface BrowserMirrorState {
     data object Idle : BrowserMirrorState
     data object Starting : BrowserMirrorState
-    data class Serving(val url: String, val slowUrl: String, val clients: Int, val framesPerSecond: Int, val kbPerSecond: Int) :
-        BrowserMirrorState
+    data class Serving(
+        val url: String,
+        val slowUrl: String,
+        val clients: Int,
+        val framesPerSecond: Int,
+        val kbPerSecond: Int,
+        /** Últimos pedidos que llegaron al servidor: si está vacío, el TV nunca llegó hasta el teléfono. */
+        val requests: List<String> = emptyList(),
+    ) : BrowserMirrorState
     data class Failed(val message: String) : BrowserMirrorState
 }
 
@@ -45,6 +52,15 @@ class BrowserMirror(context: Context) {
 
     fun cycleQuality() {
         if (session == null) _quality.value = _quality.value.next()
+    }
+
+    private val _shortUrl = MutableStateFlow(true)
+
+    /** URL corta (`http://IP:8080`, sin código) o con código aleatorio (más privada). */
+    val shortUrl: StateFlow<Boolean> = _shortUrl.asStateFlow()
+
+    fun toggleShortUrl() {
+        if (session == null) _shortUrl.value = !_shortUrl.value
     }
 
     private class Session(
@@ -70,14 +86,15 @@ class BrowserMirror(context: Context) {
         }
         ProjectionService.start(appContext, mirror = true)
         val hub = MjpegHub()
-        val server = MjpegHttpServer(hub, randomToken(), acceptClient = ::isLanClient)
+        val short = _shortUrl.value
+        val server = MjpegHttpServer(hub, if (short) "" else randomToken(), acceptClient = ::isLanClient)
         var projection: MediaProjection? = null
         var display: VirtualDisplay? = null
         var reader: ImageReader? = null
         val thread = HandlerThread("opentv-mjpeg-capture").apply { start() }
         try {
             ProjectionService.awaitReady()
-            val port = server.start(ip)
+            val port = server.start(ip, PREFERRED_PORTS)
             val manager = appContext.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             val p = manager.getMediaProjection(mirror.resultCode, mirror.data)
                 ?: throw IllegalStateException("Android no entregó la captura de pantalla.")
@@ -104,7 +121,10 @@ class BrowserMirror(context: Context) {
             ) ?: throw IllegalStateException("Android no creó la pantalla de captura.")
             display = vd
 
-            val base = "http://${ip.hostAddress}:$port/${server.token}"
+            val root = "http://${ip.hostAddress}:$port"
+            val base = if (server.token.isEmpty()) root else "$root/${server.token}"
+            val home = if (server.token.isEmpty()) root else "$base/"
+            val slow = if (server.token.isEmpty()) "$root/l" else "$base/lento"
             val timer = java.util.Timer("opentv-mjpeg-stats", true)
             var lastFrames = 0L
             var lastBytes = 0L
@@ -113,15 +133,15 @@ class BrowserMirror(context: Context) {
                     val frames = server.framesSent.get()
                     val bytes = server.bytesSent.get()
                     val s = BrowserMirrorState.Serving(
-                        "$base/", "$base/lento", server.activeClients,
-                        (frames - lastFrames).toInt(), ((bytes - lastBytes) / 1024).toInt(),
+                        home, slow, server.activeClients,
+                        (frames - lastFrames).toInt(), ((bytes - lastBytes) / 1024).toInt(), server.history,
                     )
                     lastFrames = frames; lastBytes = bytes
                     if (session != null) _state.value = s
                 }
             }, 1_000, 1_000)
             session = Session(hub, server, p, vd, imageReader, thread, timer)
-            _state.value = BrowserMirrorState.Serving("$base/", "$base/lento", 0, 0, 0)
+            _state.value = BrowserMirrorState.Serving(home, slow, 0, 0, 0)
         } catch (e: IOException) {
             teardown(server, display, reader, projection, thread, null)
             _state.value = BrowserMirrorState.Failed("No se pudo abrir el servidor local (${e.message ?: "error de red"}).")
@@ -155,6 +175,11 @@ class BrowserMirror(context: Context) {
         runCatching { reader?.setOnImageAvailableListener(null, null); reader?.close() }
         runCatching { projection?.stop() }
         thread.quitSafely()
+    }
+
+    private companion object {
+        /** Puertos fijos y fáciles de teclear, en orden; si todos están ocupados se usa uno al azar. */
+        val PREFERRED_PORTS = listOf(8080, 8081, 8888)
     }
 
     private fun isLanClient(address: InetAddress): Boolean =

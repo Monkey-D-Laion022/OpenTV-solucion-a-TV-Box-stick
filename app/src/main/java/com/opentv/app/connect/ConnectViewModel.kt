@@ -243,9 +243,36 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    // --- Espejo DLNA (pantalla + sonido) desde la central de conexiones ---
+
+    private var mirrorTarget: UpnpDevice? = null
+
+    val projection: StateFlow<com.opentv.app.stream.ProjectionState> get() = container.projection.state
+
+    /** Guarda el TV al que se espejará, antes de pedir los permisos de captura. */
+    fun prepareMirror(device: UpnpDevice) {
+        mirrorTarget = device
+    }
+
+    fun startDlnaMirror(resultCode: Int, data: android.content.Intent) {
+        val device = mirrorTarget ?: return
+        viewModelScope.launch {
+            container.output.select(TvTarget.DlnaTarget(device))
+            container.projection.start(device, com.opentv.app.stream.MirrorRequest(resultCode, data))
+        }
+    }
+
+    fun mirrorDenied() {
+        _state.update { it.copy(message = "No se concedió el permiso de captura de pantalla: sin él no se puede espejar.") }
+    }
+
+    fun stopProjection() {
+        viewModelScope.launch { container.projection.stop() }
+    }
+
     /** Abre la pantalla de transmisión del sistema; sirve tanto para conectar como para desconectar. */
-    fun openSystemCast() {
-        val opened = container.systemCast.open()
+    fun openSystemCast(from: android.content.Context? = null) {
+        val opened = container.systemCast.open(from)
         _state.update {
             it.copy(
                 message = if (opened) {

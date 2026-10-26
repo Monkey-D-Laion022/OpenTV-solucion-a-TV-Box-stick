@@ -21,6 +21,9 @@ class BrowserMirrorViewModel(application: Application) : AndroidViewModel(applic
         viewModelScope.launch { mirror.start(MirrorRequest(resultCode, data)) }
     }
 
+    val shortUrl: StateFlow<Boolean> get() = mirror.shortUrl
+
     fun cycleQuality() = mirror.cycleQuality()
+    fun toggleShortUrl() = mirror.toggleShortUrl()
     fun stop() = mirror.stop()
 }

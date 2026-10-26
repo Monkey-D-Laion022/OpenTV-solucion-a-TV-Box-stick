@@ -125,7 +125,7 @@ class TvProjection(
         val hub: StreamHub,
         val server: HttpStreamServer,
         val encoder: ScreenEncoder,
-        val audio: SilentAudioEncoder?,
+        val audio: ScreenAudioEncoder?,
         val feeder: ViewFrameFeeder?,
         val reader: ImageReader?,
         val padder: Thread,
@@ -173,7 +173,7 @@ class TvProjection(
         val server = HttpStreamServer(hub, token, acceptClient = ::isLanClient, profile = profile, sendBufferBytes = latency.sendBufferBytes)
         server.originMs = originMs
         val originUs = System.nanoTime() / 1000
-        var audio: SilentAudioEncoder? = null
+        var audio: ScreenAudioEncoder? = null
         var encoder: ScreenEncoder? = null
         var feeder: ViewFrameFeeder? = null
         var reader: ImageReader? = null
@@ -183,7 +183,7 @@ class TvProjection(
             val port = server.start(ip)
 
             // Pista de audio en silencio: muchos TV no abren video sin audio. Si no hay codificador, sigue sin audio.
-            val withAudio = SilentAudioEncoder.isAvailable()
+            val withAudio = ScreenAudioEncoder.isAvailable()
             val muxer = TsMuxer(withAudio, latency.ptsOffset90, latency.pcrLead90)
             val enc = ScreenEncoder(
                 profile, muxer, originUs,
@@ -192,8 +192,8 @@ class TvProjection(
             encoder = enc
             val encoderSurface = enc.start()
             hub.onSubscribe = { enc.requestKeyFrame() }
-            if (withAudio) {
-                audio = SilentAudioEncoder(originUs) { adts, pts -> hub.publish(muxer.muxAudio(adts, pts), false) }
+            if (withAudio && mirror == null) {
+                audio = ScreenAudioEncoder(originUs) { adts, pts -> hub.publish(muxer.muxAudio(adts, pts), false) }
                     .also { it.start() }
             }
 
@@ -229,6 +229,17 @@ class TvProjection(
                     },
                     mainHandler,
                 )
+                if (withAudio) {
+                    // Espejo: el sonido real del teléfono (si hay permiso y Android 10+); si no, pista muda.
+                    val capture = PlaybackAudioCapture.create(appContext, projection)
+                    val source = (capture as? PlaybackAudioCapture.Result.Ready)?.source
+                    note(
+                        if (source != null) "audio: captura del sonido del teléfono"
+                        else "audio: pista muda · ${(capture as PlaybackAudioCapture.Result.Unavailable).reason}",
+                    )
+                    audio = ScreenAudioEncoder(originUs, source) { adts, pts -> hub.publish(muxer.muxAudio(adts, pts), false) }
+                        .also { it.start() }
+                }
                 vd = projection.createVirtualDisplay(
                     "OpenTV-Espejo", profile.width, profile.height, appContext.resources.displayMetrics.densityDpi,
                     DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, encoderSurface, null, null,
@@ -378,7 +389,7 @@ class TvProjection(
     private fun cleanup(
         server: HttpStreamServer?,
         encoder: ScreenEncoder?,
-        audio: SilentAudioEncoder?,
+        audio: ScreenAudioEncoder?,
         feeder: ViewFrameFeeder?,
         reader: ImageReader?,
         padder: Thread?,

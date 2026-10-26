@@ -23,7 +23,7 @@ enum class GuideAction(val label: String) {
  */
 object ShizukuGuide {
     /** @param installed Shizuku instalada; @param running activa (responde); @param granted con permiso para OpenTV. */
-    fun steps(installed: Boolean, running: Boolean, granted: Boolean, developerOptionsOn: Boolean): List<GuideStep> {
+    fun steps(installed: Boolean, running: Boolean, granted: Boolean, developerOptionsOn: Boolean, sdkInt: Int = 34): List<GuideStep> {
         return listOf(
             GuideStep(
                 1, "Instalar Shizuku",
@@ -41,7 +41,13 @@ object ShizukuGuide {
                 "En opciones de desarrollador, activá «Depuración inalámbrica» (el teléfono tiene que estar conectado a Wi‑Fi; requiere Android 11 o más). " +
                     "Aceptá el aviso de la red.",
                 done = running, action = GuideAction.OPEN_DEVELOPER_OPTIONS,
-            ),
+            ).let {
+                if (sdkInt >= WIRELESS_DEBUGGING_SDK) it else it.copy(
+                    body = "Tu Android es anterior al 11: no tiene «Depuración inalámbrica». Shizuku solo se puede iniciar con una PC y un cable (ADB). " +
+                        "Sin PC no hay 16:9 forzado en este teléfono: usá el espejo por navegador o DLNA.",
+                    action = null,
+                )
+            },
             GuideStep(
                 4, "Iniciar Shizuku",
                 "Abrí Shizuku y tocá «Iniciar» en «Depuración inalámbrica». La primera vez pide emparejar: en Depuración inalámbrica tocá " +
@@ -55,6 +61,11 @@ object ShizukuGuide {
             ),
         )
     }
+
+    private const val WIRELESS_DEBUGGING_SDK = 30
+
+    /** El primer paso sin hacer: es el «siguiente paso» que se le resalta al usuario; `null` si está todo listo. */
+    fun next(steps: List<GuideStep>): GuideStep? = steps.firstOrNull { !it.done }
 
     /** Aviso fijo: Shizuku no se puede automatizar del todo. */
     const val LIMITS =

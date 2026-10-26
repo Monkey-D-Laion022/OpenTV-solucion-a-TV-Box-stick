@@ -11,10 +11,11 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Servidor HTTP/1.0 que entrega la pantalla como MJPEG para el navegador del TV (sin DLNA ni Miracast).
- * Rutas (todas bajo un código aleatorio [token], solo para direcciones que [acceptClient] permita):
- * - `/<token>/` página con la imagen en vivo;
- * - `/<token>/stream.mjpg` flujo `multipart/x-mixed-replace`;
- * - `/<token>/snapshot.jpg` un solo fotograma; `/<token>/lento` página que se recarga sola (navegadores muy viejos).
+ * Rutas, solo para direcciones que [acceptClient] permita. Con [token] vacío es la URL corta (`http://IP:puerto/`); con
+ * código, todo cuelga de `/<token>/`:
+ * - `/` página con la imagen en vivo;
+ * - `/stream.mjpg` (o `/s`) flujo `multipart/x-mixed-replace`;
+ * - `/snapshot.jpg` (o `/f`) un solo fotograma; `/lento` (o `/l`) página que se recarga sola (navegadores muy viejos).
  * Solo HTTP: un TV viejo no sabría abrir HTTPS con certificados modernos, y en una red local no hay certificado válido.
  */
 class MjpegHttpServer(
@@ -29,14 +30,35 @@ class MjpegHttpServer(
     @Volatile private var running = false
 
     val activeClients: Int get() = clients.get()
+    private val events = java.util.concurrent.CopyOnWriteArrayList<String>()
+
+    /** Últimos pedidos recibidos (quién y qué), para saber si el TV llegó al servidor. */
+    val history: List<String> get() = events.takeLast(8)
+
+    private fun note(text: String) {
+        events.add(text)
+    }
+
+    private val prefix: String = if (token.isEmpty()) "/" else "/$token/"
     val bytesSent = AtomicLong(0)
     val framesSent = AtomicLong(0)
 
-    /** Empieza a escuchar y devuelve el puerto. */
-    fun start(bindAddress: InetAddress?): Int {
-        val socket = ServerSocket()
-        socket.reuseAddress = true
-        socket.bind(InetSocketAddress(bindAddress, 0), 8)
+    /** Empieza a escuchar y devuelve el puerto: el primero libre de [preferredPorts] (fijo y fácil de teclear) o uno al azar. */
+    fun start(bindAddress: InetAddress?, preferredPorts: List<Int> = emptyList()): Int {
+        var socket: ServerSocket? = null
+        for (port in preferredPorts + 0) {
+            val candidate = ServerSocket()
+            try {
+                candidate.reuseAddress = true
+                candidate.bind(InetSocketAddress(bindAddress, port), 8)
+                socket = candidate
+                break
+            } catch (e: IOException) {
+                runCatching { candidate.close() }
+                if (port == 0) throw e
+            }
+        }
+        socket!!
         server = socket
         running = true
         Thread({ acceptLoop(socket) }, "opentv-mjpeg-accept").apply { isDaemon = true }.start()
@@ -58,6 +80,7 @@ class MjpegHttpServer(
                 return
             }
             if (!acceptClient(client.inetAddress)) {
+                note("rechazado: ${client.inetAddress.hostAddress} (no es de la red local)")
                 closeQuietly(client)
                 continue
             }
@@ -82,21 +105,22 @@ class MjpegHttpServer(
                 respond(client, "405 Method Not Allowed", "text/plain", ByteArray(0))
                 return
             }
-            val base = "/$token/"
-            if (!target.startsWith(base) && target != "/$token") {
+            val base = prefix
+            if (!target.startsWith(base) && !(token.isNotEmpty() && target == "/$token")) {
                 respond(client, "404 Not Found", "text/plain", ByteArray(0))
                 return
             }
             val head = method == "HEAD"
-            when (if (target == "/$token") "" else target.removePrefix(base)) {
-                "", "index.html" -> respond(client, "200 OK", "text/html; charset=utf-8", MjpegPages.live(token).toByteArray(), head)
-                "lento" -> respond(client, "200 OK", "text/html; charset=utf-8", MjpegPages.slow(token).toByteArray(), head)
-                "snapshot.jpg" -> {
+            note("${client.inetAddress.hostAddress} pidió $method $target")
+            when (if (token.isNotEmpty() && target == "/$token") "" else target.removePrefix(base)) {
+                "", "index.html" -> respond(client, "200 OK", "text/html; charset=utf-8", MjpegPages.live(prefix).toByteArray(), head)
+                "lento", "l" -> respond(client, "200 OK", "text/html; charset=utf-8", MjpegPages.slow(prefix).toByteArray(), head)
+                "snapshot.jpg", "f" -> {
                     val frame = hub.latest() ?: hub.awaitNewer(0, 3_000)
                     if (frame == null) respond(client, "503 Service Unavailable", "text/plain", "Todavía no hay imagen".toByteArray(), head)
                     else respond(client, "200 OK", "image/jpeg", frame.jpeg, head)
                 }
-                "stream.mjpg" -> if (head) respond(client, "200 OK", STREAM_TYPE, ByteArray(0), true) else stream(client)
+                "stream.mjpg", "s" -> if (head) respond(client, "200 OK", STREAM_TYPE, ByteArray(0), true) else stream(client)
                 else -> respond(client, "404 Not Found", "text/plain", ByteArray(0), head)
             }
         } catch (e: IOException) {

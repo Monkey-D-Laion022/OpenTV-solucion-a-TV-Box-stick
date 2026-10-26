@@ -144,4 +144,47 @@ class MjpegTest {
         assertTrue(w % 2 == 0 && h % 2 == 0 && maxOf(w, h) <= 960)
         assertEquals(MjpegQuality.LOW, MjpegQuality.HIGH.next())
     }
+
+    @Test
+    fun shortUrlServesFromTheRootWithShortAliases() {
+        val shortServer = MjpegHttpServer(hub, "", { true })
+        val p = shortServer.start(InetAddress.getLoopbackAddress())
+        try {
+            fun fetch(path: String): String = Socket(InetAddress.getLoopbackAddress(), p).use { s ->
+                s.soTimeout = 3_000
+                s.getOutputStream().write("GET $path HTTP/1.1\r\n\r\n".toByteArray())
+                String(s.getInputStream().readBytes(), Charsets.ISO_8859_1)
+            }
+            val page = fetch("/")
+            assertTrue(page.startsWith("HTTP/1.0 200"))
+            assertTrue(page.contains("src=\"/stream.mjpg\""))
+            assertTrue(fetch("/l").contains("http-equiv=\"refresh\""))
+            hub.publish(byteArrayOf(1, 2))
+            assertTrue(fetch("/f").contains("image/jpeg"))
+            assertTrue(fetch("/otra-cosa").startsWith("HTTP/1.0 404"))
+            assertTrue(shortServer.history.any { it.contains("pidió GET /") })
+        } finally {
+            shortServer.stop()
+        }
+    }
+
+    @Test
+    fun usesTheFirstFreePreferredPortAndFallsBackToAnyPort() {
+        val busy = java.net.ServerSocket(0, 1, InetAddress.getLoopbackAddress())
+        val free = java.net.ServerSocket(0, 1, InetAddress.getLoopbackAddress()).also { it.close() }.localPort
+        val s = MjpegHttpServer(hub, "", { true })
+        try {
+            assertEquals(free, s.start(InetAddress.getLoopbackAddress(), listOf(busy.localPort, free)))
+        } finally {
+            s.stop(); busy.close()
+        }
+        val busy2 = java.net.ServerSocket(0, 1, InetAddress.getLoopbackAddress())
+        val s2 = MjpegHttpServer(MjpegHub(), "", { true })
+        try {
+            val got = s2.start(InetAddress.getLoopbackAddress(), listOf(busy2.localPort))
+            assertTrue(got != busy2.localPort && got > 0)
+        } finally {
+            s2.stop(); busy2.close()
+        }
+    }
 }
