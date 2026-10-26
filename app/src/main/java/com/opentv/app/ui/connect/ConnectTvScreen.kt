@@ -121,7 +121,7 @@ fun ConnectTvScreen(
                     status = status,
                     onClick = when {
                         status.method == ConnectionMethod.MIRACAST && state.hasCastSettingsScreen ->
-                            viewModel::openSystemCast
+                            { { viewModel.openSystemCast() } }
                         (status.method == ConnectionMethod.GOOGLE_CAST || status.method == ConnectionMethod.DLNA) &&
                             status.state == MethodState.AVAILABLE -> { { castPickerOpen = true } }
                         else -> null
@@ -131,7 +131,7 @@ fun ConnectTvScreen(
             }
 
             SectionTitle("Duplicar pantalla (Miracast)")
-            MiracastBlock(state = state, onOpen = viewModel::openSystemCast)
+            MiracastBlock(state = state, onOpen = { viewModel.openSystemCast() })
 
             SectionTitle("Google Cast")
             CastBlock(
