@@ -51,7 +51,7 @@ fun ConnectHubScreen(
     onBack: () -> Unit,
     onNavigate: (route: String) -> Unit,
     viewModel: ConnectViewModel = viewModel(),
-    nativeViewModel: NativeMirrorViewModel = viewModel(),
+    nativeViewModel: NativeMirrorViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val projection by viewModel.projection.collectAsStateWithLifecycle()

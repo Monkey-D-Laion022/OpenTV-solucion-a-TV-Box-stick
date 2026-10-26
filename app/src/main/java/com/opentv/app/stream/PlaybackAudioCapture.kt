@@ -10,6 +10,7 @@ import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
 import android.media.projection.MediaProjection
 import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 
 /**
@@ -40,10 +41,17 @@ class PlaybackAudioCapture private constructor(private val record: AudioRecord) 
         fun hasPermission(context: Context): Boolean =
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
-        @SuppressLint("MissingPermission")
         fun create(context: Context, projection: MediaProjection): Result {
-            if (!supported()) return Result.Unavailable("Este Android (anterior al 10) no permite capturar el audio interno.")
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                return Result.Unavailable("Este Android (anterior al 10) no permite capturar el audio interno.")
+            }
             if (!hasPermission(context)) return Result.Unavailable("Falta el permiso de audio: el video sale sin sonido.")
+            return createApi29(context, projection)
+        }
+
+        @RequiresApi(Build.VERSION_CODES.Q)
+        @SuppressLint("MissingPermission")
+        private fun createApi29(context: Context, projection: MediaProjection): Result {
             return try {
                 val config = AudioPlaybackCaptureConfiguration.Builder(projection)
                     .addMatchingUsage(AudioAttributes.USAGE_MEDIA)

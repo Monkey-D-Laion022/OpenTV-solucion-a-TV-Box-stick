@@ -58,11 +58,11 @@ class MjpegHttpServer(
                 if (port == 0) throw e
             }
         }
-        socket!!
-        server = socket
+        val bound = socket ?: throw IOException("No se pudo abrir ningún puerto")
+        server = bound
         running = true
-        Thread({ acceptLoop(socket) }, "opentv-mjpeg-accept").apply { isDaemon = true }.start()
-        return socket.localPort
+        Thread({ acceptLoop(bound) }, "opentv-mjpeg-accept").apply { isDaemon = true }.start()
+        return bound.localPort
     }
 
     fun stop() {

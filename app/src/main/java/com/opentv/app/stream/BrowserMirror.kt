@@ -199,11 +199,12 @@ class BrowserMirror(context: Context) {
         private var bitmap: Bitmap? = null
 
         fun onImage() {
-            val image = try {
+            val acquired: android.media.Image? = try {
                 reader.acquireLatestImage()
             } catch (e: RuntimeException) {
                 null
-            } ?: return
+            }
+            val image = acquired ?: return
             try {
                 val now = System.currentTimeMillis()
                 if (now - lastMs < minIntervalMs) return // se descarta: no se acumula nada
