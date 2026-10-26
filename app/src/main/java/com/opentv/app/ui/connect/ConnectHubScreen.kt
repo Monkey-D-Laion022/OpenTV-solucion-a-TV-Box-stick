@@ -59,6 +59,9 @@ fun ConnectHubScreen(
     val native by nativeViewModel.state.collectAsStateWithLifecycle()
     val shizuku by nativeViewModel.shizuku.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val lockRotation by viewModel.options.lockRotation.collectAsStateWithLifecycle()
+    val muteLocal by viewModel.options.muteLocal.collectAsStateWithLifecycle()
+    val rate by viewModel.options.rate.collectAsStateWithLifecycle()
 
     DisposableEffect(Unit) {
         viewModel.onScreenStarted()
@@ -143,6 +146,24 @@ fun ConnectHubScreen(
                     horizontalPadding = 20.dp,
                 )
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TvButton(
+                    text = if (lockRotation) "Rotación: fija horizontal" else "Rotación: libre",
+                    onClick = viewModel.options::toggleLockRotation,
+                    horizontalPadding = 16.dp,
+                )
+                TvButton(text = "Fluidez DLNA: ${rate.label}", onClick = viewModel.options::cycleRate, horizontalPadding = 16.dp)
+                TvButton(
+                    text = if (muteLocal) "Silenciar teléfono: sí" else "Silenciar teléfono: no",
+                    onClick = viewModel.options::toggleMuteLocal,
+                    horizontalPadding = 16.dp,
+                )
+            }
+            Text(
+                "Rotación fija: se aplica al forzar 16:9 (el teléfono se usa acostado). Fluidez: con 60 cuadros/s algunos TV viejos no abren el video; " +
+                    "si pasa, volvé a 30. Silenciar el teléfono es experimental y puede dejar mudo también al TV.",
+                style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
+            )
             if (shizuku != ShizukuShell.Status.READY && !forced) {
                 Text(
                     "El 16:9 usa Shizuku y todavía no está lista: tocá «Forzar 16:9» y el asistente te guía paso a paso.",

@@ -56,6 +56,8 @@ class TvProjection(
     context: Context,
     private val dlna: DlnaController,
     private val resizer: ScreenResizer,
+    private val options: TransmitOptions,
+    private val phoneMute: PhoneMute,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -165,12 +167,13 @@ class TvProjection(
         val profile = _profile.value
         val test = _testPattern.value
         val latency = _latency.value
+        val rate = options.rate.value
         log.clear()
         originMs = System.currentTimeMillis()
-        note("inicio${if (mirror != null) " (espejo de pantalla)" else ""} · formato «${profile.label}»${if (test) " · imagen de prueba" else ""}")
-        val hub = StreamHub(maxQueuedBytes = latency.hubQueueBytes)
+        note("inicio${if (mirror != null) " (espejo de pantalla)" else ""} · ${rate.label} · formato «${profile.label}»${if (test) " · imagen de prueba" else ""}")
+        val hub = StreamHub(maxQueuedBytes = rate.hubQueueBytes(latency.hubQueueBytes))
         val token = randomToken()
-        val server = HttpStreamServer(hub, token, acceptClient = ::isLanClient, profile = profile, sendBufferBytes = latency.sendBufferBytes)
+        val server = HttpStreamServer(hub, token, acceptClient = ::isLanClient, profile = profile, sendBufferBytes = rate.sendBufferBytes(latency.sendBufferBytes))
         server.originMs = originMs
         val originUs = System.nanoTime() / 1000
         var audio: ScreenAudioEncoder? = null
@@ -187,7 +190,7 @@ class TvProjection(
             val muxer = TsMuxer(withAudio, latency.ptsOffset90, latency.pcrLead90)
             val enc = ScreenEncoder(
                 profile, muxer, originUs,
-                fps = latency.fps, iFrameSeconds = latency.iFrameSeconds, lowLatency = latency.lowLatencyEncoder,
+                fps = rate.fps, bitrate = rate.bitrate, iFrameSeconds = latency.iFrameSeconds, lowLatency = latency.lowLatencyEncoder,
             ) { chunk, keyStart -> hub.publish(chunk, keyStart) }
             encoder = enc
             val encoderSurface = enc.start()
@@ -208,7 +211,7 @@ class TvProjection(
                 ProjectionService.awaitReady()
                 if (_force169.value) {
                     note("forzando 16:9 en el teléfono (Shizuku)")
-                    when (val r = resizer.apply()) {
+                    when (val r = resizer.apply(lockLandscape = options.lockRotation.value)) {
                         is ResizeResult.Applied -> note("resolución del teléfono: ${r.plan.sizeArg}, densidad ${r.plan.density}")
                         ResizeResult.AlreadyApplied -> note("la resolución ya estaba forzada")
                         is ResizeResult.Failed -> note("no se pudo forzar 16:9: ${r.message}")
@@ -239,6 +242,10 @@ class TvProjection(
                     )
                     audio = ScreenAudioEncoder(originUs, source) { adts, pts -> hub.publish(muxer.muxAudio(adts, pts), false) }
                         .also { it.start() }
+                    if (source != null && options.muteLocal.value) {
+                        phoneMute.mute()
+                        note("teléfono silenciado (experimental); el volumen se devuelve al detener")
+                    }
                 }
                 vd = projection.createVirtualDisplay(
                     "OpenTV-Espejo", profile.width, profile.height, appContext.resources.displayMetrics.densityDpi,
@@ -265,7 +272,7 @@ class TvProjection(
                 window.show()
 
                 note("pantalla virtual y ventana listas")
-                val feeder2 = ViewFrameFeeder(encoderSurface, profile.width, profile.height, latency.fps, test) {
+                val feeder2 = ViewFrameFeeder(encoderSurface, profile.width, profile.height, rate.fps, test) {
                     window.window?.decorView
                 }
                 feed = feeder2
@@ -396,6 +403,7 @@ class TvProjection(
         virtualDisplay: VirtualDisplay?,
         presentation: Presentation?,
     ) {
+        runCatching { phoneMute.restore() } // si se silenció el teléfono, se devuelve el volumen
         runCatching { padder?.interrupt() }
         runCatching { mediaProjection?.stop() }
         mediaProjection = null

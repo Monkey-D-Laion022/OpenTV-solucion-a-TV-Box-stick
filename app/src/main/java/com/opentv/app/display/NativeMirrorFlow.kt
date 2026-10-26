@@ -43,6 +43,8 @@ class NativeMirrorFlow(
     private val displayConnected: () -> Flow<Boolean>,
     private val scope: CoroutineScope,
     private val restoreOnDisconnect: Boolean = false,
+    /** Si al forzar 16:9 también se fija la rotación en horizontal (opción de la central; por defecto no). */
+    private val lockLandscape: () -> Boolean = { false },
 ) {
     private val _state = MutableStateFlow<NativeMirrorState>(NativeMirrorState.Idle())
     val state: StateFlow<NativeMirrorState> = _state.asStateFlow()
@@ -82,7 +84,7 @@ class NativeMirrorFlow(
     }
 
     private suspend fun run() {
-        val size = when (val r = resizer.apply()) {
+        val size = when (val r = resizer.apply(lockLandscape = lockLandscape())) {
             is ResizeResult.Applied -> r.plan.sizeArg
             ResizeResult.AlreadyApplied -> "ya forzada"
             is ResizeResult.Failed -> {

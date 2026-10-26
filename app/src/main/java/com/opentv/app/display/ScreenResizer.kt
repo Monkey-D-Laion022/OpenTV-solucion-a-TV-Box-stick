@@ -110,7 +110,7 @@ class ScreenResizer(
      * que en 20:9, así que el launcher no pierde filas y mueve menos íconos. Con `true` el alto en dp baja y el
      * launcher reacomoda (y guarda) los íconos.
      */
-    suspend fun apply(changeDensity: Boolean = false, lockLandscape: Boolean = true): ResizeResult = mutex.withLock {
+    suspend fun apply(changeDensity: Boolean = false, lockLandscape: Boolean = false): ResizeResult = mutex.withLock {
         if (store.pending != null) return ResizeResult.AlreadyApplied
         try {
             val size = WmParse.size(shell.exec("wm size"))
@@ -194,7 +194,14 @@ class ScreenResizer(
         runCatching { shell.exec("settings get system $name").trim().toIntOrNull() }.getOrNull()
 
     private suspend fun restoreSetting(name: String, value: Int?) {
-        shell.exec(if (value == null) "settings delete system $name" else "settings put system $name $value")
+        // `user_rotation` sin valor previo vuelve a 0 (vertical): borrar la clave no devuelve la pantalla a su sitio al instante.
+        shell.exec(
+            when {
+                value != null -> "settings put system $name $value"
+                name == "user_rotation" -> "settings put system $name 0"
+                else -> "settings delete system $name"
+            },
+        )
     }
 
     companion object {

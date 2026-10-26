@@ -81,7 +81,7 @@ class ScreenResizerTest {
         assertNull(phone.overrideDensity) // por defecto no se toca la densidad
         assertFalse(phone.commands.any { it.startsWith("wm density ") && it != "wm density" })
         assertTrue(resizer.pending.value)
-        assertEquals(PendingResize(null, null, "1080x1920", 320, densityChanged = false, rotationLocked = true, prevAutoRotate = 1, prevUserRotation = null), store.pending)
+        assertEquals(PendingResize(null, null, "1080x1920", 320, densityChanged = false), store.pending)
 
         assertEquals(ResizeResult.Restored, resizer.restore())
         assertNull(phone.overrideSize); assertNull(phone.overrideDensity)
@@ -182,28 +182,28 @@ class ScreenResizerTest {
     fun rotationIsLockedToLandscapeAndRestored() = runBlocking {
         val phone = FakePhone()
         val resizer = ScreenResizer(phone, MemoryStore())
-        resizer.apply()
+        resizer.apply(lockLandscape = true)
         assertEquals("0", phone.settings["accelerometer_rotation"])
         assertEquals("1", phone.settings["user_rotation"])
         resizer.restore()
         assertEquals("1", phone.settings["accelerometer_rotation"]) // valor previo
-        assertNull(phone.settings["user_rotation"]) // no existía: se borra
+        assertEquals("0", phone.settings["user_rotation"]) // no existía: vuelve a vertical (0), no se borra
     }
 
     @Test
     fun aRotationFailureDoesNotBreakTheResolutionChange() = runBlocking {
         val phone = FakePhone(failSettings = true)
         val resizer = ScreenResizer(phone, MemoryStore())
-        assertTrue(resizer.apply() is ResizeResult.Applied)
+        assertTrue(resizer.apply(lockLandscape = true) is ResizeResult.Applied)
         assertEquals("1080x1920", phone.overrideSize)
         assertEquals(ResizeResult.Restored, resizer.restore())
         assertNull(phone.overrideSize)
     }
 
     @Test
-    fun rotationCanBeLeftAlone() = runBlocking {
+    fun rotationIsLeftAloneByDefault() = runBlocking {
         val phone = FakePhone()
-        ScreenResizer(phone, MemoryStore()).apply(lockLandscape = false)
+        ScreenResizer(phone, MemoryStore()).apply()
         assertEquals("1", phone.settings["accelerometer_rotation"])
         assertTrue(phone.commands.none { it.startsWith("settings") })
     }

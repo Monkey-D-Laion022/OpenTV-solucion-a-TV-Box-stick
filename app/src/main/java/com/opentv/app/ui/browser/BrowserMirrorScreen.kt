@@ -57,7 +57,7 @@ fun BrowserMirrorScreen(
                 "Funciona con cualquier teléfono con Wi‑Fi: el TV abre una dirección web y muestra la pantalla. Hace falta un TV con " +
                     "navegador, en la misma red Wi‑Fi. Es HTTP simple (sin HTTPS) en un puerto fijo (8080). Con la dirección corta, " +
                     "cualquiera en tu Wi‑Fi que la escriba puede ver la pantalla mientras esté activo: usá «con código» en redes ajenas. " +
-                    "Los navegadores de TV muy viejos pueden no abrirla; no está verificado en ninguno.",
+                    "Este modo NO lleva sonido (una imagen JPEG no puede): el audio sigue saliendo por el teléfono; para sonido en el TV usá el espejo DLNA.",
                 style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
             )
             when (val s = state) {

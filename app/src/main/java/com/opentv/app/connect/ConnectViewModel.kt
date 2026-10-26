@@ -243,6 +243,9 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /** Opciones de la central (rotación, silencio del teléfono, cuadros por segundo). */
+    val options: com.opentv.app.stream.TransmitOptions get() = container.transmitOptions
+
     // --- Espejo DLNA (pantalla + sonido) desde la central de conexiones ---
 
     private var mirrorTarget: UpnpDevice? = null

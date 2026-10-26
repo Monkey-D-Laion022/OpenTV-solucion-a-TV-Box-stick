@@ -1,10 +1,10 @@
 package com.opentv.app.stream
 
-/** Calidad del espejo por navegador: más baja = menos datos y menos retraso en teléfonos viejos o Wi‑Fi flojo. */
+/** [fps] es el tope: lo real lo marca la velocidad del teléfono para comprimir JPEG. Calidad del espejo por navegador: más baja = menos datos y menos retraso en teléfonos viejos o Wi‑Fi flojo. */
 enum class MjpegQuality(val label: String, val maxSide: Int, val jpegQuality: Int, val fps: Int) {
-    LOW("Baja (rápida)", 960, 45, 10),
-    MEDIUM("Media", 1280, 60, 12),
-    HIGH("Alta", 1920, 75, 15);
+    LOW("Baja (rápida)", 960, 45, 30),
+    MEDIUM("Media", 1280, 60, 30),
+    HIGH("Alta (1080p, pesada)", 1920, 70, 60);
 
     fun next(): MjpegQuality = values()[(ordinal + 1) % values().size]
 

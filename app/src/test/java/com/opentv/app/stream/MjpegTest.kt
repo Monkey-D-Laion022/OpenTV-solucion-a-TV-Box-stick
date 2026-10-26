@@ -187,4 +187,16 @@ class MjpegTest {
             s2.stop(); busy2.close()
         }
     }
+
+    @Test
+    fun pagesFitTheImageWithoutStretchingIt() {
+        for (page in listOf(MjpegPages.live("/"), MjpegPages.slow("/"))) {
+            assertTrue(page.contains("function fit()"))
+            assertTrue(page.contains("Math.min(W/w,H/h)")) // escala única: conserva la proporción
+            assertTrue(page.contains("visibility:hidden")) // oculta hasta conocer el tamaño real
+            assertTrue(page.contains("<noscript>")) // sin JavaScript: ancho completo
+        }
+        assertTrue(MjpegPages.live("/x/").contains("src=\"/x/stream.mjpg\""))
+        assertTrue(MjpegPages.slow("/x/").contains("src=\"/x/snapshot.jpg\""))
+    }
 }

@@ -74,6 +74,7 @@ class BrowserMirror(context: Context) {
     )
 
     private var session: Session? = null
+    private var encoderHolder: FrameEncoder? = null
 
     /** Arma la captura y el servidor. Hay que esperar el servicio en primer plano antes (lo hace esta función). */
     suspend fun start(mirror: MirrorRequest) {
@@ -114,6 +115,7 @@ class BrowserMirror(context: Context) {
             val imageReader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
             reader = imageReader
             val encoder = FrameEncoder(imageReader, hub, q)
+            encoderHolder = encoder
             imageReader.setOnImageAvailableListener({ encoder.onImage() }, Handler(thread.looper))
             val vd = p.createVirtualDisplay(
                 "OpenTV-Navegador", w, h, metrics.densityDpi,
@@ -170,6 +172,8 @@ class BrowserMirror(context: Context) {
         timer: java.util.Timer?,
     ) {
         timer?.cancel()
+        runCatching { encoderHolder?.shutdown() }
+        encoderHolder = null
         runCatching { server.stop() }
         runCatching { display?.release() }
         runCatching { reader?.setOnImageAvailableListener(null, null); reader?.close() }
@@ -191,12 +195,22 @@ class BrowserMirror(context: Context) {
         return bytes.joinToString("") { "%02x".format(it) }
     }
 
-    /** Convierte cada imagen capturada en JPEG, a lo sumo [MjpegQuality.fps] por segundo; se queda con la más nueva. */
+    /**
+     * Convierte cada imagen capturada en JPEG con [WORKERS] hilos en paralelo (comprimir es lo que más tarda, y con uno
+     * solo el teléfono llegaba a unos 7 cuadros/s). Si todos los hilos están ocupados, el cuadro nuevo se descarta
+     * (nunca se acumula nada). Solo se publica un cuadro más nuevo que el último publicado.
+     */
     private class FrameEncoder(private val reader: ImageReader, private val hub: MjpegHub, private val quality: MjpegQuality) {
         private val minIntervalMs = 1000L / quality.fps
         private var lastMs = 0L
-        private val out = ByteArrayOutputStream(256 * 1024)
-        private var bitmap: Bitmap? = null
+        private val slots = java.util.concurrent.ArrayBlockingQueue<Int>(WORKERS).also { q -> repeat(WORKERS) { q.add(it) } }
+        private val bitmaps = arrayOfNulls<Bitmap>(WORKERS)
+        private val pool = java.util.concurrent.Executors.newFixedThreadPool(WORKERS) { r ->
+            Thread(r, "opentv-mjpeg-jpeg").apply { isDaemon = true }
+        }
+        private val publishLock = Any()
+        private var captured = 0L
+        private var published = 0L
 
         fun onImage() {
             val acquired: android.media.Image? = try {
@@ -205,33 +219,65 @@ class BrowserMirror(context: Context) {
                 null
             }
             val image = acquired ?: return
+            var slot: Int? = null
             try {
                 val now = System.currentTimeMillis()
                 if (now - lastMs < minIntervalMs) return // se descarta: no se acumula nada
+                val mine: Int = slots.poll() ?: return // todos los hilos ocupados: se descarta
+                slot = mine
                 lastMs = now
                 val plane = image.planes[0]
                 val pixelStride = plane.pixelStride
                 val rowPadding = plane.rowStride - pixelStride * image.width
                 val fullWidth = image.width + rowPadding / pixelStride
-                var bmp = bitmap
+                var bmp = bitmaps[mine]
                 if (bmp == null || bmp.width != fullWidth || bmp.height != image.height) {
                     bmp?.recycle()
                     bmp = Bitmap.createBitmap(fullWidth, image.height, Bitmap.Config.ARGB_8888)
-                    bitmap = bmp
+                    bitmaps[mine] = bmp
                 }
                 plane.buffer.rewind()
-                bmp.copyPixelsFromBuffer(plane.buffer)
-                out.reset()
-                // El ancho extra por relleno de filas queda fuera: se comprime solo el área visible.
-                val visible = if (fullWidth == image.width) bmp else Bitmap.createBitmap(bmp, 0, 0, image.width, image.height)
-                visible.compress(Bitmap.CompressFormat.JPEG, quality.jpegQuality, out)
-                if (visible !== bmp) visible.recycle()
-                hub.publish(out.toByteArray())
+                bmp.copyPixelsFromBuffer(plane.buffer) // copia rápida; la compresión (lenta) va en otro hilo
+                val index = ++captured
+                val width = image.width
+                val height = image.height
+                val ready: Bitmap = bmp
+                slot = null // desde acá el hilo de trabajo devuelve el cupo
+                pool.execute { compress(mine, ready, width, height, index) }
             } catch (e: RuntimeException) {
                 // Un cuadro que falla se salta; el siguiente sigue.
             } finally {
+                slot?.let { slots.offer(it) }
                 image.close()
             }
+        }
+
+        private fun compress(slot: Int, bmp: Bitmap, width: Int, height: Int, index: Long) {
+            try {
+                val out = ByteArrayOutputStream(128 * 1024)
+                // El ancho extra por relleno de filas queda fuera: se comprime solo el área visible.
+                val visible = if (bmp.width == width) bmp else Bitmap.createBitmap(bmp, 0, 0, width, height)
+                visible.compress(Bitmap.CompressFormat.JPEG, quality.jpegQuality, out)
+                if (visible !== bmp) visible.recycle()
+                synchronized(publishLock) {
+                    if (index > published) {
+                        published = index
+                        hub.publish(out.toByteArray())
+                    }
+                }
+            } catch (e: RuntimeException) {
+                // Se salta el cuadro.
+            } finally {
+                slots.offer(slot)
+            }
+        }
+
+        fun shutdown() {
+            pool.shutdownNow()
+        }
+
+        private companion object {
+            const val WORKERS = 2
         }
     }
 }
