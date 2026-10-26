@@ -2,5 +2,5 @@ package com.opentv.app.core
 
 /** Etiqueta visible de la versión de código instalada, para comprobar que el APK es el nuevo. */
 object BuildInfo {
-    const val LABEL = "Fase 4 · módulo 3H-2 (16:9 + rotación fija)"
+    const val LABEL = "Fase 5 · módulo 5A (interfaz estilo Android TV + 16:9 estable)"
 }

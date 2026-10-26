@@ -34,6 +34,7 @@ import com.opentv.app.connect.TvTargets
 import com.opentv.app.display.NativeMirrorState
 import com.opentv.app.display.ShizukuShell
 import com.opentv.app.navigation.Routes
+import com.opentv.app.stream.LocalChannel
 import com.opentv.app.stream.PlaybackAudioCapture
 import com.opentv.app.stream.ProjectionState
 import com.opentv.app.ui.components.SafeArea
@@ -108,6 +109,13 @@ fun ConnectHubScreen(
                 ProjectionState.Starting -> Text("Iniciando la transmisión…", style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.Warning)
                 is ProjectionState.Streaming -> {
                     Text("Transmitiendo a ${p.deviceName}.", style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.Success)
+                    if (p.deviceName == LocalChannel.NAME) {
+                        Text(
+                            "En el TV, abrí esta dirección en VLC o en un reproductor de red: ${p.url}\n" +
+                                "Para apps de IPTV (lista M3U): ${p.url.substringBeforeLast('/')}/lista.m3u",
+                            style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.OnBackground,
+                        )
+                    }
                     TvButton(text = "Detener transmisión", onClick = viewModel::stopProjection, horizontalPadding = 20.dp)
                 }
                 is ProjectionState.Failed -> Text(p.message, style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.Warning)
@@ -148,7 +156,7 @@ fun ConnectHubScreen(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 TvButton(
-                    text = if (lockRotation) "Rotación: fija horizontal" else "Rotación: libre",
+                    text = if (lockRotation) "Rotación: fija horizontal" else "Rotación: libre (prueba)",
                     onClick = viewModel.options::toggleLockRotation,
                     horizontalPadding = 16.dp,
                 )
@@ -160,7 +168,7 @@ fun ConnectHubScreen(
                 )
             }
             Text(
-                "Rotación fija: se aplica al forzar 16:9 (el teléfono se usa acostado). Fluidez: con 60 cuadros/s algunos TV viejos no abren el video; " +
+                "Rotación fija (la de la versión que andaba estable): se aplica al forzar 16:9. Libre deja la interfaz arriba con una franja negra abajo. Fluidez: con 60 cuadros/s algunos TV viejos no abren el video; " +
                     "si pasa, volvé a 30. Silenciar el teléfono es experimental y puede dejar mudo también al TV.",
                 style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
             )
@@ -238,6 +246,14 @@ fun ConnectHubScreen(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 TvButton(text = "Espejo por navegador", onClick = { onNavigate(Routes.BROWSER) }, horizontalPadding = 20.dp)
+                TvButton(
+                    text = "Canal local (VLC / IPTV)",
+                    onClick = {
+                        viewModel.prepareLocalChannel()
+                        startMirror()
+                    },
+                    horizontalPadding = 20.dp,
+                )
                 TvButton(text = "Guías y diagnóstico", onClick = { onNavigate(Routes.CONNECT) }, horizontalPadding = 20.dp)
                 TvButton(text = "Volver", onClick = onBack, horizontalPadding = 20.dp)
             }

@@ -40,6 +40,7 @@ object ConnectModes {
     val WITHOUT_NATIVE_CAST: List<String> = listOf(
         "Espejo DLNA con sonido: si tu TV aparece arriba como DLNA.",
         "Espejo por navegador: si el TV tiene navegador web.",
+        "Canal local: si el TV (o un TV Box) tiene VLC o una app de IPTV, abre la dirección o la lista M3U que muestra OpenTV; lleva video y sonido.",
         "Receptor externo (Chromecast, Fire TV Stick o un adaptador Miracast): enchufado al HDMI del TV; es la opción más fluida si nada de lo anterior sirve.",
         "Cable USB‑C a HDMI: solo en teléfonos con salida de video por USB‑C (la mayoría de gama baja no la trae).",
     )

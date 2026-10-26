@@ -41,6 +41,8 @@ fun FocusableSurface(
     shape: Shape = RoundedCornerShape(16.dp),
     focusedScale: Float = 1.04f,
     onLongClick: (() -> Unit)? = null,
+    /** Se llama al recibir el foco (el inicio lo usa para actualizar el panel destacado, como el «Browse» de Android TV). */
+    onFocusGained: (() -> Unit)? = null,
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -59,7 +61,11 @@ fun FocusableSurface(
         .clip(shape)
         .background(if (focused) OpenTvColors.SurfaceFocused else OpenTvColors.Surface)
         .then(if (focused) Modifier.border(3.dp, OpenTvColors.Primary, shape) else Modifier)
-        .onFocusChanged { focused = it.isFocused }
+        .onFocusChanged {
+            val gained = it.isFocused && !focused
+            focused = it.isFocused
+            if (gained) onFocusGained?.invoke()
+        }
 
     val interactive = when {
         onClick == null -> base.focusable()

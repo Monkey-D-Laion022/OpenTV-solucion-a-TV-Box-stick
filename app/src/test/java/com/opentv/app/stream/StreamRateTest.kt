@@ -57,9 +57,9 @@ class StreamRateTest {
     @Test
     fun optionsDefaultsAreSafe() {
         val o = TransmitOptions()
-        assertFalse(o.lockRotation.value); assertFalse(o.muteLocal.value)
+        assertTrue(o.lockRotation.value); assertFalse(o.muteLocal.value)
         assertEquals(StreamRate.FPS30, o.rate.value)
         o.toggleLockRotation(); o.toggleMuteLocal(); o.cycleRate()
-        assertTrue(o.lockRotation.value); assertTrue(o.muteLocal.value); assertEquals(StreamRate.FPS60, o.rate.value)
+        assertFalse(o.lockRotation.value); assertTrue(o.muteLocal.value); assertEquals(StreamRate.FPS60, o.rate.value)
     }
 }

@@ -34,8 +34,9 @@ fun TvCard(
     modifier: Modifier = Modifier,
     badge: String? = null,
     accent: Color = OpenTvColors.Primary,
+    onFocus: (() -> Unit)? = null,
 ) {
-    FocusableSurface(onClick = onClick, modifier = modifier.aspectRatio(16f / 9f)) {
+    FocusableSurface(onClick = onClick, modifier = modifier.aspectRatio(16f / 9f), onFocusGained = onFocus) {
         Column(
             modifier = Modifier
                 .fillMaxSize()

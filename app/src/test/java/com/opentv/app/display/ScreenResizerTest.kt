@@ -81,7 +81,7 @@ class ScreenResizerTest {
         assertNull(phone.overrideDensity) // por defecto no se toca la densidad
         assertFalse(phone.commands.any { it.startsWith("wm density ") && it != "wm density" })
         assertTrue(resizer.pending.value)
-        assertEquals(PendingResize(null, null, "1080x1920", 320, densityChanged = false), store.pending)
+        assertEquals(PendingResize(null, null, "1080x1920", 320, densityChanged = false, rotationLocked = true, prevAutoRotate = 1, prevUserRotation = null), store.pending)
 
         assertEquals(ResizeResult.Restored, resizer.restore())
         assertNull(phone.overrideSize); assertNull(phone.overrideDensity)
@@ -187,7 +187,7 @@ class ScreenResizerTest {
         assertEquals("1", phone.settings["user_rotation"])
         resizer.restore()
         assertEquals("1", phone.settings["accelerometer_rotation"]) // valor previo
-        assertEquals("0", phone.settings["user_rotation"]) // no existía: vuelve a vertical (0), no se borra
+        assertNull(phone.settings["user_rotation"]) // no existía: se borra
     }
 
     @Test
@@ -201,9 +201,9 @@ class ScreenResizerTest {
     }
 
     @Test
-    fun rotationIsLeftAloneByDefault() = runBlocking {
+    fun rotationCanBeLeftAlone() = runBlocking {
         val phone = FakePhone()
-        ScreenResizer(phone, MemoryStore()).apply()
+        ScreenResizer(phone, MemoryStore()).apply(lockLandscape = false)
         assertEquals("1", phone.settings["accelerometer_rotation"])
         assertTrue(phone.commands.none { it.startsWith("settings") })
     }

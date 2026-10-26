@@ -40,6 +40,6 @@ class ConnectModesTest {
 
     @Test
     fun alternativesWithoutNativeCastAreListed() {
-        assertTrue(ConnectModes.WITHOUT_NATIVE_CAST.size >= 4)
+        assertTrue(ConnectModes.WITHOUT_NATIVE_CAST.size >= 5)
     }
 }

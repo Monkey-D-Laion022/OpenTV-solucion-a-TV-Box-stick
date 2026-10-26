@@ -6,9 +6,9 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /** Opciones de transmisión que se eligen en la central y valen para el próximo espejo. Lógica pura. */
 class TransmitOptions {
-    private val _lockRotation = MutableStateFlow(false)
+    private val _lockRotation = MutableStateFlow(true)
 
-    /** Al forzar 16:9, fijar la rotación en horizontal (el teléfono hay que usarlo acostado). Por defecto, libre. */
+    /** Al forzar 16:9, fijar la rotación en horizontal (como en la versión que andaba estable). Por defecto, fija. */
     val lockRotation: StateFlow<Boolean> = _lockRotation.asStateFlow()
 
     private val _muteLocal = MutableStateFlow(false)

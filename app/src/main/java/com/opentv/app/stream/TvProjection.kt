@@ -37,6 +37,12 @@ import kotlinx.coroutines.flow.asStateFlow
 /** Permiso de captura de pantalla que el usuario concedió (resultado de `createScreenCaptureIntent`). */
 class MirrorRequest(val resultCode: Int, val data: Intent)
 
+/** El «canal local»: el flujo del espejo en una dirección fija y corta, para abrir con VLC o una app de IPTV. */
+object LocalChannel {
+    const val NAME = "Canal local"
+    val PORTS = listOf(8090, 8091, 8092)
+}
+
 sealed interface ProjectionState {
     data object Idle : ProjectionState
     data object Starting : ProjectionState
@@ -133,7 +139,7 @@ class TvProjection(
         val padder: Thread,
         val virtualDisplay: VirtualDisplay,
         val presentation: Presentation?,
-        val target: UpnpDevice,
+        val target: UpnpDevice?,
         val profile: StreamProfile,
         val testPattern: Boolean,
         val latency: StreamLatency,
@@ -149,7 +155,8 @@ class TvProjection(
      * interfaz que se verá en el TV, sobre la pantalla virtual que se le entrega.
      */
     suspend fun start(
-        target: UpnpDevice,
+        /** TV DLNA al que se envía; `null` = «canal local»: se sirve el flujo en una dirección fija para VLC / apps de IPTV. */
+        target: UpnpDevice?,
         mirror: MirrorRequest? = null,
         createPresentation: ((Display) -> Presentation)? = null,
     ) {
@@ -173,7 +180,8 @@ class TvProjection(
         note("inicio${if (mirror != null) " (espejo de pantalla)" else ""} · ${rate.label} · formato «${profile.label}»${if (test) " · imagen de prueba" else ""}")
         val hub = StreamHub(maxQueuedBytes = rate.hubQueueBytes(latency.hubQueueBytes))
         val token = randomToken()
-        val server = HttpStreamServer(hub, token, acceptClient = ::isLanClient, profile = profile, sendBufferBytes = rate.sendBufferBytes(latency.sendBufferBytes))
+        val server = HttpStreamServer(hub, token, acceptClient = ::isLanClient, profile = profile, sendBufferBytes = rate.sendBufferBytes(latency.sendBufferBytes),
+            fixedPath = if (target == null) "/canal.ts" else null, mimeOverride = if (target == null) "video/mp2t" else null)
         server.originMs = originMs
         val originUs = System.nanoTime() / 1000
         var audio: ScreenAudioEncoder? = null
@@ -183,7 +191,7 @@ class TvProjection(
         var virtualDisplay: VirtualDisplay? = null
         var presentation: Presentation? = null
         try {
-            val port = server.start(ip)
+            val port = server.start(ip, if (target == null) LocalChannel.PORTS else emptyList())
 
             // Pista de audio en silencio: muchos TV no abren video sin audio. Si no hay codificador, sigue sin audio.
             val withAudio = ScreenAudioEncoder.isAvailable()
@@ -286,6 +294,14 @@ class TvProjection(
             session = current
             startStats(current)
 
+            if (target == null) {
+                // Canal local: no hay nada que pedirle al TV; el usuario abre la dirección en VLC o en una app de IPTV.
+                server.playlist = "#EXTM3U\n#EXTINF:-1 tvg-name=\"OpenTV\",OpenTV\n$url\n"
+                note("canal local listo: $url (lista: http://${ip.hostAddress}:$port/lista.m3u)")
+                _state.value = ProjectionState.Streaming(url, LocalChannel.NAME)
+                return
+            }
+
             val metadata = if (profile.sendMetadata) DidlLite.forUrl(url, "OpenTV", profile.protocolInfo()) else null
             note("enviando el enlace al TV (SetAVTransportURI + Play)")
             val result = dlna.play(target, url, metadata)
@@ -372,7 +388,7 @@ class TvProjection(
         val current = session
         if (current != null) {
             // Si el TV no responde igual se libera todo: no se deja nada vivo.
-            dlna.stop(current.target)
+            current.target?.let { dlna.stop(it) }
         }
         release("el usuario detuvo la proyección")
     }

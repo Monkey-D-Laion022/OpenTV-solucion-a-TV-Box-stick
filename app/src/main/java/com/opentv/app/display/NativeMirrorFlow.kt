@@ -43,8 +43,8 @@ class NativeMirrorFlow(
     private val displayConnected: () -> Flow<Boolean>,
     private val scope: CoroutineScope,
     private val restoreOnDisconnect: Boolean = false,
-    /** Si al forzar 16:9 también se fija la rotación en horizontal (opción de la central; por defecto no). */
-    private val lockLandscape: () -> Boolean = { false },
+    /** Si al forzar 16:9 también se fija la rotación en horizontal (opción de la central; por defecto sí, como en la versión estable). */
+    private val lockLandscape: () -> Boolean = { true },
 ) {
     private val _state = MutableStateFlow<NativeMirrorState>(NativeMirrorState.Idle())
     val state: StateFlow<NativeMirrorState> = _state.asStateFlow()

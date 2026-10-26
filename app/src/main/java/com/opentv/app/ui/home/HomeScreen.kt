@@ -1,7 +1,11 @@
 package com.opentv.app.ui.home
 
 import android.text.format.DateFormat
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -69,6 +73,7 @@ fun HomeScreen(
     val resizePending by viewModel.resizePending.collectAsStateWithLifecycle()
     val outputTarget by viewModel.outputTarget.collectAsStateWithLifecycle()
     var appPickerOpen by remember { mutableStateOf(false) }
+    var hero by remember { mutableStateOf(HeroInfo("OpenTV", "Elegí una app o una forma de transmitir a tu TV.")) }
 
     val context = LocalContext.current
     val date = Date(nowMillis)
@@ -119,6 +124,8 @@ fun HomeScreen(
                 onRestoreResolution = { viewModel.toggle169 { onNavigate(Routes.SHIZUKU_GUIDE) } },
             )
 
+            HeroPanel(hero)
+
             HomeRow(title = "Aplicaciones") {
                 itemsIndexed(favorites, key = { _, app -> app.packageName }) { index, app ->
                     AppTile(
@@ -127,6 +134,7 @@ fun HomeScreen(
                         loadIcon = viewModel.iconLoader::load,
                         onClick = { viewModel.appLaunch.onAppClick(app) },
                         onToggleFavorite = { viewModel.toggleFavorite(app) },
+                        onFocus = { hero = HeroInfo(app.label, "OK abre la app en el teléfono. Mantené OK (o Menú) para quitarla de favoritas.") },
                         modifier = Modifier
                             .width(150.dp)
                             .height(148.dp)
@@ -151,6 +159,7 @@ fun HomeScreen(
                         title = "Transmitir a TV",
                         subtitle = "Dispositivos de tu red y sus modos",
                         onClick = { onNavigate(Routes.HUB) },
+                        onFocus = { hero = HeroInfo("Transmitir a TV", "La central: tus TV en la red con todos sus modos (DLNA con sonido, Cast, canal local, navegador).") },
                         modifier = Modifier.width(CARD_WIDTH),
                     )
                 }
@@ -159,6 +168,7 @@ fun HomeScreen(
                         title = if (resizePending) "Restaurar 16:9" else "Forzar 16:9",
                         subtitle = if (resizePending) "La resolución está forzada" else "Sin franjas negras (Shizuku)",
                         onClick = { viewModel.toggle169 { onNavigate(Routes.SHIZUKU_GUIDE) } },
+                        onFocus = { hero = HeroInfo("16:9", "Pone la pantalla del teléfono en 16:9 con Shizuku para transmitir sin franjas negras. Se mantiene hasta que lo restaurés.") },
                         modifier = Modifier.width(CARD_WIDTH),
                     )
                 }
@@ -167,6 +177,7 @@ fun HomeScreen(
                         title = "Emisión nativa",
                         subtitle = "Cast / Smart View / Miracast del sistema",
                         onClick = { viewModel.openNativeCast(context) },
+                        onFocus = { hero = HeroInfo("Emisión nativa", "Abre Cast / Smart View / Miracast del sistema: la opción más fluida si tu teléfono y tu TV la tienen.") },
                         modifier = Modifier.width(CARD_WIDTH),
                     )
                 }
@@ -178,6 +189,7 @@ fun HomeScreen(
                         title = "Todas las apps",
                         subtitle = "Lista completa de tu teléfono",
                         onClick = { onNavigate(Routes.APPS) },
+                        onFocus = { hero = HeroInfo("Todas las apps", "La lista completa de tu teléfono; desde ahí podés fijar favoritas en la fila principal.") },
                         modifier = Modifier.width(CARD_WIDTH),
                     )
                 }
@@ -186,10 +198,47 @@ fun HomeScreen(
                         title = "Configuración",
                         subtitle = "Launcher, herramientas, diagnóstico",
                         onClick = { onNavigate(Routes.SETTINGS) },
+                        onFocus = { hero = HeroInfo("Configuración", "Launcher, herramientas, diagnóstico del equipo y formato de pantalla.") },
                         modifier = Modifier.width(CARD_WIDTH),
                     )
                 }
             }
+        }
+    }
+}
+
+private data class HeroInfo(val title: String, val text: String)
+
+/**
+ * Panel destacado fijo (como el «Browse» de Android TV): muestra de qué trata el elemento que tiene el foco.
+ * Alto fijo para que el contenido de abajo no salte al navegar con el control remoto.
+ */
+@Composable
+private fun HeroPanel(info: HeroInfo) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(112.dp)
+            .background(
+                Brush.horizontalGradient(listOf(OpenTvColors.SurfaceFocused, OpenTvColors.Background)),
+                RoundedCornerShape(20.dp),
+            )
+            .padding(horizontal = 24.dp, vertical = 14.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = info.title,
+                style = MaterialTheme.typography.headlineMedium,
+                color = OpenTvColors.OnBackground,
+                maxLines = 1,
+            )
+            Text(
+                text = info.text,
+                style = MaterialTheme.typography.bodyLarge,
+                color = OpenTvColors.Muted,
+                maxLines = 2,
+            )
         }
     }
 }

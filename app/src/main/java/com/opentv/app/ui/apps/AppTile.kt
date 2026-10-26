@@ -42,6 +42,7 @@ fun AppTile(
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
     modifier: Modifier = Modifier,
+    onFocus: (() -> Unit)? = null,
 ) {
     val icon: ImageBitmap? by produceState<ImageBitmap?>(initialValue = null, key1 = app.packageName) {
         value = loadIcon(app)?.asImageBitmap()
@@ -50,6 +51,7 @@ fun AppTile(
     FocusableSurface(
         onClick = onClick,
         onLongClick = onToggleFavorite,
+        onFocusGained = onFocus,
         modifier = modifier.onKeyEvent { event ->
             val isFavoriteKey = event.key == Key.Menu || event.key == Key.F
             if (isFavoriteKey && event.type == KeyEventType.KeyUp) {
