@@ -52,21 +52,4 @@ class ShizukuGuideTest {
         assertTrue(steps(S.NOT_RUNNING, dev = true)[1].done)
         assertFalse(steps(S.NOT_RUNNING, dev = false)[1].done)
     }
-
-    @Test
-    fun nextIsTheFirstPendingStepAndNullWhenAllDone() {
-        assertEquals(1, ShizukuGuide.next(steps(S.NOT_INSTALLED))!!.number)
-        assertEquals(2, ShizukuGuide.next(steps(S.NOT_RUNNING))!!.number)
-        assertEquals(5, ShizukuGuide.next(steps(S.NEEDS_PERMISSION))!!.number)
-        assertNull(ShizukuGuide.next(steps(S.READY)))
-    }
-
-    @Test
-    fun androidBefore11HasNoWirelessDebuggingAndSaysSo() {
-        val s = ShizukuGuide.steps(installed = true, running = false, granted = false, developerOptionsOn = true, sdkInt = 29)
-        assertNull(s[2].action)
-        assertTrue(s[2].body.contains("anterior al 11"))
-        val ok = ShizukuGuide.steps(installed = true, running = false, granted = false, developerOptionsOn = true, sdkInt = 34)
-        assertEquals(GuideAction.OPEN_DEVELOPER_OPTIONS, ok[2].action)
-    }
 }

@@ -174,37 +174,4 @@ class HttpStreamServerHistoryTest {
             server.stop()
         }
     }
-
-    @Test
-    fun localChannelServesTheShortPathThePlaylistAndTheStreamMime() {
-        val hub = StreamHub()
-        val s = HttpStreamServer(hub, "x", { true }, 2, StreamProfile.AVC_TS, fixedPath = "/canal.ts", mimeOverride = "video/mp2t")
-        val port = s.start(java.net.InetAddress.getLoopbackAddress(), listOf(0))
-        try {
-            assertEquals("/canal.ts", s.path)
-            s.playlist = "#EXTM3U\n#EXTINF:-1,OpenTV\nhttp://x/canal.ts\n"
-            fun fetch(path: String): String = java.net.Socket(java.net.InetAddress.getLoopbackAddress(), port).use { c ->
-                c.soTimeout = 2_000
-                c.getOutputStream().write("GET $path HTTP/1.0\r\n\r\n".toByteArray())
-                String(c.getInputStream().readBytes(), Charsets.ISO_8859_1)
-            }
-            val list = fetch("/lista.m3u")
-            assertTrue(list.startsWith("HTTP/1.0 200"))
-            assertTrue(list.contains("audio/x-mpegurl") && list.contains("#EXTM3U"))
-            assertTrue(fetch("/screen-x.ts").startsWith("HTTP/1.0 404")) // la ruta larga ya no existe
-        } finally {
-            s.stop()
-        }
-        val plain = HttpStreamServer(StreamHub(), "x", { true })
-        val p2 = plain.start(java.net.InetAddress.getLoopbackAddress())
-        try {
-            java.net.Socket(java.net.InetAddress.getLoopbackAddress(), p2).use { c ->
-                c.soTimeout = 2_000
-                c.getOutputStream().write("GET /lista.m3u HTTP/1.0\r\n\r\n".toByteArray())
-                assertTrue(String(c.getInputStream().readBytes()).startsWith("HTTP/1.0 404")) // sin lista, no existe
-            }
-        } finally {
-            plain.stop()
-        }
-    }
 }

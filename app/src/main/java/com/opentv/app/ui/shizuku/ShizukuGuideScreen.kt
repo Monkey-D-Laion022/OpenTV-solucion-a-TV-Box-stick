@@ -59,12 +59,6 @@ fun ShizukuGuideScreen(
                 style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
             )
             Text(status.message, style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.OnBackground)
-            Text(
-                text = ShizukuGuide.next(steps)?.let { "Siguiente paso: ${it.number}. ${it.title}" }
-                    ?: "Todo listo: ya podés forzar el 16:9.",
-                style = MaterialTheme.typography.titleMedium,
-                color = OpenTvColors.Success,
-            )
             steps.forEach { step ->
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(

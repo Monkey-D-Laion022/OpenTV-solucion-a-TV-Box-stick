@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.opentv.app.core.BuildInfo
+import com.opentv.app.navigation.PendingFeature
 import com.opentv.app.navigation.Routes
 import com.opentv.app.ui.apps.AddAppCard
 import com.opentv.app.ui.apps.AppPickerDialog
@@ -119,9 +120,9 @@ fun HomeScreen(
                 dateText = dateText,
                 externalDisplayName = externalDisplay?.name,
                 outputName = outputTarget?.name,
-                onCast = { onNavigate(Routes.HUB) },
+                onCast = { onNavigate(Routes.CONNECT) },
                 resizeForced = resizePending,
-                onRestoreResolution = { viewModel.toggle169 { onNavigate(Routes.SHIZUKU_GUIDE) } },
+                onRestoreResolution = { onNavigate(Routes.MIRROR) },
             )
 
             HeroPanel(hero)
@@ -153,31 +154,51 @@ fun HomeScreen(
             }
             LaunchMessage(state = launchState)
 
-            HomeRow(title = "Transmitir") {
+            // «Transmitir TV»: cada tarjeta solo ABRE una pantalla que ya existe; ninguna toca la resolución. El 16:9 se
+            // activa y se restaura únicamente con los botones de su propia pantalla («Espejo nativo 16:9»).
+            HomeRow(title = "Transmitir TV") {
                 item(key = "hub") {
                     TvCard(
                         title = "Transmitir a TV",
-                        subtitle = "Dispositivos de tu red y sus modos",
-                        onClick = { onNavigate(Routes.HUB) },
-                        onFocus = { hero = HeroInfo("Transmitir a TV", "La central: tus TV en la red con todos sus modos (DLNA con sonido, Cast, canal local, navegador).") },
+                        subtitle = "Elegí un Smart TV de tu red (DLNA)",
+                        onClick = { onNavigate(Routes.CONNECT) },
+                        onFocus = { hero = HeroInfo("Transmitir a TV", "Busca los TV de tu red y les envía una dirección o la pantalla del teléfono por DLNA.") },
                         modifier = Modifier.width(CARD_WIDTH),
                     )
                 }
-                item(key = "res169") {
+                item(key = "mirror") {
                     TvCard(
-                        title = if (resizePending) "Restaurar 16:9" else "Forzar 16:9",
-                        subtitle = if (resizePending) "La resolución está forzada" else "Sin franjas negras (Shizuku)",
-                        onClick = { viewModel.toggle169 { onNavigate(Routes.SHIZUKU_GUIDE) } },
-                        onFocus = { hero = HeroInfo("16:9", "Pone la pantalla del teléfono en 16:9 con Shizuku para transmitir sin franjas negras. Se mantiene hasta que lo restaurés.") },
+                        title = "Espejo nativo 16:9",
+                        subtitle = "Miracast del sistema + Shizuku",
+                        onClick = { onNavigate(Routes.MIRROR) },
+                        onFocus = { hero = HeroInfo("Espejo nativo 16:9", "Abre la pantalla donde vos forzás el 16:9 y abrís la transmisión del sistema. Acá no se cambia nada.") },
+                        modifier = Modifier.width(CARD_WIDTH),
+                    )
+                }
+                item(key = "browser") {
+                    TvCard(
+                        title = "Espejo por navegador",
+                        subtitle = "Sin Miracast: el TV abre una web",
+                        onClick = { onNavigate(Routes.BROWSER) },
+                        onFocus = { hero = HeroInfo("Espejo por navegador", "El TV abre una dirección corta en su navegador y ve la pantalla del teléfono (imagen sin sonido).") },
+                        modifier = Modifier.width(CARD_WIDTH),
+                    )
+                }
+                item(key = "own") {
+                    TvCard(
+                        title = "Proyectar OpenTV en el TV",
+                        subtitle = "Pantalla propia 16:9 por DLNA",
+                        onClick = { onNavigate(Routes.REMOTE) },
+                        onFocus = { hero = HeroInfo("Proyectar OpenTV", "Dibuja la interfaz de OpenTV en una pantalla virtual 16:9 y la envía al TV por DLNA.") },
                         modifier = Modifier.width(CARD_WIDTH),
                     )
                 }
                 item(key = "native") {
                     TvCard(
-                        title = "Emisión nativa",
-                        subtitle = "Cast / Smart View / Miracast del sistema",
+                        title = "Emisión del sistema",
+                        subtitle = "Cast / Smart View / Miracast",
                         onClick = { viewModel.openNativeCast(context) },
-                        onFocus = { hero = HeroInfo("Emisión nativa", "Abre Cast / Smart View / Miracast del sistema: la opción más fluida si tu teléfono y tu TV la tienen.") },
+                        onFocus = { hero = HeroInfo("Emisión del sistema", "Abre el panel de transmisión de Android, si tu teléfono lo tiene. No cambia la resolución.") },
                         modifier = Modifier.width(CARD_WIDTH),
                     )
                 }
@@ -190,6 +211,33 @@ fun HomeScreen(
                         subtitle = "Lista completa de tu teléfono",
                         onClick = { onNavigate(Routes.APPS) },
                         onFocus = { hero = HeroInfo("Todas las apps", "La lista completa de tu teléfono; desde ahí podés fijar favoritas en la fila principal.") },
+                        modifier = Modifier.width(CARD_WIDTH),
+                    )
+                }
+                item(key = "local-media") {
+                    TvCard(
+                        title = "Multimedia local",
+                        subtitle = "Pendiente (no implementado)",
+                        onClick = { onNavigate(Routes.pending(PendingFeature.LOCAL_MEDIA)) },
+                        onFocus = { hero = HeroInfo("Multimedia local", "Todavía no existe: la pantalla explica qué falta.") },
+                        modifier = Modifier.width(CARD_WIDTH),
+                    )
+                }
+                item(key = "shizuku") {
+                    TvCard(
+                        title = "Asistente de Shizuku",
+                        subtitle = "Estado y pasos guiados",
+                        onClick = { onNavigate(Routes.SHIZUKU_GUIDE) },
+                        onFocus = { hero = HeroInfo("Asistente de Shizuku", "Comprueba si Shizuku está lista y te guía paso a paso. No cambia la resolución.") },
+                        modifier = Modifier.width(CARD_WIDTH),
+                    )
+                }
+                item(key = "device") {
+                    TvCard(
+                        title = "Dispositivo",
+                        subtitle = "Pantalla, memoria y formato",
+                        onClick = { onNavigate(Routes.DEVICE) },
+                        onFocus = { hero = HeroInfo("Dispositivo", "Datos reales de tu pantalla, memoria y formato.") },
                         modifier = Modifier.width(CARD_WIDTH),
                     )
                 }

@@ -182,7 +182,7 @@ class ScreenResizerTest {
     fun rotationIsLockedToLandscapeAndRestored() = runBlocking {
         val phone = FakePhone()
         val resizer = ScreenResizer(phone, MemoryStore())
-        resizer.apply(lockLandscape = true)
+        resizer.apply()
         assertEquals("0", phone.settings["accelerometer_rotation"])
         assertEquals("1", phone.settings["user_rotation"])
         resizer.restore()
@@ -194,7 +194,7 @@ class ScreenResizerTest {
     fun aRotationFailureDoesNotBreakTheResolutionChange() = runBlocking {
         val phone = FakePhone(failSettings = true)
         val resizer = ScreenResizer(phone, MemoryStore())
-        assertTrue(resizer.apply(lockLandscape = true) is ResizeResult.Applied)
+        assertTrue(resizer.apply() is ResizeResult.Applied)
         assertEquals("1080x1920", phone.overrideSize)
         assertEquals(ResizeResult.Restored, resizer.restore())
         assertNull(phone.overrideSize)

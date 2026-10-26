@@ -243,52 +243,9 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    /** Opciones de la central (rotación, silencio del teléfono, cuadros por segundo). */
-    val options: com.opentv.app.stream.TransmitOptions get() = container.transmitOptions
-
-    // --- Espejo DLNA (pantalla + sonido) desde la central de conexiones ---
-
-    private var mirrorTarget: UpnpDevice? = null
-    private var localChannel = false
-
-    val projection: StateFlow<com.opentv.app.stream.ProjectionState> get() = container.projection.state
-
-    /** Guarda el TV al que se espejará, antes de pedir los permisos de captura. */
-    fun prepareMirror(device: UpnpDevice) {
-        mirrorTarget = device
-        localChannel = false
-    }
-
-    /** Prepara el canal local (sin TV elegido): el usuario abre la dirección en VLC o en una app de IPTV. */
-    fun prepareLocalChannel() {
-        mirrorTarget = null
-        localChannel = true
-    }
-
-    fun startDlnaMirror(resultCode: Int, data: android.content.Intent) {
-        if (localChannel) {
-            localChannel = false
-            viewModelScope.launch { container.projection.start(null, com.opentv.app.stream.MirrorRequest(resultCode, data)) }
-            return
-        }
-        val device = mirrorTarget ?: return
-        viewModelScope.launch {
-            container.output.select(TvTarget.DlnaTarget(device))
-            container.projection.start(device, com.opentv.app.stream.MirrorRequest(resultCode, data))
-        }
-    }
-
-    fun mirrorDenied() {
-        _state.update { it.copy(message = "No se concedió el permiso de captura de pantalla: sin él no se puede espejar.") }
-    }
-
-    fun stopProjection() {
-        viewModelScope.launch { container.projection.stop() }
-    }
-
     /** Abre la pantalla de transmisión del sistema; sirve tanto para conectar como para desconectar. */
-    fun openSystemCast(from: android.content.Context? = null) {
-        val opened = container.systemCast.open(from)
+    fun openSystemCast() {
+        val opened = container.systemCast.open()
         _state.update {
             it.copy(
                 message = if (opened) {

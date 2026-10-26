@@ -61,12 +61,7 @@ class ScreenEncoder(
                 setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileMain)
                 setInteger(
                     MediaFormat.KEY_LEVEL,
-                    when {
-                        profile.height >= 1080 && fps > 30 -> MediaCodecInfo.CodecProfileLevel.AVCLevel42 // 1080p60
-                        profile.height >= 1080 -> MediaCodecInfo.CodecProfileLevel.AVCLevel4
-                        fps > 30 -> MediaCodecInfo.CodecProfileLevel.AVCLevel32 // 720p60
-                        else -> MediaCodecInfo.CodecProfileLevel.AVCLevel31
-                    },
+                    if (profile.height >= 1080) MediaCodecInfo.CodecProfileLevel.AVCLevel4 else MediaCodecInfo.CodecProfileLevel.AVCLevel31,
                 )
             }
         }

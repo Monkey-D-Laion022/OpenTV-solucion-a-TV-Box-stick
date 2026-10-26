@@ -21,15 +21,8 @@ class HttpStreamServer(
     private val maxClients: Int = 2,
     private val profile: StreamProfile = StreamProfile.AVC_TS,
     private val sendBufferBytes: Int = 256 * 1024,
-    /** Ruta fija y corta (canal local para VLC / apps de IPTV); si es nula, `/screen-<código>.ts`. */
-    fixedPath: String? = null,
-    /** Tipo MIME a declarar en lugar del del perfil (el canal local usa `video/mp2t`). */
-    private val mimeOverride: String? = null,
 ) {
-    val path: String = fixedPath ?: "/screen-$token.ts"
-
-    /** Lista M3U que se sirve en `/lista.m3u` (la cargan las apps de IPTV); nula = esa ruta no existe. */
-    @Volatile var playlist: String? = null
+    val path: String = "/screen-$token.ts"
 
     private var server: ServerSocket? = null
     private val clients = AtomicInteger(0)
@@ -59,21 +52,10 @@ class HttpStreamServer(
         private set
 
     /** Empieza a escuchar y devuelve el puerto. Con [bindAddress] nulo escucha en todas las interfaces. */
-    fun start(bindAddress: InetAddress?, preferredPorts: List<Int> = emptyList()): Int {
-        var bound: ServerSocket? = null
-        for (port in preferredPorts + 0) {
-            val candidate = ServerSocket()
-            try {
-                candidate.reuseAddress = true
-                candidate.bind(InetSocketAddress(bindAddress, port), BACKLOG)
-                bound = candidate
-                break
-            } catch (e: IOException) {
-                runCatching { candidate.close() }
-                if (port == 0) throw e
-            }
-        }
-        val socket = bound ?: throw IOException("No se pudo abrir ningún puerto")
+    fun start(bindAddress: InetAddress?): Int {
+        val socket = ServerSocket()
+        socket.reuseAddress = true
+        socket.bind(InetSocketAddress(bindAddress, 0), BACKLOG)
         server = socket
         running = true
         if (originMs == 0L) originMs = System.currentTimeMillis()
@@ -126,19 +108,8 @@ class HttpStreamServer(
             requestCount.incrementAndGet()
             note("pidió $method ${if (target == path) "(enlace correcto)" else target}")
             lastRequest = "$method ${if (target == path) "(enlace correcto)" else target} · ${request.userAgent.ifEmpty { "sin user-agent" }}"
-            val list = playlist
             when {
                 method != "GET" && method != "HEAD" -> respond(client, "405 Method Not Allowed")
-                list != null && target == PLAYLIST_PATH -> {
-                    val body = list.toByteArray(Charsets.UTF_8)
-                    val out = client.getOutputStream()
-                    out.write(
-                        ("HTTP/1.0 200 OK\r\nContent-Type: audio/x-mpegurl\r\nContent-Length: ${body.size}\r\n" +
-                            "Cache-Control: no-cache\r\nConnection: close\r\n\r\n").toByteArray(Charsets.US_ASCII),
-                    )
-                    if (method == "GET") out.write(body)
-                    out.flush()
-                }
                 target != path -> respond(client, "404 Not Found")
                 else -> {
                     client.soTimeout = 0
@@ -225,7 +196,7 @@ class HttpStreamServer(
 
     private fun headers(status: String): String = buildString {
         append("HTTP/1.0 ").append(status).append("\r\n")
-        append("Content-Type: ").append(mimeOverride ?: profile.mime).append("\r\n")
+        append("Content-Type: ").append(profile.mime).append("\r\n")
         append("Cache-Control: no-cache\r\n")
         append("Pragma: no-cache\r\n")
         append("Accept-Ranges: none\r\n")
@@ -246,7 +217,6 @@ class HttpStreamServer(
     }
 
     private companion object {
-        const val PLAYLIST_PATH = "/lista.m3u"
         const val BACKLOG = 4
         const val REQUEST_TIMEOUT_MS = 5_000
         const val MAX_REQUEST_BYTES = 8 * 1024

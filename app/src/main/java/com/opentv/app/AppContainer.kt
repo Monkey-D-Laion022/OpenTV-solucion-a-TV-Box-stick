@@ -55,30 +55,19 @@ class AppContainer(context: Context) {
     // Espejo nativo del sistema con 16:9 forzado. Usa un alcance propio de la app: debe seguir vigilando aunque OpenTV
     // pase a segundo plano mientras el usuario elige el TV en el panel del sistema.
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-
-    /** Opciones de la central (rotación fija, silenciar el teléfono, cuadros por segundo). */
-    val transmitOptions = com.opentv.app.stream.TransmitOptions()
-    val phoneMute: com.opentv.app.stream.PhoneMute by lazy {
-        com.opentv.app.stream.PhoneMute(
-            com.opentv.app.stream.AudioManagerVolume(appContext),
-            com.opentv.app.stream.PrefsMuteStore(appContext),
-        )
-    }
-
     val nativeMirror: NativeMirrorFlow by lazy {
         NativeMirrorFlow(
             resizer = resizer,
             cast = CastOpener { systemCast.open() },
             displayConnected = { displayMonitor.observe().map { it != null } },
             scope = appScope,
-            lockLandscape = { transmitOptions.lockRotation.value },
         )
     }
 
     private val browserMirrorHolder = lazy { com.opentv.app.stream.BrowserMirror(appContext) }
     val browserMirror: com.opentv.app.stream.BrowserMirror get() = browserMirrorHolder.value
 
-    private val projectionHolder = lazy { TvProjection(appContext, dlna, resizer, transmitOptions, phoneMute) }
+    private val projectionHolder = lazy { TvProjection(appContext, dlna, resizer) }
     val projection: TvProjection get() = projectionHolder.value
 
     /** Corta la proyección al TV si estaba activa; no crea nada si nunca se usó. */

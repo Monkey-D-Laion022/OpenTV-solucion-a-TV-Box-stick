@@ -13,6 +13,7 @@ import com.opentv.app.ui.connect.ConnectTvScreen
 import com.opentv.app.ui.device.DeviceInfoScreen
 import com.opentv.app.ui.home.HomeScreen
 import com.opentv.app.ui.pending.PendingScreen
+import com.opentv.app.ui.mirror.NativeMirrorScreen
 import com.opentv.app.ui.remote.RemoteScreen
 import com.opentv.app.ui.player.PlayerScreen
 import com.opentv.app.ui.settings.SettingsScreen
@@ -44,12 +45,6 @@ fun OpenTvNavHost(
         composable(Routes.APPS) {
             AppsScreen(onBack = goBack)
         }
-        composable(Routes.HUB) {
-            com.opentv.app.ui.connect.ConnectHubScreen(
-                onBack = goBack,
-                onNavigate = { route -> navController.navigate(route) },
-            )
-        }
         composable(Routes.CONNECT) {
             ConnectTvScreen(onBack = goBack)
         }
@@ -62,6 +57,9 @@ fun OpenTvNavHost(
                 onOpenTools = { navController.navigate(Routes.TOOLS) },
                 onBack = goBack,
             )
+        }
+        composable(Routes.MIRROR) {
+            NativeMirrorScreen(onBack = goBack, onOpenGuide = { navController.navigate(Routes.SHIZUKU_GUIDE) })
         }
         composable(Routes.BROWSER) {
             com.opentv.app.ui.browser.BrowserMirrorScreen(onBack = goBack)

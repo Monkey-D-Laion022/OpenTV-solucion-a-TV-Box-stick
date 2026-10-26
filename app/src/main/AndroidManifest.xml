@@ -14,8 +14,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- Espejo de la pantalla del teléfono (captura del sistema; pide confirmación al usuario en cada sesión). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-    <!-- Solo para capturar el AUDIO INTERNO del espejo (Android 10+); OpenTV no usa el micrófono. Se pide al espejar. -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- OpenTV se puede instalar en teléfonos (sin leanback ni pantalla táctil obligatoria para TV). -->
     <uses-feature
