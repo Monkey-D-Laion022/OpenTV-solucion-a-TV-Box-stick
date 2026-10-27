@@ -136,6 +136,12 @@ class ScreenResizer(
                 prevUserRotation = prevUser,
             )
             _pending.value = true
+            if (lock && prevAuto == 0) {
+                // El usuario tiene la rotación bloqueada: se libera SOLO un instante, antes de achicar, para que el
+                // tamaño se aplique igual que con la rotación libre (caso que ya andaba). Enseguida se vuelve a fijar
+                // en horizontal (abajo) y al restaurar se devuelve el valor anterior del usuario. Mejor esfuerzo.
+                runCatching { shell.exec("settings put system accelerometer_rotation 1") }
+            }
             shell.exec("wm size ${plan.sizeArg}")
             if (changeDensity) shell.exec("wm density ${plan.density}")
             if (lock) {

@@ -311,3 +311,10 @@ Pedido del usuario: descartar la 5A anterior y partir del ZIP estable H2; interf
 - Guardia estática `ProtectedResolutionGuardTest` (7 pruebas): falla si algo fuera de la lista de H2 aplica/restaura la resolución, ejecuta `wm`/`settings`, usa `changeDensity = true`, o si el arranque, la red o `HomeScreen` mencionan el resizer. Probada con una mutación (detectó el cambio y se revirtió).
 - Etiqueta «módulo 5A-R». Verificado en la JVM: 203 pruebas, también con el frontend Kotlin 1.9. NO verificado: compilación Android (la hace GitHub Actions), interfaz y red en hardware.
 - Pospuesto a módulos propios: audio del sistema, canal local/M3U, modos por TV (`ConnectModes`), silenciar el teléfono, cualquier cambio en el 16:9.
+
+### Módulo 5A-R2: 16:9 con la rotación del usuario bloqueada (cambio AUTORIZADO en `ScreenResizer`)
+Hallazgo del usuario (hardware): con la rotación automática bloqueada en vertical el 16:9 deforma/corta la pantalla; con la rotación libre anda bien.
+- `MainActivity` ya declaraba `sensorLandscape` (ignora el bloqueo del usuario), pero eso solo afecta a las ventanas de OpenTV: el espejo captura TODA la pantalla (launcher, otras apps), que dependen de la rotación del sistema. Por eso no se tocó el manifiesto ni `OrientationPolicy` (que solo avisa sobre apps externas).
+- Cambio único en `ScreenResizer.apply`: si el usuario tenía `accelerometer_rotation = 0`, se pone 1 un instante ANTES de `wm size` (replica el caso que andaba) y el bloqueo horizontal de siempre se aplica después. `restore` devuelve el valor anterior (ya lo hacía). Con la rotación libre, la secuencia es idéntica a H2.
+- `wm size` sigue en vertical (1080x1920): es relativo a la orientación natural; la rotación horizontal la da el ajuste de rotación.
+- Pruebas: 2 nuevas (orden de comandos y restauración con bloqueo previo; secuencia intacta con rotación libre). 205 en la JVM (K2 y 1.9). NO verificado en hardware: es una hipótesis derivada de la observación.

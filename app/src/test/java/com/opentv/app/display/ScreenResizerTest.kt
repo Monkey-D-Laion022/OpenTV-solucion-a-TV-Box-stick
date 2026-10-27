@@ -191,6 +191,31 @@ class ScreenResizerTest {
     }
 
     @Test
+    fun lockedRotationIsFreedBrieflyBeforeShrinkingThenLockedLandscapeAndRestored() = runBlocking {
+        val phone = FakePhone(settings = mutableMapOf("accelerometer_rotation" to "0", "user_rotation" to "0"))
+        val resizer = ScreenResizer(phone, MemoryStore())
+        assertTrue(resizer.apply() is ResizeResult.Applied)
+        val free = phone.commands.indexOf("settings put system accelerometer_rotation 1")
+        val shrink = phone.commands.indexOf("wm size 1080x1920")
+        val lock = phone.commands.lastIndexOf("settings put system accelerometer_rotation 0")
+        assertTrue("liberar antes de achicar", free in 0 until shrink)
+        assertTrue("fijar horizontal después de achicar", lock > shrink)
+        assertEquals("0", phone.settings["accelerometer_rotation"])
+        assertEquals("1", phone.settings["user_rotation"])
+        assertEquals(ResizeResult.Restored, resizer.restore())
+        assertEquals("0", phone.settings["accelerometer_rotation"]) // vuelve a quedar bloqueada, como la tenía
+        assertEquals("0", phone.settings["user_rotation"])
+        assertNull(phone.overrideSize)
+    }
+
+    @Test
+    fun freeRotationKeepsTheProvenSequenceUntouched() = runBlocking {
+        val phone = FakePhone() // rotación automática activa (el caso que ya andaba)
+        assertTrue(ScreenResizer(phone, MemoryStore()).apply() is ResizeResult.Applied)
+        assertFalse(phone.commands.contains("settings put system accelerometer_rotation 1"))
+    }
+
+    @Test
     fun aRotationFailureDoesNotBreakTheResolutionChange() = runBlocking {
         val phone = FakePhone(failSettings = true)
         val resizer = ScreenResizer(phone, MemoryStore())
