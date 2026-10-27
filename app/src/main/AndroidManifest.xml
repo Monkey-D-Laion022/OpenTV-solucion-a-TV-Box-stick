@@ -90,6 +90,12 @@
             android:exported="false"
             android:foregroundServiceType="mediaPlayback|mediaProjection" />
 
+        <!-- Medición de captura/codificación (módulo 5B): servicio propio, independiente de ProjectionService. -->
+        <service
+            android:name=".bench.BenchmarkService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
         <!--
             Permite elegir OpenTV como «App de inicio» en los ajustes de Android. Solo aparece como
             opción: el sistema nunca la activa sin que el usuario la elija.

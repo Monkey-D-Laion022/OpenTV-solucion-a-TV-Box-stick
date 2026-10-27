@@ -312,9 +312,18 @@ Pedido del usuario: descartar la 5A anterior y partir del ZIP estable H2; interf
 - Etiqueta «módulo 5A-R». Verificado en la JVM: 203 pruebas, también con el frontend Kotlin 1.9. NO verificado: compilación Android (la hace GitHub Actions), interfaz y red en hardware.
 - Pospuesto a módulos propios: audio del sistema, canal local/M3U, modos por TV (`ConnectModes`), silenciar el teléfono, cualquier cambio en el 16:9.
 
-### Módulo 5A-R2: 16:9 con la rotación del usuario bloqueada (cambio AUTORIZADO en `ScreenResizer`)
-Hallazgo del usuario (hardware): con la rotación automática bloqueada en vertical el 16:9 deforma/corta la pantalla; con la rotación libre anda bien.
-- `MainActivity` ya declaraba `sensorLandscape` (ignora el bloqueo del usuario), pero eso solo afecta a las ventanas de OpenTV: el espejo captura TODA la pantalla (launcher, otras apps), que dependen de la rotación del sistema. Por eso no se tocó el manifiesto ni `OrientationPolicy` (que solo avisa sobre apps externas).
-- Cambio único en `ScreenResizer.apply`: si el usuario tenía `accelerometer_rotation = 0`, se pone 1 un instante ANTES de `wm size` (replica el caso que andaba) y el bloqueo horizontal de siempre se aplica después. `restore` devuelve el valor anterior (ya lo hacía). Con la rotación libre, la secuencia es idéntica a H2.
-- `wm size` sigue en vertical (1080x1920): es relativo a la orientación natural; la rotación horizontal la da el ajuste de rotación.
-- Pruebas: 2 nuevas (orden de comandos y restauración con bloqueo previo; secuencia intacta con rotación libre). 205 en la JVM (K2 y 1.9). NO verificado en hardware: es una hipótesis derivada de la observación.
+### Módulo 5A-R3: 16:9 y rotación — se revierte el cambio de R2 (zona protegida intacta)
+El módulo 5A-R2 había modificado `ScreenResizer.apply` (liberar la rotación antes de `wm size`). Por pedido expreso del usuario («debe permanecer EXACTAMENTE como está») se REVIERTE: `ScreenResizer.kt` y `ScreenResizerTest.kt` vuelven a ser idénticos a H2 (comparados con `cmp`).
+- Diagnóstico y opciones: `docs/DIAGNOSTICO-ORIENTACION.md`. Conclusión: no se puede demostrar una corrección segura sin tocar la secuencia protegida; se aplica la opción C.
+- Opción C: aviso fijo en el Inicio (solo texto, no ejecuta nada): «Para utilizar correctamente el modo 16:9, activá la rotación automática del teléfono desde la barra de notificaciones y volvé a utilizar la función 16:9.»
+- Etiqueta «módulo 5A-R3». 203 pruebas en la JVM (K2 y 1.9). NO verificado: compilación Android ni hardware.
+
+### Módulo 5B: medición de captura y codificación (aislada, solo mide)
+Pedido del usuario: medir FPS reales de captura y codificación del Redmi 14C, sin tocar la zona protegida y sin presentarlo como solución al lag de Miracast.
+- Nuevo paquete `bench/`: `BenchLogic` (pura, 10 pruebas), `AndroidEncoderLookup` (MediaCodecList, solo lectura), `BenchSession` (captura y codificación), `BenchHub` (estado y ciclo de vida), `BenchmarkService` (servicio propio, tipo mediaProjection), `ThermalProbe` (estado térmico de Android y temperatura de batería, públicos), `BenchViewModel`, `BenchScreen`.
+- Qué mide, por configuración: (1) solo captura (pantalla virtual → ImageReader, cada cuadro se cuenta y se descarta sin leerlo); (2) captura + codificación H.264 por Surface (se cuentan las salidas del codificador). FPS promedio y mínimo/máximo por segundo sobre una ventana que excluye el primer segundo; bitrate medido de toda la prueba. Solo se ofrecen 720p/1080p a 30 y 60 FPS que `MediaCodecList` informe como compatibles; las demás se listan como no compatibles y no se fuerzan.
+- «No disponible»: cuadros perdidos (la captura directa al codificador no los informa de forma fiable), latencia, y cualquier dato que Android no entregue. La temperatura es la de la batería y el estado térmico de Android; NO es la del procesador.
+- Aislamiento: no usa `ScreenResizer`, `display/`, `TvProjection` ni `ProjectionService`; no cambia resolución, densidad ni rotación. Solo arranca desde su pantalla (botón + permiso de captura de Android); se detiene al salir de la pantalla, con «Detener», o si se revoca el permiso; libera pantalla virtual, codificador, captura y servicio.
+- Android 14: una autorización = una pantalla virtual; entre pruebas se usa `resize` y `setSurface` en lugar de crear otra.
+- Cambios fuera del paquete (justificados): `Routes.BENCH`, ruta en `OpenTvNavHost`, tarjeta «Medición de captura» en `HomeScreen`, UN `<service>` en el manifiesto (el existente dice «espejando en el TV» y su botón detiene la proyección), etiqueta, y la guardia ahora también prohíbe que `bench/` mencione el resizer.
+- Verificado en la JVM: 213 pruebas (K2 y 1.9). NO verificado: compilación Android (la hace GitHub Actions), ninguna medición en hardware, comportamiento de `setSurface`/`resize` y del codificador en HyperOS.

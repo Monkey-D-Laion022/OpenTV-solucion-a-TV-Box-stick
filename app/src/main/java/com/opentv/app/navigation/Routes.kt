@@ -3,6 +3,7 @@ package com.opentv.app.navigation
 /** Rutas de navegación. Sin dependencias de Android para poder probarlas con JUnit simple. */
 object Routes {
     const val HOME = "home"
+    const val BENCH = "bench"
     const val SETTINGS = "settings"
     const val DEVICE = "device"
     const val APPS = "apps"

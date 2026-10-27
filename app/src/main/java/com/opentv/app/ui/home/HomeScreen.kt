@@ -156,6 +156,13 @@ fun HomeScreen(
 
             // «Transmitir TV»: cada tarjeta solo ABRE una pantalla que ya existe; ninguna toca la resolución. El 16:9 se
             // activa y se restaura únicamente con los botones de su propia pantalla («Espejo nativo 16:9»).
+            // Aviso fijo (solo texto): no ejecuta nada. Si el 16:9 queda girado o cortado, el paso manual conocido es este.
+            Text(
+                text = "Para utilizar correctamente el modo 16:9, activá la rotación automática del teléfono desde la barra de notificaciones y volvé a utilizar la función 16:9.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = OpenTvColors.Warning,
+            )
+
             HomeRow(title = "Transmitir TV") {
                 item(key = "hub") {
                     TvCard(
@@ -220,6 +227,15 @@ fun HomeScreen(
                         subtitle = "Pendiente (no implementado)",
                         onClick = { onNavigate(Routes.pending(PendingFeature.LOCAL_MEDIA)) },
                         onFocus = { hero = HeroInfo("Multimedia local", "Todavía no existe: la pantalla explica qué falta.") },
+                        modifier = Modifier.width(CARD_WIDTH),
+                    )
+                }
+                item(key = "bench") {
+                    TvCard(
+                        title = "Medición de captura",
+                        subtitle = "Prueba local de FPS (no transmite)",
+                        onClick = { onNavigate(Routes.BENCH) },
+                        onFocus = { hero = HeroInfo("Medición de captura", "Mide los FPS de captura y codificación de este teléfono. Solo arranca cuando la iniciás y aceptás el permiso; no transmite ni cambia la resolución.") },
                         modifier = Modifier.width(CARD_WIDTH),
                     )
                 }

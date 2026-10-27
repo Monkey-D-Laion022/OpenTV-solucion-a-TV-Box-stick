@@ -64,6 +64,9 @@ fun OpenTvNavHost(
         composable(Routes.BROWSER) {
             com.opentv.app.ui.browser.BrowserMirrorScreen(onBack = goBack)
         }
+        composable(Routes.BENCH) {
+            com.opentv.app.bench.BenchScreen(onBack = goBack)
+        }
         composable(Routes.SHIZUKU_GUIDE) {
             com.opentv.app.ui.shizuku.ShizukuGuideScreen(onBack = goBack)
         }
