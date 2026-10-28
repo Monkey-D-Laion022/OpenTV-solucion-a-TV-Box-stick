@@ -15,6 +15,18 @@
     <!-- Espejo de la pantalla del teléfono (captura del sistema; pide confirmación al usuario en cada sesión). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
+    <!--
+        Etapa A de Miracast (solo descubrimiento Wi-Fi Direct). Los dos primeros son «normales» (sin diálogo) y los pide la
+        guía oficial de Wi-Fi Direct; OpenTV no cambia ni apaga el Wi-Fi. NEARBY_WIFI_DEVICES (Android 13+) se pide al
+        pulsar «Buscar» y se declara con neverForLocation: no se usa la ubicación. En Android 12 o anterior Wi-Fi Direct
+        exigiría ubicación: NO se declara sin aprobación y la pantalla explica que la prueba no corre.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation" />
+
     <!-- OpenTV se puede instalar en teléfonos (sin leanback ni pantalla táctil obligatoria para TV). -->
     <uses-feature
         android:name="android.software.leanback"

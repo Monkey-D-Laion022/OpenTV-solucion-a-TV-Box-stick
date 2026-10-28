@@ -104,7 +104,7 @@ class ProtectedResolutionGuardTest {
             path == "OpenTvApp.kt" || path == "MainActivity.kt" ||
                 path.startsWith("connect/") || path.startsWith("ui/connect/") || path.startsWith("ui/browser/") ||
                 path.startsWith("stream/Mjpeg") || path == "stream/BrowserMirror.kt" || path == "stream/HttpStreamServer.kt" ||
-                path == "ui/home/HomeScreen.kt" || path.startsWith("bench/")
+                path == "ui/home/HomeScreen.kt" || path.startsWith("bench/") || path.startsWith("miracast/")
         }
         val offenders = forbidden.filter { mentions.containsMatchIn(sources.getValue(it)) }
         assertTrue("Código de arranque, red o inicio menciona la zona protegida: $offenders", offenders.isEmpty())

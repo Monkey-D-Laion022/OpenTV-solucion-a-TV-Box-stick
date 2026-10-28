@@ -4,6 +4,7 @@ package com.opentv.app.navigation
 object Routes {
     const val HOME = "home"
     const val BENCH = "bench"
+    const val P2P_DISCOVERY = "p2p-discovery"
     const val SETTINGS = "settings"
     const val DEVICE = "device"
     const val APPS = "apps"

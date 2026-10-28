@@ -327,3 +327,12 @@ Pedido del usuario: medir FPS reales de captura y codificación del Redmi 14C, s
 - Android 14: una autorización = una pantalla virtual; entre pruebas se usa `resize` y `setSurface` en lugar de crear otra.
 - Cambios fuera del paquete (justificados): `Routes.BENCH`, ruta en `OpenTvNavHost`, tarjeta «Medición de captura» en `HomeScreen`, UN `<service>` en el manifiesto (el existente dice «espejando en el TV» y su botón detiene la proyección), etiqueta, y la guardia ahora también prohíbe que `bench/` mencione el resizer.
 - Verificado en la JVM: 213 pruebas (K2 y 1.9). NO verificado: compilación Android (la hace GitHub Actions), ninguna medición en hardware, comportamiento de `setSurface`/`resize` y del codificador en HyperOS.
+
+## Miracast · etapa A (descubrimiento Wi-Fi Direct) — sin ZIP ni APK
+
+Alcance: SOLO descubrir dispositivos Wi-Fi Direct con la API pública y mostrar lo que Android informa. No conecta, no forma grupos, no abre sockets, no negocia RTSP, no usa APIs ocultas ni reflexión, no toca resolución/densidad/rotación.
+
+- Nuevo paquete `miracast/`: `P2pDiscoveryLogic.kt` (puro), `P2pDiscovery.kt`, `P2pDiscoveryViewModel.kt`, `P2pDiscoveryScreen.kt`, y `WfdVideoFormats.kt` (decodificador puro de `wfd_video_formats`, tablas verificadas contra AOSP; todavía sin uso desde la app).
+- Cambios en archivos existentes (mínimos): `AndroidManifest.xml` (+ACCESS_WIFI_STATE, +CHANGE_WIFI_STATE, +NEARBY_WIFI_DEVICES con neverForLocation; SIN permiso de ubicación), `Routes.kt` (+P2P_DISCOVERY), `OpenTvNavHost.kt` (+1 ruta), `HomeScreen.kt` (+1 tarjeta que solo navega), `BuildInfo.kt` (etiqueta), `ProtectedResolutionGuardTest.kt` (+`miracast/` en la lista de código que no puede mencionar la zona protegida).
+- Android 12 o anterior: Wi-Fi Direct exige ubicación según la guía oficial; no se declara sin aprobación, la pantalla indica que no se ejecuta.
+- Verificado: 236 tests JVM (lógica pura) con frontend Kotlin 1.9 y 2.0; 14 archivos protegidos idénticos a H2 (cmp). NO verificado: compilación Android (no hay SDK acá) ni ejecución en teléfono.

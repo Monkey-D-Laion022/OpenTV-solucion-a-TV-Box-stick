@@ -67,6 +67,9 @@ fun OpenTvNavHost(
         composable(Routes.BENCH) {
             com.opentv.app.bench.BenchScreen(onBack = goBack)
         }
+        composable(Routes.P2P_DISCOVERY) {
+            com.opentv.app.miracast.P2pDiscoveryScreen(onBack = goBack)
+        }
         composable(Routes.SHIZUKU_GUIDE) {
             com.opentv.app.ui.shizuku.ShizukuGuideScreen(onBack = goBack)
         }

@@ -239,6 +239,15 @@ fun HomeScreen(
                         modifier = Modifier.width(CARD_WIDTH),
                     )
                 }
+                item(key = "p2p-discovery") {
+                    TvCard(
+                        title = "Descubrimiento Wi-Fi Direct",
+                        subtitle = "Prueba: ¿se ve el televisor? (no conecta)",
+                        onClick = { onNavigate(Routes.P2P_DISCOVERY) },
+                        onFocus = { hero = HeroInfo("Descubrimiento Wi-Fi Direct", "Busca dispositivos Wi-Fi Direct cercanos y muestra lo que Android informa. No conecta, no transmite y no cambia ningún ajuste. Solo arranca cuando pulsás Buscar.") },
+                        modifier = Modifier.width(CARD_WIDTH),
+                    )
+                }
                 item(key = "shizuku") {
                     TvCard(
                         title = "Asistente de Shizuku",
