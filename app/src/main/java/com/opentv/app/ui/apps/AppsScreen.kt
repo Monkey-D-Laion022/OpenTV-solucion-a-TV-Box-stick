@@ -38,6 +38,8 @@ import com.opentv.app.ui.theme.OpenTvColors
 fun AppsScreen(
     onBack: () -> Unit,
     viewModel: AppsViewModel = viewModel(),
+    /** Dentro de la barra superior del rediseño: sin marco propio, sin título ni «Volver» (la barra ya navega). */
+    embedded: Boolean = false,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val launchState by viewModel.appLaunch.state.collectAsStateWithLifecycle()
@@ -66,16 +68,18 @@ fun AppsScreen(
         )
     }
 
-    SafeArea {
+    val body: @Composable () -> Unit = {
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = "Aplicaciones",
-                style = MaterialTheme.typography.headlineMedium,
-                color = OpenTvColors.OnBackground,
-            )
+            if (!embedded) {
+                Text(
+                    text = "Aplicaciones",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = OpenTvColors.OnBackground,
+                )
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -98,7 +102,7 @@ fun AppsScreen(
                     onClick = viewModel::refresh,
                     horizontalPadding = 20.dp,
                 )
-                TvButton(text = "Volver", onClick = onBack, horizontalPadding = 20.dp)
+                if (!embedded) TvButton(text = "Volver", onClick = onBack, horizontalPadding = 20.dp)
             }
 
             Text(
@@ -116,7 +120,7 @@ fun AppsScreen(
                     StatusText("No se encontraron aplicaciones que se puedan abrir.")
                 visibleApps.isEmpty() -> StatusText("Sin resultados para «${state.query.trim()}».")
                 else -> LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 150.dp),
+                    columns = GridCells.Adaptive(minSize = if (embedded) 140.dp else 150.dp),
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -140,6 +144,7 @@ fun AppsScreen(
             }
         }
     }
+    if (embedded) body() else SafeArea { body() }
 }
 
 @Composable

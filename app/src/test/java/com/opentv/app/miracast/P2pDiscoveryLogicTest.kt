@@ -72,6 +72,13 @@ class P2pDiscoveryLogicTest {
     }
 
     @Test
+    fun shortIdShowsOnlyTheLastTwoBytes() {
+        assertEquals("…3F:A1", P2pText.shortId("aa:bb:cc:dd:3f:a1"))
+        assertEquals(P2pText.NA, P2pText.shortId(null))
+        assertEquals(P2pText.NA, P2pText.shortId("zz"))
+    }
+
+    @Test
     fun oldAndroidIsReportedAsNotRun() {
         assertTrue(P2pText.conclusion(P2pUi(phase = P2pPhase.BLOCKED_OLD_ANDROID)).contains("No ejecutada"))
     }
@@ -87,16 +94,34 @@ class P2pDiscoveryLogicTest {
 
     private fun appDir(): File = listOf(File("."), File("app")).first { File(it, "src/main/AndroidManifest.xml").isFile }
 
+    private val stageAFiles = setOf("P2pDiscovery.kt", "P2pDiscoveryLogic.kt", "P2pDiscoveryViewModel.kt", "P2pDiscoveryScreen.kt")
+
+    private fun productionFiles() =
+        File(appDir(), "src/main/java/com/opentv/app/miracast").walkTopDown()
+            .filter { it.isFile && it.extension == "kt" && !it.name.endsWith("Test.kt") }.toList()
+
     @Test
-    fun stageAPackageNeverConnectsOpensSocketsOrTouchesProtectedCode() {
-        val dir = File(appDir(), "src/main/java/com/opentv/app/miracast")
+    fun stageADiscoveryNeverConnectsOrOpensSockets() {
+        val forbidden = Regex("""\.connect\(|createGroup|removeGroup|cancelConnect|ServerSocket|java\.net\.Socket|Socket\(|7236""")
+        val offenders = productionFiles().filter { it.name in stageAFiles && forbidden.containsMatchIn(strip(it.readText())) }.map { it.name }
+        assertTrue("La etapa A (solo descubrimiento) no puede contener: $offenders", offenders.isEmpty())
+    }
+
+    @Test
+    fun noMiracastFileUsesHiddenApisReflectionOrProtectedCode() {
         val forbidden = Regex(
-            """\.connect\(|createGroup|removeGroup|cancelConnect|ServerSocket|java\.net\.Socket|Socket\(|7236|setWfdInfo|getWfdInfo|wfdInfo|""" +
-                """Class\.forName|getDeclaredMethod|getMethod\(|\bresizer\b|ScreenResizer|Shizuku|ProcessBuilder|Runtime\.getRuntime""",
+            """setWfdInfo|getWfdInfo|wfdInfo|setMiracastMode|Class\.forName|getDeclaredMethod|getMethod\(|getDeclaredField|\bresizer\b|ScreenResizer|""" +
+                """Shizuku|ProcessBuilder|Runtime\.getRuntime|su -c|wm size|wm density|settings put""",
         )
-        val offenders = dir.walkTopDown().filter { it.isFile && it.extension == "kt" && !it.name.endsWith("Test.kt") }
-            .filter { forbidden.containsMatchIn(strip(it.readText())) }.map { it.name }.toList()
-        assertTrue("La etapa A no puede contener: $offenders", offenders.isEmpty())
+        val offenders = productionFiles().filter { forbidden.containsMatchIn(strip(it.readText())) }.map { it.name }
+        assertTrue("El paquete miracast/ no puede contener: $offenders", offenders.isEmpty())
+    }
+
+    @Test
+    fun onlyTheSessionFileOpensSockets() {
+        val sockets = Regex("""ServerSocket|java\.net\.Socket|Socket\(""")
+        val offenders = productionFiles().filter { sockets.containsMatchIn(strip(it.readText())) }.map { it.name }
+        assertEquals(listOf("WfdDiagnosticSession.kt").filter { it in offenders }, offenders)
     }
 
     @Test

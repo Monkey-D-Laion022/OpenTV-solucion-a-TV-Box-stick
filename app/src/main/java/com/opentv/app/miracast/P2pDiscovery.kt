@@ -169,6 +169,7 @@ class P2pDiscovery(private val app: Application, private val scope: CoroutineSco
                 isGroupOwner = d.isGroupOwner,
                 serviceDiscoveryCapable = d.isServiceDiscoveryCapable,
                 inLatestScan = true,
+                address = d.deviceAddress,
             )
         }
         _ui.update { it.copy(peers = seen.values.toList()) }

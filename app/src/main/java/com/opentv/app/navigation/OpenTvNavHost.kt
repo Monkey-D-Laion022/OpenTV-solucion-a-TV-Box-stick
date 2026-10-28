@@ -16,7 +16,11 @@ import com.opentv.app.ui.pending.PendingScreen
 import com.opentv.app.ui.mirror.NativeMirrorScreen
 import com.opentv.app.ui.remote.RemoteScreen
 import com.opentv.app.ui.player.PlayerScreen
-import com.opentv.app.ui.settings.SettingsScreen
+import com.opentv.app.ui.connections.ConnectionsScreen
+import com.opentv.app.ui.media.MediaScreen
+import com.opentv.app.ui.settings.SettingsHubScreen
+import com.opentv.app.ui.shell.OpenTvShell
+import com.opentv.app.ui.shell.TopSection
 import com.opentv.app.ui.settings.ToolsScreen
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -38,12 +42,27 @@ fun OpenTvNavHost(
         }
     }
 
+    // Cambiar de sección con la barra superior no apila pantallas: siempre se vuelve al inicio con Atrás.
+    val goSection: (TopSection) -> Unit = { section ->
+        navController.navigate(section.route) {
+            popUpTo(Routes.HOME) { inclusive = false }
+            launchSingleTop = true
+        }
+    }
+    val open: (String) -> Unit = { route -> navController.navigate(route) }
+
     NavHost(navController = navController, startDestination = Routes.HOME) {
         composable(Routes.HOME) {
-            HomeScreen(onNavigate = { route -> navController.navigate(route) })
+            OpenTvShell(selected = TopSection.HOME, onSelect = goSection) { HomeScreen(onNavigate = open) }
         }
         composable(Routes.APPS) {
-            AppsScreen(onBack = goBack)
+            OpenTvShell(selected = TopSection.APPS, onSelect = goSection) { AppsScreen(onBack = goBack, embedded = true) }
+        }
+        composable(Routes.MEDIA) {
+            OpenTvShell(selected = TopSection.MEDIA, onSelect = goSection) { MediaScreen(onNavigate = open) }
+        }
+        composable(Routes.CONNECTIONS) {
+            OpenTvShell(selected = TopSection.CONNECTIONS, onSelect = goSection) { ConnectionsScreen(onNavigate = open) }
         }
         composable(Routes.CONNECT) {
             ConnectTvScreen(onBack = goBack)
@@ -52,11 +71,7 @@ fun OpenTvNavHost(
             PlayerScreen(onBack = goBack)
         }
         composable(Routes.SETTINGS) {
-            SettingsScreen(
-                onOpenDiagnostics = { navController.navigate(Routes.DEVICE) },
-                onOpenTools = { navController.navigate(Routes.TOOLS) },
-                onBack = goBack,
-            )
+            OpenTvShell(selected = TopSection.SETTINGS, onSelect = goSection) { SettingsHubScreen(onNavigate = open) }
         }
         composable(Routes.MIRROR) {
             NativeMirrorScreen(onBack = goBack, onOpenGuide = { navController.navigate(Routes.SHIZUKU_GUIDE) })
@@ -69,6 +84,9 @@ fun OpenTvNavHost(
         }
         composable(Routes.P2P_DISCOVERY) {
             com.opentv.app.miracast.P2pDiscoveryScreen(onBack = goBack)
+        }
+        composable(Routes.WFD_DIAGNOSTIC) {
+            com.opentv.app.miracast.WfdDiagnosticScreen(onBack = goBack)
         }
         composable(Routes.SHIZUKU_GUIDE) {
             com.opentv.app.ui.shizuku.ShizukuGuideScreen(onBack = goBack)

@@ -35,6 +35,8 @@ data class P2pPeer(
     val serviceDiscoveryCapable: Boolean,
     /** `true` si estaba en la última lista entregada por Android; `false` si se vio antes y ya no aparece. */
     val inLatestScan: Boolean,
+    /** Dirección Wi-Fi Direct del dispositivo. Solo vive en memoria (la etapa B la necesita para conectar); no se guarda. */
+    val address: String? = null,
 )
 
 data class P2pUi(
@@ -70,6 +72,12 @@ object P2pText {
         else -> "código de error desconocido ($code)"
     }
 
+    /** Identificador corto para distinguir dispositivos con el mismo nombre: solo los dos últimos bytes de la dirección. */
+    fun shortId(address: String?): String {
+        val parts = address?.split(':')?.filter { it.isNotEmpty() } ?: return NA
+        return if (parts.size >= 2) "…" + parts.takeLast(2).joinToString(":").uppercase() else NA
+    }
+
     private val LG_NAME = Regex("(?i)\\bLG\\b|lgtv|webos|netcast")
 
     /** Solo por el nombre: el televisor puede anunciarse con otro. Nunca se presenta como confirmación. */
@@ -77,6 +85,7 @@ object P2pText {
 
     fun peerLines(p: P2pPeer): List<String> = listOf(
         (p.name.ifBlank { "(sin nombre)" }) + if (possibleLg(p.name)) "  ← el nombre sugiere LG (no confirmado)" else "",
+        "Identificador corto: ${shortId(p.address)}",
         "Tipo declarado (primario): ${p.primaryType?.ifBlank { null } ?: NA}",
         "Tipo declarado (secundario): ${p.secondaryType?.ifBlank { null } ?: NA}",
         "Estado según Android: ${status(p.statusCode)}",
