@@ -105,8 +105,9 @@ fun HomeScreen(
     val firstKey = favorites.firstOrNull()?.let { "app:${it.packageName}" } ?: KEY_ADD
     LaunchedEffect(favorites.isNotEmpty()) {
         withFrameNanos { }
-        val restored = lastFocus.isNotEmpty() && runCatching { requesterFor(lastFocus).requestFocus() }.getOrDefault(false)
-        if (!restored) runCatching { requesterFor(firstKey).requestFocus() }.getOrDefault(false)
+        // En Compose 1.6 requestFocus() devuelve Unit y lanza excepción si el elemento todavía no está en pantalla.
+        val restored = lastFocus.isNotEmpty() && runCatching { requesterFor(lastFocus).requestFocus() }.isSuccess
+        if (!restored) runCatching { requesterFor(firstKey).requestFocus() }
     }
 
     fun open(entry: NavEntry) {
