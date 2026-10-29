@@ -106,7 +106,7 @@ fun HomeScreen(
     LaunchedEffect(favorites.isNotEmpty()) {
         withFrameNanos { }
         val restored = lastFocus.isNotEmpty() && runCatching { requesterFor(lastFocus).requestFocus() }.getOrDefault(false)
-        if (!restored) runCatching { requesterFor(firstKey).requestFocus() }
+        if (!restored) runCatching { requesterFor(firstKey).requestFocus() }.getOrDefault(false)
     }
 
     fun open(entry: NavEntry) {
