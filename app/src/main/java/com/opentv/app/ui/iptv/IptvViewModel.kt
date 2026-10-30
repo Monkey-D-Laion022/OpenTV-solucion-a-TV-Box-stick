@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.opentv.app.iptv.IptvAccess
 import com.opentv.app.iptv.IptvController
 import com.opentv.app.iptv.IptvPreset
 import com.opentv.app.iptv.IptvState
@@ -18,9 +19,13 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<IptvState> get() = controller.state
     val preset: StateFlow<IptvPreset> get() = controller.preset
 
-    fun start(resultCode: Int, data: Intent) {
-        viewModelScope.launch { controller.start(MirrorRequest(resultCode, data)) }
+    val access: StateFlow<IptvAccess> get() = controller.access
+
+    fun start(resultCode: Int, data: Intent, captureAudio: Boolean) {
+        viewModelScope.launch { controller.start(MirrorRequest(resultCode, data), captureAudio) }
     }
+
+    fun cycleAccess() = controller.cycleAccess()
 
     fun cyclePreset() = controller.cyclePreset()
     fun stop() = controller.stop()

@@ -21,6 +21,8 @@ class ScreenEncoder(
     private val bitrate: Int = BITRATE,
     private val iFrameSeconds: Int = 1,
     private val lowLatency: Boolean = false,
+    /** Nivel H.264 explícito (constante `AVCLevel*`); `null` conserva el comportamiento histórico (4.0 en 1080p, 3.1 en lo demás). */
+    private val avcLevel: Int? = null,
     private val onChunk: (chunk: ByteArray, keyStart: Boolean) -> Unit,
 ) {
     private var codec: MediaCodec? = null
@@ -61,7 +63,7 @@ class ScreenEncoder(
                 setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileMain)
                 setInteger(
                     MediaFormat.KEY_LEVEL,
-                    if (profile.height >= 1080) MediaCodecInfo.CodecProfileLevel.AVCLevel4 else MediaCodecInfo.CodecProfileLevel.AVCLevel31,
+                    avcLevel ?: if (profile.height >= 1080) MediaCodecInfo.CodecProfileLevel.AVCLevel4 else MediaCodecInfo.CodecProfileLevel.AVCLevel31,
                 )
             }
         }

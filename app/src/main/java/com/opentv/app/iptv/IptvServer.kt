@@ -23,6 +23,8 @@ class IptvServer(
     private val hub: StreamHub,
     private val acceptClient: (InetAddress) -> Boolean,
     private val maxClients: Int = 6,
+    /** Dirección Wi‑Fi del propio teléfono: los pedidos que vienen de ella (o de loopback) NO cuentan como otro equipo. */
+    private val ownAddress: InetAddress? = null,
 ) {
     private var server: ServerSocket? = null
     private val pool = Executors.newCachedThreadPool { r -> Thread(r, "opentv-iptv-http").apply { isDaemon = true } }
@@ -30,6 +32,14 @@ class IptvServer(
     private val liveOpen = AtomicInteger(0)
     private val requestCount = AtomicInteger(0)
     val bytesSent = AtomicLong(0)
+    private val externalCount = AtomicInteger(0)
+    private val externalIps = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    @Volatile var lastExternal: String = ""
+        private set
+
+    /** Pedidos recibidos desde OTROS equipos de la red (la única prueba de que el televisor llega al teléfono). */
+    val externalRequests: Int get() = externalCount.get()
+    val externalClientIps: Set<String> get() = externalIps.toSet()
     @Volatile private var running = false
     private val recent = java.util.concurrent.ConcurrentLinkedDeque<String>()
 
@@ -86,6 +96,10 @@ class IptvServer(
         while (running) {
             val head = try { readHead(input) } catch (e: SocketTimeoutException) { return } catch (e: IOException) { return } ?: return
             requestCount.incrementAndGet()
+            if (isExternal(client.inetAddress, ownAddress)) {
+                externalCount.incrementAndGet()
+                externalIps.add(client.inetAddress.hostAddress ?: "?")
+            }
             val lines = head.split("\r\n")
             val parts = lines[0].split(" ")
             if (parts.size < 3) { writeSimple(out, 400, "Pedido inválido", close = true); return }
@@ -94,6 +108,11 @@ class IptvServer(
             val path = parts[1]
             val keepAlive = !(headers["connection"]?.equals("close", true) ?: (parts[2] == "HTTP/1.0"))
             val response = router.route(method, path, headers["host"], headers["range"])
+            if (isExternal(client.inetAddress, ownAddress)) {
+                lastExternal = "${client.inetAddress.hostAddress} · $method ${path.substringBefore('?').substringAfterLast('/')} · " +
+                    (if (response is IptvResponse.Body) response.status.toString() else "200 (continuo)") +
+                    (headers["user-agent"]?.let { " · " + it.take(40) } ?: "")
+            }
             when (response) {
                 is IptvResponse.Body -> {
                     note("$method ${path.substringBefore('?').substringAfterLast('/')} · ${response.status}")
@@ -165,5 +184,11 @@ class IptvServer(
         else -> "Status"
     }
 
-    private companion object { const val MAX_HEAD = 8 * 1024 }
+    companion object {
+        private const val MAX_HEAD = 8 * 1024
+
+        /** Un pedido es «de otro equipo» si no viene de loopback ni de la propia dirección del teléfono. */
+        fun isExternal(client: InetAddress, own: InetAddress?): Boolean =
+            !client.isLoopbackAddress && !client.isAnyLocalAddress && (own == null || client != own)
+    }
 }

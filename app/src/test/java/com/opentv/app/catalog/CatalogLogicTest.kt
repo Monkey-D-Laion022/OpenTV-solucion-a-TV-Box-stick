@@ -207,11 +207,8 @@ class CatalogLogicTest {
         var calls = 0
         val repo = CatalogRepository(tmp(), { _, _ -> calls++; FetchResult.HttpError(401, null) }, { 5L })
         val r = repo.refresh(fakeV4, true)
-        val problem = r.problem
-        assertEquals(CatalogProblem.REJECTED, problem)
-        assertEquals(1, calls)
-        assertTrue(r.snapshot.rows.isEmpty())
-        assertTrue(problem != null && CatalogText.problem(problem, r.detail).contains("401"))
+        assertEquals(CatalogProblem.REJECTED, r.problem); assertEquals(1, calls)
+        assertTrue(r.snapshot.rows.isEmpty()); assertTrue(r.problem != null && CatalogText.problem(r.problem, r.detail).contains("401"))
     }
 
     @Test fun rateLimitStopsTheLoopWithoutInsisting() {

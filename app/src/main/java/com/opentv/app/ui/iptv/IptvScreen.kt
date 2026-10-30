@@ -1,6 +1,9 @@
 package com.opentv.app.ui.iptv
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import android.media.projection.MediaProjectionManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,6 +28,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.opentv.app.iptv.IptvAudio
 import com.opentv.app.iptv.IptvState
 import com.opentv.app.ui.components.SafeArea
 import com.opentv.app.ui.components.TvButton
@@ -40,10 +44,18 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
     val preset by viewModel.preset.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val access by viewModel.access.collectAsStateWithLifecycle()
+    fun audioGranted() = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val data = result.data
-        if (result.resultCode == Activity.RESULT_OK && data != null) viewModel.start(result.resultCode, data)
+        if (result.resultCode == Activity.RESULT_OK && data != null) viewModel.start(result.resultCode, data, audioGranted())
     }
+    fun launchCapture() {
+        val manager = context.getSystemService(MediaProjectionManager::class.java)
+        launcher.launch(manager.createScreenCaptureIntent())
+    }
+    // Si el usuario niega el permiso se emite igual, con pista en silencio (la pantalla lo indica).
+    val audioPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { launchCapture() }
     val firstFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
     val running = state is IptvState.Live || state is IptvState.Starting
@@ -59,7 +71,7 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                     "Cargás la lista M3U en una app IPTV del televisor y elegís el canal. Es una emisión por HTTP sin cifrar: " +
                     "mientras esté activa, cualquier equipo de tu Wi‑Fi que tenga la dirección puede verla. " +
                     "Todavía NO está comprobado con tu LG 42LB5800 ni con SmartOne IPTV; la lista de pruebas sirve justamente para eso. " +
-                    "El sonido del teléfono no se emite (pista en silencio): capturarlo exigiría un permiso que no está autorizado. " +
+                    "El sonido del teléfono se captura solo si concedés el permiso de audio (Android lo llama «grabar audio»; OpenTV no usa el micrófono: captura lo que suena en el teléfono). Algunas apps bloquean esa captura y entonces llega silencio: la pantalla lo avisa. " +
                     "No la uses junto con el espejo por navegador (Android permite una sola captura de pantalla a la vez).",
                 style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
             )
@@ -80,8 +92,24 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                     )
                     Text(
                         "Equipos conectados: ${s.clients} · segmentos publicados: ${s.segments} · ${s.kbPerSecond} KB/s" +
-                            if (s.withAudio) " · audio: pista en silencio" else " · sin pista de audio",
+                            if (s.withAudio) " · audio: ${s.audio.label}" else " · sin pista de audio",
                         style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground,
+                    )
+                    if (s.note != null) Text(s.note, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning)
+                    if (s.audio == IptvAudio.CAPTURING_NO_SOUND) {
+                        Text(
+                            "Se captura audio pero no se detecta sonido: si reproducís algo y sigue así, la app de origen bloquea la captura.",
+                            style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning,
+                        )
+                    }
+                    Text(
+                        if (s.externalRequests > 0) {
+                            "Llegaron ${s.externalRequests} pedidos desde ${s.externalClients} equipo(s) distintos del teléfono. Último: ${s.lastExternal}"
+                        } else {
+                            "Ningún OTRO equipo llegó todavía: abrir la dirección en este teléfono NO prueba que el televisor pueda verla."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (s.externalRequests > 0) OpenTvColors.Success else OpenTvColors.Warning,
                     )
                     Text(
                         if (s.requests.isEmpty()) {
@@ -107,14 +135,12 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                 } else {
                     TvButton(
                         text = "Iniciar emisión IPTV",
-                        onClick = {
-                            val manager = context.getSystemService(MediaProjectionManager::class.java)
-                            launcher.launch(manager.createScreenCaptureIntent())
-                        },
+                        onClick = { if (audioGranted()) launchCapture() else audioPermission.launch(Manifest.permission.RECORD_AUDIO) },
                         horizontalPadding = 20.dp,
                         modifier = Modifier.focusRequester(firstFocus),
                     )
                     TvButton(text = "Calidad: ${preset.shortLabel}", onClick = viewModel::cyclePreset, horizontalPadding = 20.dp)
+                    TvButton(text = "Dirección: ${access.label}", onClick = viewModel::cycleAccess, horizontalPadding = 20.dp)
                 }
                 TvButton(text = "Volver", onClick = onBack, horizontalPadding = 20.dp)
             }

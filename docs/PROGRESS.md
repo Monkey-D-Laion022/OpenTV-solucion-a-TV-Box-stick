@@ -380,3 +380,11 @@ Alcance: SOLO descubrir dispositivos Wi-Fi Direct con la API pública y mostrar 
 - Hallazgo de seguridad corregido: JCA no valida que un punto ECDH esté en la curva; se comprueba a mano (`OtCrypto.decodePublic`) con prueba.
 - Manifiesto: solo se agregó `<service .iptv.IptvService>` (mismos permisos ya declarados).
 - No se tocó DLNA, navegador ni Wi-Fi Direct (sin hardware para medir); ver el inventario para lo pendiente.
+
+## Fase 6.1: audio real, perfiles 60 FPS, prueba de otro equipo (IPTV)
+- **Audio real**: `iptv/PlaybackAudioEncoder.kt` captura el audio que reproduce el teléfono (AudioPlaybackCapture, Android 10+) con la misma MediaProjection y lo codifica en AAC-LC/ADTS al flujo TS. Requiere **RECORD_AUDIO** (único permiso nuevo; justificación en el manifiesto; se pide al iniciar; si se niega, la emisión sigue con pista en silencio y la pantalla lo dice). Se mide el nivel (umbral −70 dBFS): solo se muestra «capturando y se detecta sonido» si hubo muestras no nulas; si la app de origen bloquea la captura, se avisa. NO verificado en hardware.
+- **Perfiles**: se agregan 720p60 y 1080p60. `IptvProfilePicker` consulta `MediaCodecList`/`areSizeAndRateSupported` y baja al perfil siguiente si el codificador no lo declara; `AvcLevels` calcula el nivel H.264 correcto (720p60 = 3.2, 1080p60 = 4.2) y `ScreenEncoder` lo acepta como parámetro opcional (por defecto conserva el comportamiento anterior, TvProjection no cambia). Que lo declare no prueba que lo sostenga: los FPS reales se miden en el teléfono.
+- **1080i**: no se implementa. MediaCodec no expone codificación entrelazada; emitir «1080i» sería rotular un flujo progresivo. Si un TV lo exige, la conversión debe hacerla el receptor. No medido.
+- **Dirección corta** (`/tv`, ciclo con «Dirección») o con código aleatorio.
+- **Pedidos de otros equipos**: el servidor distingue los pedidos del propio teléfono/loopback de los de otros equipos y la pantalla muestra cuántos y desde qué IP; abrir `status.json` en el teléfono ya no se confunde con conectividad del TV.
+- Tests: 350 JVM OK (K2 y K1.9). Protegidos (29 archivos) idénticos a H2. NO verificado: compilación Android, captura de audio y 60 fps en el Redmi 14C, reproducción en el LG/SmartOne.
