@@ -17,6 +17,7 @@ import com.opentv.app.stream.SilentAudioEncoder
 import com.opentv.app.stream.StreamHub
 import com.opentv.app.stream.StreamProfile
 import com.opentv.app.stream.TsMuxer
+import com.opentv.app.stream.PlaybackAudioEncoder // Asegúrate de tener el import correcto si aplica
 import java.io.IOException
 import java.net.Inet4Address
 import java.net.InetAddress
@@ -52,7 +53,7 @@ sealed interface IptvState {
 /**
  * Canal de televisión en vivo generado por el teléfono: captura la pantalla (MediaProjection), la codifica en
  * H.264 (hardware si el teléfono lo ofrece), la empaqueta en MPEG-TS y la publica por HTTP en la red local como
- * HLS (playlist .m3u8 + segmentos) y como TS continuo, junto con una lista M3U lista para cargar en una app IPTV.
+ * HLS (playlist .m3u8 + segmentos) y como TS continuo, junto con una pista M3U lista para cargar en una app IPTV.
  *
  * Es independiente de la proyección DLNA y del espejo nativo: no comparte sesión con ellos ni los modifica. Solo
  * una captura de pantalla puede estar activa a la vez; no lo uses junto con el espejo por navegador.
@@ -88,7 +89,7 @@ class IptvController private constructor(context: Context) {
         val server: IptvServer,
         val encoder: ScreenEncoder,
         val audio: SilentAudioEncoder?,
-        val playback: AutoCloseable?,
+        val playback: PlaybackAudioEncoder?, // <-- CORREGIDO AQUÍ el tipo para evitar el conflicto de AutoCloseable
         val projection: MediaProjection,
         val display: VirtualDisplay,
         val timer: java.util.Timer,
@@ -204,7 +205,7 @@ class IptvController private constructor(context: Context) {
                     if (session != null) _state.value = live
                 }
             }, 1_000, 1_000)
-            session = Session(hub, segmenter, srv, enc, audio, pb?.let { a -> AutoCloseable { a.stop() } }, p, vd, timer, preset)
+            session = Session(hub, segmenter, srv, enc, audio, pb, p, vd, timer, preset)
             _state.value = IptvState.Live(
                 "$base/index.m3u8", "$base/channel.m3u", "$base/compat.m3u", "$base/live.ts", 0, 0, 0, emptyList(), preset, hasAudio,
                 audio = if (pb != null) IptvAudio.CAPTURING_NO_SOUND else IptvAudio.SILENT_TRACK, note = note,
@@ -234,14 +235,14 @@ class IptvController private constructor(context: Context) {
     }
 
     private fun teardown(
-        server: IptvServer?, encoder: ScreenEncoder?, audio: SilentAudioEncoder?, playback: AutoCloseable?, display: VirtualDisplay?,
+        server: IptvServer?, encoder: ScreenEncoder?, audio: SilentAudioEncoder?, playback: PlaybackAudioEncoder?, display: VirtualDisplay?,
         projection: MediaProjection?, hub: StreamHub, segmenter: HlsSegmenter, timer: java.util.Timer?,
     ) {
         timer?.cancel()
         runCatching { segmenter.end() }
         runCatching { display?.release() }
         runCatching { audio?.stop() }
-        runCatching { playback?.close() }
+        runCatching { playback?.stop() } // Cambiado a .stop() ya que ahora es PlaybackAudioEncoder directamente
         runCatching { encoder?.stop() }
         runCatching { projection?.stop() }
         runCatching { hub.closeAll() }
