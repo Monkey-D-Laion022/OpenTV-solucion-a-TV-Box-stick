@@ -78,7 +78,7 @@ class PlaybackAudioCapture private constructor(private val record: AudioRecord) 
                 record.startRecording()
                 Result.Ready(PlaybackAudioCapture(record))
             } catch (e: RuntimeException) {
-                Result.Unavailable("No se pudo capturar el audio (${e.javaClass.simpleName}: ${e.message ?: "sin detalle"}).")
+                Result.Unavailable("No se pudo capturar el audio (${e.javaClass.simpleName}:${e.message ?: "sin detalle"}).")
             }
         }
     }
