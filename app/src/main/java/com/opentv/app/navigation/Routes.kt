@@ -18,6 +18,8 @@ object Routes {
     const val REMOTE = "remote"
     const val MIRROR = "mirror"
     const val BROWSER = "browser"
+    const val IPTV = "iptv"
+    const val OPENTV_PROTOCOL = "opentv-protocol"
     const val SHIZUKU_GUIDE = "shizuku-guide"
 
     const val PENDING_ARG = "id"
@@ -41,6 +43,14 @@ enum class PendingFeature(
         title = "Multimedia local",
         phase = 4,
         plan = "Explorador de videos, fotos y música usando el selector de documentos de Android.",
+    ),
+    OPENTV_LINK(
+        id = "opentv_link",
+        title = "Transmisión OpenTV (protocolo propio)",
+        phase = 6,
+        plan = "OpenTV Link v1 ya está definido, documentado y probado entre dos implementaciones (emisor Kotlin y receptor de referencia en Python), " +
+            "pero todavía no hay emisor ni receptor dentro de la app Android. Faltan: el servicio emisor (reutiliza la captura del canal IPTV), el " +
+            "receptor para Android TV y la prueba con dos equipos reales. Mientras tanto, para ver el canal en una PC podés usar el receptor de referencia (carpeta tools/receiver-py).",
     ),
     STREAM_ADDON(
         id = "stream_addon",

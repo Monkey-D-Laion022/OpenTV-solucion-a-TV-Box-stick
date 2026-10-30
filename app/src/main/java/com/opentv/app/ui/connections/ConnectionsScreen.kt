@@ -79,10 +79,16 @@ fun ConnectionsScreen(onNavigate: (String) -> Unit, viewModel: HomeViewModel = v
             TvListItem(e.title, e.subtitle, onClick = { open(e) }, modifier = if (i == 0) Modifier.focusRequester(firstFocus) else Modifier)
         }
 
-        Group("Enviar contenido a un Smart TV (DLNA)")
+        Group("Emisión IPTV: la pantalla como canal en vivo")
+        NavCatalog.iptv.forEach { e -> TvListItem(e.title, e.subtitle, onClick = { open(e) }) }
+
+        Group("Transmisión OpenTV (protocolo propio)")
+        NavCatalog.opentvLink.forEach { e -> TvListItem(e.title, e.subtitle, onClick = { open(e) }) }
+
+        Group("Dispositivos encontrados y envío de contenido (DLNA)")
         NavCatalog.playback.forEach { e -> TvListItem(e.title, e.subtitle, onClick = { open(e) }) }
 
-        Group("Diagnóstico de conexión (solo prueban, no transmiten)")
+        Group("Diagnóstico de conexiones (solo prueban, no transmiten)")
         NavCatalog.connectionDiagnostics.forEach { e -> TvListItem(e.title, e.subtitle, onClick = { open(e) }) }
         Text(
             "El diagnóstico de la etapa B lee lo que el televisor anuncia por Wi-Fi Display. Que funcione o no no demuestra " +

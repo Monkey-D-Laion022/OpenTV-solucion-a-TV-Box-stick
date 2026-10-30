@@ -74,6 +74,29 @@ object NavCatalog {
     )
 
     /** Pruebas de conexión: descubrir un dispositivo no es conectarse ni transmitir. */
+    /** Canal de televisión en vivo generado por el teléfono (M3U + HLS). */
+    val iptv: List<NavEntry> = listOf(
+        NavEntry(
+            "iptv", "Emisión IPTV", "El teléfono como canal en vivo (M3U + HLS)",
+            "Publica la pantalla del teléfono como un canal en vivo y una lista M3U para cargar en una app IPTV del televisor. Sin probar todavía con tu LG ni con SmartOne.",
+            route = Routes.IPTV, badge = "Nuevo",
+        ),
+    )
+
+    /** Protocolo propio de OpenTV y sus receptores: definido y probado, sin emisor/receptor Android todavía. */
+    val opentvLink: List<NavEntry> = listOf(
+        NavEntry(
+            "link", "Transmisión OpenTV", "Protocolo propio cifrado · pendiente en Android",
+            "El protocolo OpenTV Link está documentado y probado con un receptor de referencia. El emisor y el receptor dentro de la app todavía no existen.",
+            route = Routes.pending(PendingFeature.OPENTV_LINK), badge = "Pendiente",
+        ),
+        NavEntry(
+            "receivers", "Receptores OpenTV", "Ninguno disponible todavía",
+            "Un receptor OpenTV para Android TV aún no está desarrollado. Hay un receptor de referencia para PC en tools/receiver-py.",
+            route = Routes.pending(PendingFeature.OPENTV_LINK), badge = "Pendiente",
+        ),
+    )
+
     val connectionDiagnostics: List<NavEntry> = listOf(
         NavEntry(
             "p2p", "Descubrimiento Wi-Fi Direct", "Etapa A · ¿se ve el televisor? (no conecta)",
@@ -138,7 +161,7 @@ object NavCatalog {
     /** Todos los accesos que existían antes del rediseño y que NO pueden perderse. */
     val everyPreservedRoute: Set<String> = setOf(
         Routes.CONNECT, Routes.MIRROR, Routes.BROWSER, Routes.REMOTE, Routes.APPS, Routes.BENCH,
-        Routes.SHIZUKU_GUIDE, Routes.DEVICE, Routes.P2P_DISCOVERY, Routes.TOOLS, Routes.PLAYER,
+        Routes.SHIZUKU_GUIDE, Routes.DEVICE, Routes.P2P_DISCOVERY, Routes.TOOLS, Routes.PLAYER, Routes.IPTV,
     )
 }
 

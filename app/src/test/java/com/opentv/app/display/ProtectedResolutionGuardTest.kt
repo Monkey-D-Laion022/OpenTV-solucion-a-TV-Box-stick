@@ -106,7 +106,7 @@ class ProtectedResolutionGuardTest {
                 path.startsWith("stream/Mjpeg") || path == "stream/BrowserMirror.kt" || path == "stream/HttpStreamServer.kt" ||
                 path == "ui/home/HomeScreen.kt" || path.startsWith("bench/") || path.startsWith("miracast/") ||
                 path.startsWith("ui/shell/") || path.startsWith("ui/connections/") || path.startsWith("ui/media/") ||
-                path.startsWith("ui/settings/") || path.startsWith("ui/tv/") || path.startsWith("catalog/")
+                path.startsWith("ui/settings/") || path.startsWith("ui/tv/") || path.startsWith("catalog/") || path.startsWith("iptv/") || path.startsWith("proto/") || path.startsWith("ui/iptv/")
         }
         val offenders = forbidden.filter { mentions.containsMatchIn(sources.getValue(it)) }
         assertTrue("Código de arranque, red o inicio menciona la zona protegida: $offenders", offenders.isEmpty())

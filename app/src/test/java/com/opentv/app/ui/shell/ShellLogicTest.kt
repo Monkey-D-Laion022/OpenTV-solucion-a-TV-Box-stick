@@ -21,7 +21,7 @@ class ShellLogicTest {
         assertNull(TopSection.forRoute(null))
     }
 
-    private val all = NavCatalog.mirroring + NavCatalog.playback + NavCatalog.connectionDiagnostics + NavCatalog.diagnostics + NavCatalog.explore
+    private val all = NavCatalog.mirroring + NavCatalog.playback + NavCatalog.iptv + NavCatalog.opentvLink + NavCatalog.connectionDiagnostics + NavCatalog.diagnostics + NavCatalog.explore
 
     @Test
     fun everyEntryHasExactlyOneDestination() {

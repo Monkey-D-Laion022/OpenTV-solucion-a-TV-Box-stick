@@ -102,6 +102,12 @@
             android:exported="false"
             android:foregroundServiceType="mediaPlayback|mediaProjection" />
 
+        <!-- Canal IPTV en vivo: servicio propio, independiente de ProjectionService (mismos permisos ya declarados). -->
+        <service
+            android:name=".iptv.IptvService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback|mediaProjection" />
+
         <!-- Medición de captura/codificación (módulo 5B): servicio propio, independiente de ProjectionService. -->
         <service
             android:name=".bench.BenchmarkService"

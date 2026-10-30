@@ -371,3 +371,12 @@ Alcance: SOLO descubrir dispositivos Wi-Fi Direct con la API pública y mostrar 
 - 299 tests JVM (lógica pura, incluida la del catálogo con red simulada) con Kotlin 1.9 y 2.0: OK.
 - 14 archivos protegidos, `display/`, `ui/mirror`, `ui/shizuku` y archivos Gradle: idénticos a H2 (`cmp`). Manifiesto idéntico al ZIP anterior.
 - NO verificado: compilación Android (no hay SDK ni acceso a Maven en el entorno; la compila GitHub Actions), pantallas en el teléfono, recortes de texto reales, foco con joystick sobre las pantallas nuevas, llamadas reales a TMDB/RPDB.
+
+## Fase 6: IPTV, protocolo OpenTV Link, inventario de conexiones
+- **IPTV** (`iptv/`, `ui/iptv/`): el teléfono emite su pantalla como canal en vivo (HLS v3 + TS directo + lista M3U) con servidor HTTP propio y servicio en primer plano propio (`IptvService`, sin permisos nuevos). Validado con ffmpeg/ffprobe reales (formato) y JUnit; **sin probar en el teléfono, el LG ni SmartOne**. Ver `docs/IPTV.md`.
+- **OpenTV Link v1** (`proto/`, `tools/receiver-py/`): protocolo propio (tramas, ECDH+SAS, reconexión con secreto, AES-256-GCM, control de bitrate). Probado emisor Kotlin ↔ receptor Python en loopback. **Sin emisor/receptor en la app Android todavía.** Ver `docs/PROTOCOLO-OPENTV.md`.
+- **Conexiones** reorganizada: duplicación, Emisión IPTV, Transmisión OpenTV (pendiente), dispositivos DLNA, diagnóstico.
+- Documentos: `docs/CONEXIONES-INVENTARIO.md` (matriz y decisiones), `docs/REA.md` (respuesta: NO).
+- Hallazgo de seguridad corregido: JCA no valida que un punto ECDH esté en la curva; se comprueba a mano (`OtCrypto.decodePublic`) con prueba.
+- Manifiesto: solo se agregó `<service .iptv.IptvService>` (mismos permisos ya declarados).
+- No se tocó DLNA, navegador ni Wi-Fi Direct (sin hardware para medir); ver el inventario para lo pendiente.
