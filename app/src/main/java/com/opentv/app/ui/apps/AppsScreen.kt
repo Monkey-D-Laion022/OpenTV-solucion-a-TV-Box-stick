@@ -68,6 +68,8 @@ fun AppsScreen(
         )
     }
 
+    val tileMinWidth = com.opentv.app.ui.tv.rememberTvMetrics().appTileWidthDp.dp
+    val tileHeight = com.opentv.app.ui.tv.rememberTvMetrics().appTileHeightDp.dp
     val body: @Composable () -> Unit = {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -120,7 +122,7 @@ fun AppsScreen(
                     StatusText("No se encontraron aplicaciones que se puedan abrir.")
                 visibleApps.isEmpty() -> StatusText("Sin resultados para «${state.query.trim()}».")
                 else -> LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = if (embedded) 140.dp else 150.dp),
+                    columns = GridCells.Adaptive(minSize = if (embedded) tileMinWidth else 150.dp),
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -134,7 +136,7 @@ fun AppsScreen(
                             onClick = { viewModel.appLaunch.onAppClick(app) },
                             onToggleFavorite = { viewModel.toggleFavorite(app) },
                             modifier = Modifier
-                                .height(148.dp)
+                                .height(if (embedded) tileHeight else 148.dp)
                                 .then(
                                     if (index == 0) Modifier.focusRequester(firstTileFocus) else Modifier,
                                 ),

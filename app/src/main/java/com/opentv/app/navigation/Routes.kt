@@ -9,6 +9,7 @@ object Routes {
     const val MEDIA = "media"
     const val CONNECTIONS = "connections"
     const val SETTINGS = "settings"
+    const val SETTINGS_CATALOG = "settings-catalog"
     const val DEVICE = "device"
     const val APPS = "apps"
     const val CONNECT = "connect"
@@ -40,6 +41,12 @@ enum class PendingFeature(
         title = "Multimedia local",
         phase = 4,
         plan = "Explorador de videos, fotos y música usando el selector de documentos de Android.",
+    ),
+    STREAM_ADDON(
+        id = "stream_addon",
+        title = "Add-on de catálogo",
+        phase = 6,
+        plan = "Conectar un add-on de catálogo de streaming para poder reproducir los títulos del catálogo. Hoy el catálogo (TMDB) es solo informativo y no hay ninguna fuente configurada.",
     );
 
     companion object {

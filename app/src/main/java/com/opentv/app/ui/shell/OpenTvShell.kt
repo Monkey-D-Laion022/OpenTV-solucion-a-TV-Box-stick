@@ -36,7 +36,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.opentv.app.ui.components.FocusableSurface
-import com.opentv.app.ui.components.SafeArea
+import com.opentv.app.ui.tv.TvSafeArea
 import com.opentv.app.ui.theme.OpenTvColors
 import java.util.Date
 import kotlin.math.cos
@@ -60,7 +60,7 @@ fun OpenTvShell(
     val selectedTabFocus = remember { FocusRequester() }
     BackHandler(enabled = contentHasFocus) { runCatching { selectedTabFocus.requestFocus() } }
 
-    SafeArea {
+    TvSafeArea {
         Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             TopBar(selected = selected, onSelect = onSelect, selectedTabFocus = selectedTabFocus)
             Box(

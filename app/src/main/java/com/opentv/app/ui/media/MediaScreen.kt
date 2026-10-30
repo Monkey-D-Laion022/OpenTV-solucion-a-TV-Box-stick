@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -20,7 +19,8 @@ import com.opentv.app.navigation.PendingFeature
 import com.opentv.app.navigation.Routes
 import com.opentv.app.ui.components.PendingBadge
 import com.opentv.app.ui.components.StatusChip
-import com.opentv.app.ui.components.TvCard
+import com.opentv.app.ui.tv.ActionCard
+import com.opentv.app.ui.tv.rememberTvMetrics
 import com.opentv.app.ui.home.HomeViewModel
 import com.opentv.app.ui.theme.OpenTvColors
 
@@ -31,6 +31,7 @@ import com.opentv.app.ui.theme.OpenTvColors
 @Composable
 fun MediaScreen(onNavigate: (String) -> Unit, viewModel: HomeViewModel = viewModel()) {
     val outputTarget by viewModel.outputTarget.collectAsStateWithLifecycle()
+    val metrics = rememberTvMetrics()
 
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 4.dp),
@@ -46,19 +47,30 @@ fun MediaScreen(onNavigate: (String) -> Unit, viewModel: HomeViewModel = viewMod
         Text("Disponible", style = MaterialTheme.typography.titleLarge, color = OpenTvColors.OnBackground)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(6.dp)) {
             item {
-                TvCard(
+                ActionCard(
                     title = "Reproducir un enlace directo",
                     subtitle = "Pegá la dirección de un video (http:// o https://)",
                     onClick = { onNavigate(Routes.PLAYER) },
-                    modifier = Modifier.width(280.dp),
+                    width = metrics.actionCardWidthDp.dp,
+                    height = metrics.actionCardHeightDp.dp,
                 )
             }
             item {
-                TvCard(
+                ActionCard(
+                    title = "Catálogo (TMDB)",
+                    subtitle = "Solo información de títulos; no reproduce",
+                    onClick = { onNavigate(Routes.SETTINGS_CATALOG) },
+                    width = metrics.actionCardWidthDp.dp,
+                    height = metrics.actionCardHeightDp.dp,
+                )
+            }
+            item {
+                ActionCard(
                     title = "Herramientas",
                     subtitle = "Funciones avanzadas",
                     onClick = { onNavigate(Routes.TOOLS) },
-                    modifier = Modifier.width(280.dp),
+                    width = metrics.actionCardWidthDp.dp,
+                    height = metrics.actionCardHeightDp.dp,
                 )
             }
         }
@@ -66,12 +78,13 @@ fun MediaScreen(onNavigate: (String) -> Unit, viewModel: HomeViewModel = viewMod
         Text("Pendiente", style = MaterialTheme.typography.titleLarge, color = OpenTvColors.OnBackground)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(6.dp)) {
             item {
-                TvCard(
+                ActionCard(
                     title = "Multimedia local",
                     subtitle = "Videos, fotos y música del teléfono",
                     badge = "Pendiente",
                     onClick = { onNavigate(Routes.pending(PendingFeature.LOCAL_MEDIA)) },
-                    modifier = Modifier.width(280.dp),
+                    width = metrics.actionCardWidthDp.dp,
+                    height = metrics.actionCardHeightDp.dp,
                 )
             }
         }

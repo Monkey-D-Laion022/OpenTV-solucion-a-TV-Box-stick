@@ -108,6 +108,20 @@ object NavCatalog {
         ),
     )
 
+    /** Lo que HOY se puede reproducir de verdad (distinto del catálogo informativo). */
+    val sources: List<NavEntry> = listOf(
+        NavEntry(
+            "source-link", "Enlace directo", "Reproducir la dirección de un video",
+            "Pegás la dirección (http o https) de un video y se reproduce en OpenTV; si elegiste un TV como salida, se envía allí.",
+            route = Routes.PLAYER,
+        ),
+        NavEntry(
+            "source-addon", "Add-on de catálogo", "Sin fuente configurada",
+            "Todavía no hay un add-on conectado: los títulos del catálogo son solo información y no se pueden reproducir desde OpenTV.",
+            route = Routes.pending(PendingFeature.STREAM_ADDON), badge = "Pendiente",
+        ),
+    )
+
     /** Otros accesos del inicio. */
     val explore: List<NavEntry> = listOf(
         NavEntry("all-apps", "Todas las apps", "Lista completa de tu teléfono", "La lista completa de tu teléfono; desde ahí podés fijar favoritas en la fila principal.", route = Routes.APPS),
@@ -134,6 +148,7 @@ enum class SettingsCategory(val id: String, val title: String) {
     DISPLAY("display", "Pantalla"),
     SOUND("sound", "Sonido"),
     APPS("apps", "Aplicaciones"),
+    CATALOG("catalog", "Catálogo"),
     SYSTEM("system", "Sistema e información"),
     DIAGNOSTICS("diagnostics", "Diagnósticos"),
     ;

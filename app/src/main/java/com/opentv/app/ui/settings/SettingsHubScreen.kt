@@ -46,8 +46,8 @@ import com.opentv.app.ui.theme.OpenTvColors
  * Android informa, o abren la pantalla oficial de Android que los cambia. OpenTV no cambia ajustes del sistema por su cuenta.
  */
 @Composable
-fun SettingsHubScreen(onNavigate: (String) -> Unit) {
-    var categoryId by rememberSaveable { mutableStateOf(SettingsCategory.NETWORK.id) }
+fun SettingsHubScreen(onNavigate: (String) -> Unit, initialCategoryId: String? = null) {
+    var categoryId by rememberSaveable { mutableStateOf(initialCategoryId ?: SettingsCategory.NETWORK.id) }
     val category = SettingsCategory.fromId(categoryId)
     val firstFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
@@ -87,6 +87,7 @@ fun SettingsHubScreen(onNavigate: (String) -> Unit) {
                 SettingsCategory.DISPLAY -> DisplayPane()
                 SettingsCategory.SOUND -> SoundPane()
                 SettingsCategory.APPS -> AppsPane(onNavigate)
+                SettingsCategory.CATALOG -> CatalogSettingsPane()
                 SettingsCategory.SYSTEM -> SystemPane(onNavigate) { categoryId = SettingsCategory.DIAGNOSTICS.id }
                 SettingsCategory.DIAGNOSTICS -> DiagnosticsPane(onNavigate)
             }

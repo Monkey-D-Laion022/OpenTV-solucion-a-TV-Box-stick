@@ -20,6 +20,7 @@ import com.opentv.app.ui.connections.ConnectionsScreen
 import com.opentv.app.ui.media.MediaScreen
 import com.opentv.app.ui.settings.SettingsHubScreen
 import com.opentv.app.ui.shell.OpenTvShell
+import com.opentv.app.ui.shell.SettingsCategory
 import com.opentv.app.ui.shell.TopSection
 import com.opentv.app.ui.settings.ToolsScreen
 import kotlinx.coroutines.flow.Flow
@@ -69,6 +70,11 @@ fun OpenTvNavHost(
         }
         composable(Routes.PLAYER) {
             PlayerScreen(onBack = goBack)
+        }
+        composable(Routes.SETTINGS_CATALOG) {
+            OpenTvShell(selected = TopSection.SETTINGS, onSelect = goSection) {
+                SettingsHubScreen(onNavigate = open, initialCategoryId = SettingsCategory.CATALOG.id)
+            }
         }
         composable(Routes.SETTINGS) {
             OpenTvShell(selected = TopSection.SETTINGS, onSelect = goSection) { SettingsHubScreen(onNavigate = open) }

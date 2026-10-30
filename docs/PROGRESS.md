@@ -350,3 +350,24 @@ Alcance: SOLO descubrir dispositivos Wi-Fi Direct con la API pública y mostrar 
 - `HomeScreen` reescrito: banner con el texto del elemento enfocado (sin imágenes ni contenidos inventados), apps favoritas, aviso 16:9 intacto, botón «Resolución 16:9 forzada · Restaurar» intacto, filas «Transmitir» y «Explorar», restauración de foco. `AppsScreen` suma modo `embedded`.
 - Nuevas: `ui/media/MediaScreen`, `ui/connections/ConnectionsScreen` (separa descubrir / conectar / reproducir / duplicar pantalla), `ui/settings/SettingsHubScreen` (categorías + detalle; solo controles que funcionan o enlaces a ajustes de Android). Las tarjetas «Medición de captura», «Descubrimiento Wi-Fi Direct» y «Asistente de Shizuku» pasaron a Ajustes › Diagnósticos con los mismos destinos. `SettingsScreen.kt` queda sin uso (no se borró).
 - Verificado: 265 tests JVM (lógica pura) con Kotlin 1.9 y 2.0; archivos protegidos y Gradle idénticos a H2 (cmp); manifiesto idéntico al de la etapa A. NO verificado: compilación Android, pantallas en Android, ni ninguna negociación con un receptor real.
+
+## Rediseño R1–R3: Inicio cinematográfico + catálogo TMDB/RPDB (solo información)
+
+### R1 · maquetación
+- Nuevo `ui/tv/`: `TvLayout` (métricas puras: alto de tarjetas para el peor texto, héroe proporcional, escala por tamaño de fuente), `TvSafeArea` (margen 3 %), `ActionCard`, `BackdropHero`, `PosterCard`. Textos con `maxLines` + elipsis para que nada quede cortado en los bordes.
+- `HomeScreen` rediseñado (banner grande, favoritas, filas). Se conservan: aviso de rotación, botón «Resolución 16:9 forzada · Restaurar», foco con joystick, Atrás.
+
+### R2 · catálogo real (paquete `catalog/`)
+- TMDB: tendencias, películas populares, series populares y próximos estrenos (es-AR). Caché en disco con vencimiento (filas 6 h, configuración 7 d), imágenes con `LruCache` por bytes + caché en disco + `inSampleSize` (poca memoria). Si hay datos guardados nunca queda la pantalla en blanco; errores de red, credenciales inválidas y catálogo vacío tienen mensaje propio.
+- RPDB: carteles personalizados opcionales; si fallan o la clave es inválida se vuelve al cartel de TMDB.
+- Credenciales: se cargan en Ajustes › Catálogo (probar conexión, estado, borrar). Se guardan en almacenamiento privado de la app cifradas con una clave del Android Keystore; `allowBackup=false`. NO están en el código, la documentación ni el ZIP (hay un test que lo vigila). Límite honesto: esto no impide que alguien con root o con acceso al dispositivo las extraiga.
+- Todo lo del catálogo se rotula «Solo información»: no reproduce. «Fuentes de reproducción › Add-on» figura como «Pendiente».
+- Atribución TMDB en texto. Pendiente de confirmar: redacción/logo exactos de los términos de TMDB y formato del id de TMDB en RPDB.
+
+### R3 · pulido
+- Acceso «Catálogo (TMDB)» desde Multimedia. `BuildInfo.LABEL` actualizado.
+
+### Verificación real de esta tanda
+- 299 tests JVM (lógica pura, incluida la del catálogo con red simulada) con Kotlin 1.9 y 2.0: OK.
+- 14 archivos protegidos, `display/`, `ui/mirror`, `ui/shizuku` y archivos Gradle: idénticos a H2 (`cmp`). Manifiesto idéntico al ZIP anterior.
+- NO verificado: compilación Android (no hay SDK ni acceso a Maven en el entorno; la compila GitHub Actions), pantallas en el teléfono, recortes de texto reales, foco con joystick sobre las pantallas nuevas, llamadas reales a TMDB/RPDB.

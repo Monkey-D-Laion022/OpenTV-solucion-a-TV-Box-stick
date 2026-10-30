@@ -64,11 +64,22 @@ class ShellLogicTest {
     @Test
     fun settingsCategoriesMatchTheRequestedList() {
         assertEquals(
-            listOf("Red e Internet", "Pantalla", "Sonido", "Aplicaciones", "Sistema e información", "Diagnósticos"),
+            listOf("Red e Internet", "Pantalla", "Sonido", "Aplicaciones", "Catálogo", "Sistema e información", "Diagnósticos"),
             SettingsCategory.values().map { it.title },
         )
         assertEquals(SettingsCategory.NETWORK, SettingsCategory.fromId("zzz"))
         assertEquals(SettingsCategory.DIAGNOSTICS, SettingsCategory.fromId("diagnostics"))
+    }
+
+    @Test
+    fun playbackSourcesListOnlyWhatExistsAndMarkTheAddonAsPending() {
+        val link = NavCatalog.sources.first { it.id == "source-link" }
+        val addon = NavCatalog.sources.first { it.id == "source-addon" }
+        assertEquals(Routes.PLAYER, link.route)
+        assertEquals(null, link.badge)
+        assertEquals("Pendiente", addon.badge)
+        assertEquals(Routes.pending(com.opentv.app.navigation.PendingFeature.STREAM_ADDON), addon.route)
+        assertTrue(addon.hero.contains("solo información"))
     }
 
     @Test
