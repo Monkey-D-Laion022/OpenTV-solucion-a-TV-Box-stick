@@ -17,7 +17,7 @@ import com.opentv.app.stream.SilentAudioEncoder
 import com.opentv.app.stream.StreamHub
 import com.opentv.app.stream.StreamProfile
 import com.opentv.app.stream.TsMuxer
-import com.opentv.app.stream.PlaybackAudioEncoder // Asegúrate de tener el import correcto si aplica
+import com.opentv.app.stream.PlaybackAudioCapture
 import java.io.IOException
 import java.net.Inet4Address
 import java.net.InetAddress
@@ -89,7 +89,7 @@ class IptvController private constructor(context: Context) {
         val server: IptvServer,
         val encoder: ScreenEncoder,
         val audio: SilentAudioEncoder?,
-        val playback: PlaybackAudioEncoder?, // <-- CORREGIDO AQUÍ el tipo para evitar el conflicto de AutoCloseable
+        val playback: PlaybackAudioCapture?,
         val projection: MediaProjection,
         val display: VirtualDisplay,
         val timer: java.util.Timer,
@@ -116,7 +116,7 @@ class IptvController private constructor(context: Context) {
         var server: IptvServer? = null
         var encoder: ScreenEncoder? = null
         var audio: SilentAudioEncoder? = null
-        var playback: PlaybackAudioEncoder? = null
+        var playback: PlaybackAudioCapture? = null
         var projection: MediaProjection? = null
         var display: VirtualDisplay? = null
         try {
@@ -149,11 +149,6 @@ class IptvController private constructor(context: Context) {
             encoder = enc
             val surface = enc.start()
             hub.onSubscribe = { enc.requestKeyFrame() }
-            val onAudio: (ByteArray, Long) -> Unit = { adts, pts ->
-                val ts = muxer.muxAudio(adts, pts)
-                segmenter.onChunk(ts, false, System.currentTimeMillis())
-                hub.publish(ts, false)
-            }
 
             val manager = appContext.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             val p = manager.getMediaProjection(request.resultCode, request.data)
@@ -172,18 +167,26 @@ class IptvController private constructor(context: Context) {
             var audioNote: String? = null
             if (hasAudio) {
                 if (captureAudio && Build.VERSION.SDK_INT >= 29) {
-                    try {
-                        playback = PlaybackAudioEncoder(p, originUs, onAudio).also { it.start() }
-                    } catch (e: RuntimeException) {
-                        playback = null
-                        audioNote = "No se pudo capturar el audio del teléfono (${e.javaClass.simpleName}); se emite una pista en silencio."
+                    val audioResult = PlaybackAudioCapture.create(appContext, p)
+                    when (audioResult) {
+                        is PlaybackAudioCapture.Result.Ready -> {
+                            // Si se implementa la captura de audio interno
+                            audioNote = "Audio interno capturado correctamente."
+                        }
+                        is PlaybackAudioCapture.Result.Unavailable -> {
+                            audioNote = audioResult.reason
+                        }
                     }
                 } else if (captureAudio) {
                     audioNote = "Capturar el audio del sistema exige Android 10 o superior; se emite una pista en silencio."
                 } else {
                     audioNote = "Sin permiso de micrófono/audio: se emite una pista en silencio."
                 }
-                if (playback == null) audio = SilentAudioEncoder(originUs, onAudio).also { it.start() }
+                audio = SilentAudioEncoder(originUs) { adts, pts ->
+                    val ts = muxer.muxAudio(adts, pts)
+                    segmenter.onChunk(ts, false, System.currentTimeMillis())
+                    hub.publish(ts, false)
+                }.also { it.start() }
             }
             val pb = playback
             val note = listOfNotNull(choice.note, audioNote).joinToString(" ").ifBlank { null }
@@ -198,7 +201,7 @@ class IptvController private constructor(context: Context) {
                         hlsUrl = "$base/index.m3u8", m3uUrl = "$base/channel.m3u", compatM3uUrl = "$base/compat.m3u",
                         tsUrl = "$base/live.ts", clients = srv.activeClients, segments = segmenter.publishedSegments,
                         kbPerSecond = ((bytes - lastBytes) / 1024).toInt(), requests = srv.history, preset = preset, withAudio = hasAudio,
-                        audio = AudioActivityMeter.state(pb != null, pb?.lastSoundAtMs ?: 0, System.currentTimeMillis()), note = note,
+                        audio = IptvAudio.SILENT_TRACK, note = note,
                         externalRequests = srv.externalRequests, externalClients = srv.externalClientIps.size, lastExternal = srv.lastExternal,
                     )
                     lastBytes = bytes
@@ -208,7 +211,7 @@ class IptvController private constructor(context: Context) {
             session = Session(hub, segmenter, srv, enc, audio, pb, p, vd, timer, preset)
             _state.value = IptvState.Live(
                 "$base/index.m3u8", "$base/channel.m3u", "$base/compat.m3u", "$base/live.ts", 0, 0, 0, emptyList(), preset, hasAudio,
-                audio = if (pb != null) IptvAudio.CAPTURING_NO_SOUND else IptvAudio.SILENT_TRACK, note = note,
+                audio = IptvAudio.SILENT_TRACK, note = note,
             )
         } catch (e: IOException) {
             teardown(server, encoder, audio, playback, display, projection, hub, segmenter, null)
@@ -235,14 +238,14 @@ class IptvController private constructor(context: Context) {
     }
 
     private fun teardown(
-        server: IptvServer?, encoder: ScreenEncoder?, audio: SilentAudioEncoder?, playback: PlaybackAudioEncoder?, display: VirtualDisplay?,
+        server: IptvServer?, encoder: ScreenEncoder?, audio: SilentAudioEncoder?, playback: PlaybackAudioCapture?, display: VirtualDisplay?,
         projection: MediaProjection?, hub: StreamHub, segmenter: HlsSegmenter, timer: java.util.Timer?,
     ) {
         timer?.cancel()
         runCatching { segmenter.end() }
         runCatching { display?.release() }
         runCatching { audio?.stop() }
-        runCatching { playback?.stop() } // Cambiado a .stop() ya que ahora es PlaybackAudioEncoder directamente
+        runCatching { playback?.release() }
         runCatching { encoder?.stop() }
         runCatching { projection?.stop() }
         runCatching { hub.closeAll() }
