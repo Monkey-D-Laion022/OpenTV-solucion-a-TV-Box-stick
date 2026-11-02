@@ -106,17 +106,5 @@ class CatalogLogicTest {
     }
 
     @Test fun rpdbUrlsUseTheDocumentedShape() {
-        val movie = CatalogItem(603, CatalogKind.MOVIE, "t", "", null, null, null, null)
-        val tv = movie.copy(id = 1399, kind = CatalogKind.TV)
-        assertEquals("https://api.ratingposterdb.com/K/tmdb/poster-default/movie-603.jpg?fallback=true", RpdbEndpoints.poster("K", movie).url)
-        assertTrue(RpdbEndpoints.poster("K", tv).url.contains("/series-1399.jpg"))
-        assertEquals("https://api.ratingposterdb.com/K/imdb/poster-default/tt0111161.jpg", RpdbEndpoints.probe("K").url)
-    }
-
-    // ---- Tamaños y claves de caché ----
-    @Test fun picksTheSmallestSufficientSize() {
-        val sizes = listOf("w92", "w185", "w342", "w500", "original")
-        assertEquals("w185", ImageSizing.pick(sizes, 150, "w500"))
-        assertEquals("w342", ImageSizing.pick(sizes, 186, "w500"))
-        assertEquals("w500
-                     
+        val movie = CatalogItem(603, Catalog
+                                
