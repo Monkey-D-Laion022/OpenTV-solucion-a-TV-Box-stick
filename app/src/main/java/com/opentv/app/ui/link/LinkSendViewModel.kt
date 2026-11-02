@@ -17,7 +17,11 @@ class LinkSendViewModel(application: Application) : AndroidViewModel(application
     val state: StateFlow<LinkSenderState> get() = controller.state
     val preset: StateFlow<IptvPreset> get() = controller.preset
 
+    /** Receptor elegido (host, puerto) antes de pedir el permiso de captura; `null` = modo avanzado (esperar receptores). */
+    var pendingTarget: Pair<String, Int>? = null
+
     fun start(resultCode: Int, data: Intent, captureAudio: Boolean) {
-        viewModelScope.launch { controller.start(MirrorRequest(resultCode, data), captureAudio) }
+        val target = pendingTarget
+        viewModelScope.launch { controller.start(MirrorRequest(resultCode, data), captureAudio, target) }
     }
 }

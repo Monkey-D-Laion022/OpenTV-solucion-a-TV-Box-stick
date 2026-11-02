@@ -209,8 +209,10 @@ class CatalogLogicTest {
         val r = repo.refresh(fakeV4, true)
         assertEquals(CatalogProblem.REJECTED, r.problem); assertEquals(1, calls)
         assertTrue(r.snapshot.rows.isEmpty())
-        val problem = r.problem
-        assertTrue(problem != null && CatalogText.problem(problem, r.detail).contains("401"))
+        // Variable local con tipo explícito: la propiedad es de otro módulo (main) y no admite smart cast desde el módulo de pruebas.
+        val problem: CatalogProblem? = r.problem
+        val detail: String? = r.detail
+        assertTrue(problem != null && CatalogText.problem(problem, detail).contains("401"))
     }
 
     @Test fun rateLimitStopsTheLoopWithoutInsisting() {

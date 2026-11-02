@@ -61,6 +61,9 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
     val audioPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { launchCapture() }
     val firstFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
+    val lastStop by viewModel.lastStop.collectAsStateWithLifecycle()
+    val soloTv by viewModel.soloTv.collectAsStateWithLifecycle()
+    val localAudio by viewModel.localAudio.collectAsStateWithLifecycle()
     val running = state is IptvState.Live || state is IptvState.Starting
 
     SafeArea {
@@ -79,7 +82,10 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                 style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
             )
             when (val s = state) {
-                IptvState.Idle -> Text("Detenido.", style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.OnBackground)
+                IptvState.Idle -> Text(
+                    "Detenido." + (lastStop?.let { "\nÚltima parada: $it" } ?: ""),
+                    style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.OnBackground,
+                )
                 IptvState.Starting -> Text("Iniciando…", style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.OnBackground)
                 is IptvState.Failed -> Text(s.message, style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.Warning)
                 is IptvState.Live -> {
@@ -181,6 +187,17 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                     )
                     TvButton(text = "Dirección: ${access.label}", onClick = viewModel::cycleAccess, horizontalPadding = 20.dp)
                 }
+                TvButton(
+                    text = if (soloTv) "Audio solo en TV: activado (experimental)" else "Audio solo en TV: desactivado",
+                    onClick = viewModel::toggleSoloTv, horizontalPadding = 20.dp,
+                )
+                Text(
+                    (if (running || soloTv) localAudio + "\n" else "") +
+                        "Android no ofrece una forma universal de separar el sonido del teléfono del que se captura. OpenTV prueba bajar el volumen " +
+                        "del teléfono y mide si la captura sigue recibiendo sonido; si se apaga, lo restaura solo. Con auriculares o Bluetooth, o si la " +
+                        "app de origen bloquea la captura, puede no ser posible. Confirmá de oído que el televisor suena y el teléfono no.",
+                    style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
+                )
                 TvButton(text = "Volver", onClick = onBack, horizontalPadding = 20.dp)
             }
         }

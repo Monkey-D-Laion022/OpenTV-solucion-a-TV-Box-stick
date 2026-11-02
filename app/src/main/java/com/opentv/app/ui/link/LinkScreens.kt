@@ -48,12 +48,13 @@ import com.opentv.app.link.LinkReceiverController
 import com.opentv.app.link.LinkReceiverState
 import com.opentv.app.link.LinkSenderState
 import com.opentv.app.link.TsDataSource
+import com.opentv.app.proto.OtWire
 import com.opentv.app.ui.components.SafeArea
 import com.opentv.app.ui.components.TvButton
 import com.opentv.app.ui.theme.OpenTvColors
 import kotlinx.coroutines.delay
 
-/** Emisor OpenTV Link: la pantalla del teléfono, cifrada, hacia otro equipo con OpenTV. */
+/** Emisor OpenTV Link: la pantalla del teléfono, cifrada, hacia un televisor o receptor HDMI con OpenTV. */
 @Composable
 fun LinkSendScreen(onBack: () -> Unit, vm: LinkSendViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -68,21 +69,44 @@ fun LinkSendScreen(onBack: () -> Unit, vm: LinkSendViewModel = viewModel()) {
         launcher.launch(context.getSystemService(MediaProjectionManager::class.java).createScreenCaptureIntent())
     }
     val audioPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { launchCapture() }
-    val active = state is LinkSenderState.Waiting || state is LinkSenderState.Streaming || state is LinkSenderState.ConfirmCode || state is LinkSenderState.Starting
+    val active = state is LinkSenderState.Waiting || state is LinkSenderState.Streaming || state is LinkSenderState.ConfirmCode ||
+        state is LinkSenderState.Starting || state is LinkSenderState.Connecting
+    val nsd = remember { LinkNsd(context) }
+    var receivers by remember { mutableStateOf<List<LinkFound>>(emptyList()) }
+    var discoveryStatus by remember { mutableStateOf("") }
+    var manual by remember { mutableStateOf("") }
+    DisposableEffect(Unit) {
+        nsd.discover(
+            onFound = { f -> if (f.advert.role == OtWire.ROLE_RECEIVER) receivers = receivers.filter { it.advert.deviceId != f.advert.deviceId } + f },
+            onStatus = { discoveryStatus = it },
+        )
+        onDispose { nsd.stopDiscovery() }
+    }
+    fun begin(target: Pair<String, Int>?) {
+        vm.pendingTarget = target
+        if (audioGranted()) launchCapture() else audioPermission.launch(Manifest.permission.RECORD_AUDIO)
+    }
 
     SafeArea {
         Column(Modifier.fillMaxSize().padding(8.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("OpenTV Link · emitir", style = MaterialTheme.typography.headlineMedium, color = OpenTvColors.OnBackground)
+            Text("OpenTV Link · emitir al televisor", style = MaterialTheme.typography.headlineMedium, color = OpenTvColors.OnBackground)
             Text(
-                "Envía la pantalla (y el sonido del teléfono, si concedés el permiso de audio y la app de origen lo permite) a otro equipo con OpenTV, " +
-                    "cifrada de punta a punta. La primera vez se empareja comparando un código de 6 dígitos en las dos pantallas. " +
-                    "Sin probar todavía en equipos reales: la lista de pruebas dice qué observar.",
+                "El teléfono envía su pantalla (y su sonido, si concedés el permiso de audio y la app de origen lo permite) a un televisor que tenga " +
+                    "un receptor OpenTV: un TV box o stick Android conectado por HDMI con OpenTV abierto en «Recibir con OpenTV Link». " +
+                    "Va cifrada de punta a punta; la primera vez se empareja comparando un código de 6 dígitos en el televisor y en el teléfono. " +
+                    "Un televisor antiguo sin receptor (como el LG NetCast) no entiende este protocolo por sí solo: para ese caso usá IPTV/navegador o un receptor HDMI. " +
+                    "Sin probar todavía en equipos reales.",
                 style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
             )
             when (val s = state) {
                 LinkSenderState.Idle -> Text("Detenido.", color = OpenTvColors.OnBackground)
                 LinkSenderState.Starting -> Text("Iniciando…", color = OpenTvColors.OnBackground)
                 is LinkSenderState.Failed -> Text(s.message, style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.Warning)
+                is LinkSenderState.Connecting -> {
+                    Text("Conectando con el receptor ${s.host} (intento ${s.attempt})…", color = OpenTvColors.OnBackground)
+                    val issue: String? = s.issue
+                    if (issue != null) Text(issue, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning)
+                }
                 is LinkSenderState.Waiting -> {
                     Text("Esperando un receptor. En el otro equipo: OpenTV › Conexiones › Recibir con OpenTV Link.", color = OpenTvColors.Success)
                     Text("Dirección para escribir a mano: ${s.address}", style = MaterialTheme.typography.titleMedium, color = OpenTvColors.OnBackground)
@@ -106,7 +130,8 @@ fun LinkSendScreen(onBack: () -> Unit, vm: LinkSendViewModel = viewModel()) {
                             "FPS que muestra el receptor: no se puede medir desde aquí.",
                         style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground,
                     )
-                    if (s.note != null) Text(s.note, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning)
+                    val note: String? = s.note
+                    if (note != null) Text(note, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning)
                 }
             }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -118,11 +143,22 @@ fun LinkSendScreen(onBack: () -> Unit, vm: LinkSendViewModel = viewModel()) {
                 if (active) {
                     TvButton(text = "Detener la transmisión", onClick = { vm.controller.stop() }, horizontalPadding = 20.dp)
                 } else {
-                    TvButton(
-                        text = "Iniciar emisor",
-                        onClick = { if (audioGranted()) launchCapture() else audioPermission.launch(Manifest.permission.RECORD_AUDIO) },
-                        horizontalPadding = 20.dp,
+                    Text(
+                        if (receivers.isEmpty()) "Receptores encontrados en la red: ninguno todavía. ${discoveryStatus}\nAbrí OpenTV › Conexiones › Recibir con OpenTV Link en el televisor (o TV box) y elegí «Esperar al teléfono»."
+                        else "Receptores encontrados en la red:",
+                        style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
                     )
+                    for (f in receivers) {
+                        TvButton(text = "Transmitir a ${f.advert.name} (${f.host})", onClick = { begin(f.host to f.advert.port) }, horizontalPadding = 20.dp)
+                    }
+                    OutlinedTextField(
+                        value = manual, onValueChange = { manual = it }, singleLine = true,
+                        label = { Text("O escribí la dirección del receptor (IP:puerto)") }, modifier = Modifier.fillMaxWidth(),
+                    )
+                    val parsedManual = LinkAddress.parse(manual)
+                    if (parsedManual != null) TvButton(text = "Transmitir a ${manual.trim()}", onClick = { begin(parsedManual) }, horizontalPadding = 20.dp)
+                    else if (manual.isNotBlank()) Text("Escribí la dirección como 192.168.1.50:8766", color = OpenTvColors.Warning)
+                    TvButton(text = "Avanzado: esperar a que un receptor se conecte", onClick = { begin(null) }, horizontalPadding = 20.dp)
                     TvButton(text = "Calidad: ${preset.shortLabel}", onClick = { vm.controller.cyclePreset() }, horizontalPadding = 20.dp)
                 }
                 TvButton(text = "Volver", onClick = onBack, horizontalPadding = 20.dp)
@@ -193,15 +229,28 @@ fun LinkReceiveScreen(onBack: () -> Unit) {
             Column(Modifier.fillMaxSize().padding(8.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 val s = state
                 if (s !is LinkReceiverState.Receiving) {
-                    Text("OpenTV Link · recibir", style = MaterialTheme.typography.headlineMedium, color = OpenTvColors.OnBackground)
+                    Text("OpenTV Link · receptor (televisor)", style = MaterialTheme.typography.headlineMedium, color = OpenTvColors.OnBackground)
                     Text(
-                        "Mostrá en este equipo lo que emite otro teléfono con OpenTV. Elegí un emisor encontrado en la red o escribí su dirección. " +
-                            "La primera vez usá «Emparejar» y comparen el código de 6 dígitos; después «Conectar».",
+                        "Este es el lado del TELEVISOR: abrilo en un TV box o stick Android conectado por HDMI al televisor. Pulsá «Esperar al teléfono»; " +
+                            "en el teléfono elegí este equipo en OpenTV › Conexiones › Emitir con OpenTV Link. Para un teléfono nuevo pulsá antes " +
+                            "«Emparejar un teléfono» y comparen el código de 6 dígitos. Después se reconecta solo. Debajo está el modo avanzado (conectarse a un emisor que espera).",
                         style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
                     )
                 }
                 when (s) {
                     LinkReceiverState.Idle -> Text(status.ifBlank { "Sin conexión." }, color = OpenTvColors.Muted)
+                    is LinkReceiverState.Listening -> {
+                        Text("Esperando al teléfono. Dirección de este receptor: ${s.address}", style = MaterialTheme.typography.titleMedium, color = OpenTvColors.Success)
+                        Text(s.announce, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted)
+                        Text(
+                            if (s.pairingOpen) "Emparejamiento ABIERTO (2 min): ahora el teléfono nuevo puede conectarse y comparar el código."
+                            else "Emparejamiento cerrado: solo se reconectan teléfonos ya emparejados" +
+                                (if (s.paired.isEmpty()) " (ninguno todavía)." else ": " + s.paired.joinToString(", ") + "."),
+                            style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground,
+                        )
+                        val problem: String? = s.lastIssue
+                        if (problem != null) Text(problem, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning)
+                    }
                     is LinkReceiverState.Connecting -> Text("Conectando con ${s.host} (intento ${s.attempt})…", color = OpenTvColors.OnBackground)
                     is LinkReceiverState.ConfirmCode -> {
                         Text("Confirmá que este código es IGUAL al del emisor:", color = OpenTvColors.OnBackground)
@@ -214,7 +263,9 @@ fun LinkReceiveScreen(onBack: () -> Unit) {
                     )
                 }
                 if (s is LinkReceiverState.Idle || s is LinkReceiverState.Failed) {
-                    for (f in found) {
+                    TvButton(text = "Esperar al teléfono (modo televisor)", onClick = { controller.listen() }, horizontalPadding = 20.dp)
+                    Text("Modo avanzado: conectarse a un emisor que espera", style = MaterialTheme.typography.titleMedium, color = OpenTvColors.Muted)
+                    for (f in found.filter { it.advert.role == OtWire.ROLE_SENDER }) {
                         TvButton(
                             text = "${f.advert.name} (${f.host}:${f.advert.port})",
                             onClick = { host = "${f.host}:${f.advert.port}" }, horizontalPadding = 20.dp,
@@ -231,12 +282,15 @@ fun LinkReceiveScreen(onBack: () -> Unit) {
                     val peers = controller.peers
                     Text(if (peers.isEmpty()) "Emisores emparejados: ninguno." else "Emisores emparejados: " + peers.joinToString(", ") { it.name }, color = OpenTvColors.Muted)
                 }
+                if (s is LinkReceiverState.Listening) {
+                    TvButton(text = "Emparejar un teléfono (abre 2 minutos)", onClick = { controller.openPairing() }, horizontalPadding = 20.dp)
+                }
                 if (s is LinkReceiverState.ConfirmCode) {
                     TvButton(text = "Los códigos coinciden", onClick = { controller.confirmCode(true) }, horizontalPadding = 20.dp)
                     TvButton(text = "No coinciden: cancelar", onClick = { controller.confirmCode(false) }, horizontalPadding = 20.dp)
                 }
-                if (s is LinkReceiverState.Connecting || s is LinkReceiverState.Receiving || s is LinkReceiverState.ConfirmCode) {
-                    TvButton(text = "Desconectar", onClick = { controller.disconnect() }, horizontalPadding = 20.dp)
+                if (s is LinkReceiverState.Connecting || s is LinkReceiverState.Receiving || s is LinkReceiverState.ConfirmCode || s is LinkReceiverState.Listening) {
+                    TvButton(text = if (s is LinkReceiverState.Listening) "Dejar de esperar" else "Desconectar", onClick = { controller.disconnect() }, horizontalPadding = 20.dp)
                 }
                 TvButton(text = "Volver", onClick = onBack, horizontalPadding = 20.dp)
                 Box(Modifier.height(1.dp))

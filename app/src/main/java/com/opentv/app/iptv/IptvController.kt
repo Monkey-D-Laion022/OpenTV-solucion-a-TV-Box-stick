@@ -68,6 +68,39 @@ class IptvController private constructor(context: Context) {
     private val _state = MutableStateFlow<IptvState>(IptvState.Idle)
     val state: StateFlow<IptvState> = _state.asStateFlow()
 
+    private val _lastStop = MutableStateFlow<String?>(null)
+
+    /** Motivo de la última parada (o `null` si no hubo ninguna desde que se abrió la app). */
+    val lastStop: StateFlow<String?> = _lastStop.asStateFlow()
+
+    private val judge = LocalMuteJudge()
+    private val muter = LocalAudioMuter(appContext)
+    private val _soloTv = MutableStateFlow(prefs.getBoolean("solo_tv", false))
+
+    /** «Audio solo en TV» pedido por el usuario (experimental: se comprueba midiendo, ver [LocalMuteJudge]). */
+    val soloTv: StateFlow<Boolean> = _soloTv.asStateFlow()
+    private val _localAudio = MutableStateFlow(LocalMuteJudge.Phase.OFF.label)
+
+    /** Estado real del modo «Audio solo en TV». */
+    val localAudio: StateFlow<String> = _localAudio.asStateFlow()
+
+    fun toggleSoloTv() {
+        val on = !_soloTv.value
+        _soloTv.value = on
+        prefs.edit().putBoolean("solo_tv", on).apply()
+        if (session != null) applyJudge(if (on) { judge.arm(); LocalMuteJudge.Action.NONE } else judge.disarm())
+        _localAudio.value = judge.phase.label
+    }
+
+    private fun applyJudge(action: LocalMuteJudge.Action) {
+        when (action) {
+            LocalMuteJudge.Action.MUTE -> muter.mute()
+            LocalMuteJudge.Action.RESTORE -> muter.restore()
+            LocalMuteJudge.Action.NONE -> Unit
+        }
+        _localAudio.value = judge.phase.label
+    }
+
     private val _preset = MutableStateFlow(IptvPreset.BALANCED)
     val preset: StateFlow<IptvPreset> = _preset.asStateFlow()
 
@@ -188,7 +221,7 @@ class IptvController private constructor(context: Context) {
                     override fun onMp4Init(init: ByteArray) = mp4.onInit(init)
                     override fun onMp4Fragment(fragment: ByteArray) = mp4.onFragment(fragment)
                 },
-                onProjectionStopped = { stop() },
+                onProjectionStopped = { stop(StopReason.PROJECTION_ENDED) },
             )
             pipeline = pipe
             pipe.start()
@@ -210,6 +243,7 @@ class IptvController private constructor(context: Context) {
                     val producedKbps = (sentRate.sample(pipe.producedBytes, now) * 8 / 1000).toInt()
                     val deliveredKbps = (servedRate.sample(srv.bytesSent.get(), now) * 8 / 1000).toInt()
                     val audio = pipe.audioState(now)
+                    if (_soloTv.value && pipe.capturesSystemAudio) applyJudge(judge.onSecond(pipe.takeAudioPeakDb()))
                     val live = IptvState.Live(
                         hlsUrl = "$base/index.m3u8", m3uUrl = "$base/channel.m3u", compatM3uUrl = "$base/compat.m3u",
                         tsUrl = "$base/live.ts", clients = srv.activeClients, segments = segmenter.publishedSegments,
@@ -223,13 +257,15 @@ class IptvController private constructor(context: Context) {
                     if (session != null) _state.value = live
                     TransmissionRegistry.publish(
                         TransmissionInfo(ID, "IPTV", preset.width, preset.height, preset.fps, encFps, producedKbps, audio.label, aspect),
-                    ) { mainHandler.post { stop() } }
+                    ) { mainHandler.post { stop(StopReason.NOTIFICATION) } }
                 }
             }, 1_000, 1_000)
             session = Session(pipe, srv, hub, segmenter, mp4, timer)
+            if (_soloTv.value && pipe.capturesSystemAudio) judge.arm() else judge.disarm()
+            _localAudio.value = judge.phase.label
             TransmissionRegistry.publish(
                 TransmissionInfo(ID, "IPTV", preset.width, preset.height, preset.fps, null, null, "midiendo…", aspect),
-            ) { mainHandler.post { stop() } }
+            ) { mainHandler.post { stop(StopReason.NOTIFICATION) } }
             _state.value = IptvState.Live(
                 "$base/index.m3u8", "$base/channel.m3u", "$base/compat.m3u", "$base/live.ts", 0, 0, 0, emptyList(), preset, pipe.hasAudioTrack,
                 audio = pipe.audioState(System.currentTimeMillis()), note = note, codec = pipe.codecName, mp4Url = "$base/live.mp4",
@@ -244,8 +280,14 @@ class IptvController private constructor(context: Context) {
         }
     }
 
-    fun stop() {
+    /** El servicio en primer plano desapareció sin que se pidiera: se registra el motivo y se libera todo. */
+    fun onServiceLost() {
+        if (session != null) stop(StopReason.SERVICE_LOST)
+    }
+
+    fun stop(reason: StopReason = StopReason.USER) {
         val s = session
+        if (s != null) _lastStop.value = reason.label
         session = null
         if (s != null) teardown(s.server, s.pipeline, s.hub, s.segmenter, s.mp4, s.timer)
         TransmissionRegistry.remove(ID)
@@ -264,6 +306,9 @@ class IptvController private constructor(context: Context) {
         server: IptvServer?, pipeline: CapturePipeline?, hub: StreamHub, segmenter: HlsSegmenter, mp4: Mp4Feed, timer: java.util.Timer?,
     ) {
         timer?.cancel()
+        runCatching { muter.restore() }
+        judge.disarm()
+        _localAudio.value = judge.phase.label
         runCatching { segmenter.end() }
         runCatching { pipeline?.stop() }
         runCatching { hub.closeAll() }

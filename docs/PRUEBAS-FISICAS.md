@@ -14,5 +14,5 @@
 ## Contradicción de audio reportada
 Un mensaje decía «audio capturado» y otro «pista en silencio». Corregido en 6.1/6.2: una sola fuente de estado con 6 valores (pista de respaldo, sin permiso, no disponible, solo ceros, capturando sin sonido, capturando con sonido).
 
-## Lista de pruebas para la versión 6.3 (por hacer; ver docs/NOTA-PRUEBAS-6.3.md)
+## Lista de pruebas para la versión 6.4 (por hacer; ver docs/NOTA-PRUEBAS-6.4.md)
 Ver el archivo NOTA de la entrega: qué probar en el teléfono, el Noblex X7 y el LG 42LB5800-SB, resultado esperado y qué informar.

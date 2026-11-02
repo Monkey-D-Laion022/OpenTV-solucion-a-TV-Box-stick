@@ -8,6 +8,8 @@ package com.opentv.app.proto
 object OtDiscovery {
     const val SERVICE_TYPE = "_opentv._tcp."
     const val DEFAULT_PORT = 8765
+    /** Puerto por defecto del receptor (televisor / receptor HDMI) cuando espera al teléfono. */
+    const val RECEIVER_PORT = 8766
 
     data class Advert(val deviceId: String, val name: String, val role: Int, val caps: Int, val port: Int)
 

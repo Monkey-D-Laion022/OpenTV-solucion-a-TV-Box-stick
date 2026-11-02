@@ -37,10 +37,10 @@ Hecho y probado solo en lógica JVM/ffmpeg: IPTV, protocolo, audio de captura (c
 La numeración de FASES originales (F0–F7) no cambia. Las **etapas A–G** son un plan de trabajo sobre ellas, no fases nuevas.
 | Etapa | Contenido | Estado |
 |---|---|---|
-| A | IPTV y mediciones reales | 6.3: sondeo + benchmark de 60 fps, modo automático; **pendiente** medir en el Redmi 14C |
-| B | Audio | 6.3: captura real y estados (código); **pendiente** prueba real y sincronía A/V |
+| A | IPTV y mediciones reales | 6.4: sondeo + benchmark de 60 fps, candados de CPU/Wi‑Fi y motivo de parada; **pendiente** medir en el Redmi 14C y confirmar la causa del corte |
+| B | Audio | 6.4: captura real, estados y «Audio solo en TV» experimental (mide, no asume); **pendiente** prueba real |
 | C | Navegador universal | 6.3: página `/` con HLS/MP4/TS y diagnóstico; **pendiente** prueba en LG 42LB5800 y Noblex |
-| D | OpenTV Link nativo | 6.3: emisor y receptor Android (código); **pendiente** prueba entre dos equipos |
+| D | OpenTV Link nativo | 6.4: rediseñado **teléfono → televisor / receptor HDMI** (receptor escucha, teléfono elige); **pendiente** prueba en TV box y diseño de receptor para NetCast (no viable nativo, ver `OPENTV-LINK-ARQUITECTURA.md`) |
 | E | Wi‑Fi Direct / Miracast | 6.3: secuencia de `connect()` con planificador; efecto sobre error 0 **pendiente** de prueba; Miracast nativo intacto |
 | F | DLNA / espejo navegador | 6.3: sin tocar protegidos; espejo por navegador vía página `/` |
 | G | Notificación persistente general | 6.3: IPTV y Link (código); Miracast/DLNA nativos fuera (protegidos) |

@@ -48,11 +48,15 @@ sealed interface LinkSenderState {
         val currentBitrateKbps: Int, val receiverBufferMs: Int, val receiverDropped: Long, val queuedKb: Int, val audio: String, val codec: String,
         val encrypted: Boolean = true, val note: String? = null,
     ) : LinkSenderState
+    /** Modo televisor: el teléfono se conecta al receptor elegido. [issue] = último problema, si lo hubo. */
+    data class Connecting(val host: String, val attempt: Int, val issue: String?) : LinkSenderState
     data class Failed(val message: String) : LinkSenderState
 }
 
 /**
- * Emisor nativo OpenTV Link: captura la pantalla con [CapturePipeline], escucha por TCP y envía el MPEG‑TS cifrado
+ * Emisor nativo OpenTV Link (el TELÉFONO que transmite hacia un televisor o receptor HDMI). Captura la pantalla con
+ * [CapturePipeline] y la envía. Modo principal: el teléfono se conecta al receptor elegido ([start] con destino). Modo
+ * avanzado (sin destino): escucha por TCP y espera a que un receptor se conecte. Envía el MPEG‑TS cifrado
  * (AES‑256‑GCM) al receptor emparejado, con control de bitrate según lo que informa el receptor. Solo atiende a un
  * receptor a la vez. NO verificado en hardware ni en red real (sí el protocolo contra el receptor de referencia en Python).
  */
@@ -80,6 +84,8 @@ class LinkSenderController private constructor(context: Context) {
     private var sasFuture: CompletableFuture<Boolean>? = null
     private var address = ""
     private var announce = ""
+    /** Destino elegido (modo televisor); `null` = modo avanzado, esperar receptores. */
+    @Volatile private var target: Pair<String, Int>? = null
 
     private class Active(val socket: Socket, val queue: LinkOutQueue, val peerName: String, val bitrate: OtBitrateController) {
         @Volatile var bufferMs = 0
@@ -90,7 +96,7 @@ class LinkSenderController private constructor(context: Context) {
     /** El usuario compara el código en las dos pantallas y responde. */
     fun confirmCode(ok: Boolean) { sasFuture?.complete(ok) }
 
-    suspend fun start(request: MirrorRequest, captureAudio: Boolean) {
+    suspend fun start(request: MirrorRequest, captureAudio: Boolean, destination: Pair<String, Int>? = null) {
         if (running || _state.value is LinkSenderState.Starting) return
         _state.value = LinkSenderState.Starting
         val ip = LanIp.pick()
@@ -104,8 +110,11 @@ class LinkSenderController private constructor(context: Context) {
         var pipe: CapturePipeline? = null
         try {
             IptvService.awaitReady()
-            ss = bind(ip)
-            server = ss
+            target = destination
+            if (destination == null) {
+                ss = bind(ip)
+                server = ss
+            }
             val sink = object : PipelineSink {
                 override fun onTs(chunk: ByteArray, keyStart: Boolean) {
                     val a = active ?: return
@@ -116,12 +125,20 @@ class LinkSenderController private constructor(context: Context) {
             pipe.start()
             pipeline = pipe
             running = true
-            address = "${ip.hostAddress}:${ss.localPort}"
-            val id = store.identity(store.senderCaps())
-            nsd.register(OtDiscovery.Advert(LinkStore.hex(id.deviceId), id.name, OtWire.ROLE_SENDER, id.caps, ss.localPort)) { announce = it; refreshWaiting() }
-            Thread({ acceptLoop(ss, pipe) }, "opentv-link-accept").apply { isDaemon = true; start() }
-            startStats(pipe, preset)
-            _state.value = waiting()
+            val listenSocket: ServerSocket? = ss
+            if (destination == null && listenSocket != null) {
+                address = "${ip.hostAddress}:${listenSocket.localPort}"
+                val id = store.identity(store.senderCaps())
+                nsd.register(OtDiscovery.Advert(LinkStore.hex(id.deviceId), id.name, OtWire.ROLE_SENDER, id.caps, listenSocket.localPort)) { announce = it; refreshWaiting() }
+                Thread({ acceptLoop(listenSocket, pipe) }, "opentv-link-accept").apply { isDaemon = true; start() }
+                startStats(pipe, preset)
+                _state.value = waiting()
+            } else if (destination != null) {
+                address = "${destination.first}:${destination.second}"
+                startStats(pipe, preset)
+                _state.value = LinkSenderState.Connecting(destination.first, 1, null)
+                Thread({ outboundLoop(destination.first, destination.second, pipe) }, "opentv-link-outbound").apply { isDaemon = true; start() }
+            }
         } catch (e: IOException) {
             cleanup(ss, pipe)
             _state.value = LinkSenderState.Failed("No se pudo abrir el puerto de OpenTV Link (${e.message ?: "error de red"}).")
@@ -162,6 +179,7 @@ class LinkSenderController private constructor(context: Context) {
 
     private fun cleanup(ss: ServerSocket?, pipe: CapturePipeline?) {
         running = false
+        target = null
         timer?.cancel(); timer = null
         nsd.unregister()
         runCatching { ss?.close() }
@@ -181,6 +199,38 @@ class LinkSenderController private constructor(context: Context) {
         }
     }
 
+    /** Modo televisor: se conecta al receptor y, si se corta, reintenta solo (hasta [MAX_ATTEMPTS]) salvo que lo rechace. */
+    private fun outboundLoop(host: String, port: Int, pipe: CapturePipeline) {
+        var attempt = 0
+        while (running && attempt < MAX_ATTEMPTS) {
+            attempt++
+            mainHandler.post { if (running && active == null) _state.value = LinkSenderState.Connecting(host, attempt, lastIssue) }
+            val socket = Socket()
+            var outcome = Outcome.DROPPED
+            try {
+                socket.connect(InetSocketAddress(host, port), 5_000)
+                outcome = serve(socket, pipe)
+            } catch (e: IOException) {
+                noteFailure("No se pudo conectar con $host:$port (${e.message ?: "sin respuesta"}). ¿Está abierto «Recibir» en el televisor?")
+            } finally {
+                runCatching { socket.close() }
+            }
+            if (outcome == Outcome.STREAMED) attempt = 0
+            if (outcome == Outcome.REJECTED) {
+                val why = lastIssue ?: "el receptor rechazó la conexión"
+                mainHandler.post { if (running) { stop(); _state.value = LinkSenderState.Failed(why) } }
+                return
+            }
+            if (!running) return
+            try { Thread.sleep(RETRY_MS) } catch (e: InterruptedException) { return }
+        }
+        if (running) mainHandler.post {
+            if (running) { val why = lastIssue; stop(); _state.value = LinkSenderState.Failed("No se pudo mantener la conexión con $host:$port. ${why ?: ""}".trim()) }
+        }
+    }
+
+    private enum class Outcome { STREAMED, DROPPED, REJECTED }
+
     private fun refuse(socket: Socket) {
         runCatching {
             val ch = OtChannel(socket.getInputStream(), socket.getOutputStream())
@@ -189,8 +239,9 @@ class LinkSenderController private constructor(context: Context) {
         runCatching { socket.close() }
     }
 
-    private fun serve(socket: Socket, pipe: CapturePipeline) {
+    private fun serve(socket: Socket, pipe: CapturePipeline): Outcome {
         var session: com.opentv.app.proto.OtSecureSession? = null
+        var outcome = Outcome.DROPPED
         try {
             socket.tcpNoDelay = true
             socket.soTimeout = 90_000 // el saludo y la confirmación del código pueden tardar
@@ -207,12 +258,14 @@ class LinkSenderController private constructor(context: Context) {
             socket.soTimeout = 15_000 // el receptor informa cada segundo: si calla 15 s, se da por perdido
             val a = Active(socket, LinkOutQueue(), s.peer.name, OtBitrateController(preset.bitrateBps.toLong()))
             active = a
+            outcome = Outcome.STREAMED
             pipe.requestKeyFrame()
             Thread({ readLoop(s, a, pipe) }, "opentv-link-read").apply { isDaemon = true; start() }
             writeLoop(s, a)
         } catch (e: OtProtocolException) {
             session?.sendError(OtWire.ErrorCode.AUTH_FAILED, e.message ?: "error")
-            noteFailure("Conexión rechazada: ${e.message}")
+            noteFailure("Conexión rechazada: ${e.message}. Si el televisor es nuevo para este teléfono, abrí «Emparejar un teléfono» en el televisor y probá de nuevo.")
+            outcome = Outcome.REJECTED
         } catch (e: SocketTimeoutException) {
             noteFailure("El receptor dejó de responder.")
         } catch (e: IOException) {
@@ -221,8 +274,9 @@ class LinkSenderController private constructor(context: Context) {
             active?.closed = true
             active = null
             runCatching { socket.close() }
-            if (running) mainHandler.post { if (running) _state.value = waiting() }
+            if (running && target == null) mainHandler.post { if (running) _state.value = waiting() }
         }
+        return outcome
     }
 
     private fun noteFailure(text: String) { lastIssue = text }
@@ -309,6 +363,8 @@ class LinkSenderController private constructor(context: Context) {
 
     companion object {
         private const val ID = "link"
+        private const val MAX_ATTEMPTS = 20
+        private const val RETRY_MS = 3_000L
         @Volatile private var instance: LinkSenderController? = null
         fun get(context: Context): LinkSenderController =
             instance ?: synchronized(this) { instance ?: LinkSenderController(context).also { instance = it } }

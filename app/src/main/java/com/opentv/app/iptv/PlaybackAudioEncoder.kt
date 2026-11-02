@@ -39,6 +39,15 @@ class PlaybackAudioEncoder(
     @Volatile var everNonZero: Boolean = false
         private set
 
+    @Volatile private var windowPeakDb = -96.0
+
+    /** Nivel pico (dBFS) de lo capturado desde la última llamada; −96 si no llegó nada. Reinicia la ventana. */
+    fun takePeakDb(): Double {
+        val v = windowPeakDb
+        windowPeakDb = -96.0
+        return v
+    }
+
     /** Muestras de audio entregadas al codificador (para comprobar que de verdad se capturan). */
     @Volatile var capturedSamples: Long = 0
         private set
@@ -111,6 +120,8 @@ class PlaybackAudioEncoder(
                     filled += n
                 }
                 if (!running) break
+                val level = AudioActivityMeter.rmsDb(pcm)
+                if (level > windowPeakDb) windowPeakDb = level
                 if (AudioActivityMeter.isSound(pcm)) lastSoundAtMs = System.currentTimeMillis()
                 if (!everNonZero && AudioActivityMeter.hasAnySignal(pcm)) everNonZero = true
                 val index = encoder.dequeueInputBuffer(20_000L)

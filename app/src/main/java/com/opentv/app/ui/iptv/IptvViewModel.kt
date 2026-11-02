@@ -20,6 +20,8 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<IptvState> get() = controller.state
     val preset: StateFlow<IptvPreset> get() = controller.preset
 
+    val lastStop: StateFlow<String?> get() = controller.lastStop
+
     val access: StateFlow<IptvAccess> get() = controller.access
 
     fun start(resultCode: Int, data: Intent, captureAudio: Boolean) {
@@ -31,6 +33,10 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
     val auto: StateFlow<Boolean> get() = controller.auto
     val calibration: StateFlow<List<String>> get() = controller.calibration
     val measuring: StateFlow<Boolean> get() = controller.measuring
+
+    val soloTv: StateFlow<Boolean> get() = controller.soloTv
+    val localAudio: StateFlow<String> get() = controller.localAudio
+    fun toggleSoloTv() = controller.toggleSoloTv()
 
     fun toggleAuto() = controller.toggleAuto()
 

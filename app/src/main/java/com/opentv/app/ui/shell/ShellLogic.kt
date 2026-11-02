@@ -83,16 +83,16 @@ object NavCatalog {
         ),
     )
 
-    /** Protocolo propio de OpenTV y sus receptores: definido y probado, sin emisor/receptor Android todavía. */
+    /** Protocolo propio de OpenTV y sus receptores: emisor (teléfono) y receptor (televisor o receptor HDMI) implementados; sin probar en equipos reales. */
     val opentvLink: List<NavEntry> = listOf(
         NavEntry(
-            "link", "Emitir con OpenTV Link", "Pantalla + audio cifrados hacia otro equipo con OpenTV",
-            "Emisor nativo: captura la pantalla, la codifica por hardware y la envía cifrada y emparejada a un receptor OpenTV. Sin probar todavía en equipos reales.",
+            "link", "Emitir con OpenTV Link", "Teléfono → televisor con receptor OpenTV (TV box/stick HDMI)",
+            "El teléfono captura su pantalla, la codifica por hardware y la envía cifrada y emparejada al televisor que tenga un receptor OpenTV. Un televisor sin receptor (LG NetCast) necesita un receptor HDMI. Sin probar todavía en equipos reales.",
             route = Routes.LINK_SEND, badge = "Nuevo",
         ),
         NavEntry(
-            "receivers", "Recibir con OpenTV Link", "Este equipo como receptor (TV Box, stick o teléfono)",
-            "Busca emisores OpenTV en la red, se empareja con un código de 6 dígitos y reproduce lo que llega. Sin probar todavía en equipos reales.",
+            "receivers", "Recibir con OpenTV Link", "Este equipo como receptor del televisor (TV box o stick con HDMI)",
+            "Espera al teléfono, se empareja con un código de 6 dígitos y reproduce lo que llega. Sin probar todavía en equipos reales.",
             route = Routes.LINK_RECEIVE, badge = "Nuevo",
         ),
     )

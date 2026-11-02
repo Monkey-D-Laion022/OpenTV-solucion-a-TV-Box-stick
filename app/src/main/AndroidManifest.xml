@@ -24,6 +24,9 @@
     <!-- Audio de la emisión IPTV: AudioPlaybackCapture (Android 10+) exige RECORD_AUDIO aunque capture lo que SUENA en el
          teléfono y no el micrófono. Autorizado por el usuario; se pide en tiempo de ejecución y es opcional (sin él hay pista en silencio). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- WAKE_LOCK (permiso normal, no se pide al usuario): mantiene despierto el procesador y la radio Wi-Fi solo mientras se
+         transmite, para que el ahorro de energía no corte la emisión cuando OpenTV deja de estar a la vista. Se libera al detener. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission

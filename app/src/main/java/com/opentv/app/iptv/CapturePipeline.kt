@@ -47,6 +47,7 @@ class CapturePipeline(
     private var projection: MediaProjection? = null
     private var display: VirtualDisplay? = null
     private val produced = AtomicLong(0)
+    private val locks = TransmissionLocks(context)
 
     /** Nombre del codificador realmente usado y si es de hardware (vacío antes de [start]). */
     @Volatile var codecName: String = ""
@@ -67,12 +68,18 @@ class CapturePipeline(
         return if (pb != null) AudioActivityMeter.captureState(pb.everNonZero, pb.lastSoundAtMs, nowMs) else fallbackAudio
     }
 
+    /** `true` si se captura el audio real del teléfono (no la pista en silencio). */
+    val capturesSystemAudio: Boolean get() = playback != null
+
+    fun takeAudioPeakDb(): Double = playback?.takePeakDb() ?: -96.0
+
     fun requestKeyFrame() { encoder?.requestKeyFrame() }
 
     fun setBitrate(bps: Int): Boolean = encoder?.setBitrate(bps) ?: false
 
     /** Lanza [RuntimeException] si algo falla; en ese caso ya liberó lo que había abierto. */
     fun start() {
+        locks.acquire()
         try {
             doStart()
         } catch (e: RuntimeException) {
@@ -144,6 +151,7 @@ class CapturePipeline(
     }
 
     fun stop() {
+        locks.release()
         runCatching { display?.release() }
         runCatching { playback?.stop() }
         runCatching { silent?.stop() }

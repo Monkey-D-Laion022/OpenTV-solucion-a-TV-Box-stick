@@ -19,8 +19,8 @@ negociación y control sobre TCP + MPEG-TS. Como TCP no pierde datos, la "pérdi
 descartando lo viejo hasta el próximo fotograma clave (`OtSendGate`).
 
 ## Roles
-- **Emisor** (el teléfono que transmite): escucha en TCP (puerto sugerido 8765) y se anuncia por DNS-SD.
-- **Receptor** (TV, caja o app receptora): descubre al emisor y se conecta.
+- **Emisor** (el teléfono que transmite): en el modo televisor (6.4) **se conecta** al receptor elegido; en el modo avanzado escucha en TCP (8765) y se anuncia por DNS-SD.
+- **Receptor** (TV, caja o app receptora): en el modo televisor **escucha** (puerto sugerido 8766); en el modo avanzado descubre un emisor y se conecta. El receptor siempre habla primero (HELLO).
 
 ## Descubrimiento (DNS-SD)
 Servicio `_opentv._tcp.`; TXT: `v=1`, `id=<16 hex>`, `n=<nombre ≤40>`, `r=s|r`, `c=<capacidades en hex>`.

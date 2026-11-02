@@ -95,6 +95,8 @@ class IptvService : Service() {
 
     override fun onDestroy() {
         ready = false
+        // Si el servicio muere con una emisión viva, no fue una parada pedida (esas vacían antes el registro).
+        if (!TransmissionRegistry.isEmpty) IptvController.get(this).onServiceLost()
         scope.cancel()
         super.onDestroy()
     }

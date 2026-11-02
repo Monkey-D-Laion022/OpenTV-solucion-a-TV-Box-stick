@@ -4,14 +4,17 @@ import android.content.Context
 import com.opentv.app.proto.OtAccept
 import com.opentv.app.proto.OtChannel
 import com.opentv.app.proto.OtControl
+import com.opentv.app.proto.OtDiscovery
 import com.opentv.app.proto.OtHandshake
 import com.opentv.app.proto.OtOffer
 import com.opentv.app.proto.OtProtocolException
 import com.opentv.app.proto.OtSecureSession
 import com.opentv.app.proto.OtStats
 import com.opentv.app.proto.OtWire
+import com.opentv.app.stream.LanIp
 import java.io.IOException
 import java.net.InetSocketAddress
+import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
@@ -22,13 +25,17 @@ import kotlinx.coroutines.flow.asStateFlow
 sealed interface LinkReceiverState {
     data object Idle : LinkReceiverState
     data class Connecting(val host: String, val attempt: Int) : LinkReceiverState
+    /** Modo televisor / receptor HDMI: espera a que un teléfono se conecte. [pairingOpen] = acepta emparejar un teléfono nuevo. */
+    data class Listening(val address: String, val announce: String, val pairingOpen: Boolean, val paired: List<String>, val lastIssue: String?) : LinkReceiverState
     data class ConfirmCode(val code: String) : LinkReceiverState
     data class Receiving(val senderName: String, val offer: OtOffer, val kbps: Int, val overflows: Long) : LinkReceiverState
     data class Failed(val message: String) : LinkReceiverState
 }
 
 /**
- * Receptor nativo OpenTV Link: se conecta al emisor, se empareja (código de 6 dígitos) o se reautentica con el secreto
+ * Receptor nativo OpenTV Link. Es el lado del TELEVISOR (o de un receptor HDMI: TV box/stick Android conectado al televisor).
+ * Modo principal [listen]: espera a que el teléfono emisor se conecte (así el teléfono elige el televisor). Modo avanzado [connect]:
+ * se conecta al emisor, se empareja (código de 6 dígitos) o se reautentica con el secreto
  * guardado, acepta la oferta y entrega el MPEG‑TS descifrado a [source], que lee el reproductor. Si la conexión se corta
  * se reconecta sola (hasta [MAX_ATTEMPTS] intentos) con el secreto ya guardado. NO verificado en hardware.
  */
@@ -56,6 +63,13 @@ class LinkReceiverController private constructor(context: Context) {
 
     @Volatile private var running = false
     @Volatile private var socket: Socket? = null
+    @Volatile private var server: ServerSocket? = null
+    private val nsd = LinkNsd(app)
+    @Volatile private var pairingUntilMs = 0L
+    @Volatile private var announce = ""
+    @Volatile private var listenAddress = ""
+    @Volatile private var lastIssue: String? = null
+    private var listening = false
     private var sasFuture: CompletableFuture<Boolean>? = null
 
     fun confirmCode(ok: Boolean) { sasFuture?.complete(ok) }
@@ -70,9 +84,85 @@ class LinkReceiverController private constructor(context: Context) {
 
     fun disconnect() {
         running = false
+        listening = false
+        nsd.unregister()
+        runCatching { server?.close() }
+        server = null
         runCatching { socket?.close() }
         source.close()
         _state.value = LinkReceiverState.Idle
+    }
+
+    /**
+     * Modo televisor: abre un puerto TCP, se anuncia en la red como receptor y espera al teléfono. Para emparejar un
+     * teléfono nuevo hay que abrir la ventana de emparejamiento con [openPairing] (así nadie se empareja sin que el
+     * dueño del televisor lo pida); los ya emparejados se reconectan solos con su secreto.
+     */
+    fun listen() {
+        if (running) return
+        val ip = LanIp.pick()
+        if (ip == null) {
+            _state.value = LinkReceiverState.Failed("No hay una red Wi‑Fi o Ethernet local activa. Conectá este equipo a la misma red que el teléfono.")
+            return
+        }
+        val ss = try {
+            ServerSocket().also { it.reuseAddress = true; it.bind(InetSocketAddress(ip, OtDiscovery.RECEIVER_PORT), 2) }
+        } catch (e: IOException) {
+            try { ServerSocket().also { it.reuseAddress = true; it.bind(InetSocketAddress(ip, 0), 2) } } catch (e2: IOException) {
+                _state.value = LinkReceiverState.Failed("No se pudo abrir el puerto de recepción (${e2.message ?: "error de red"}).")
+                return
+            }
+        }
+        server = ss
+        running = true
+        listening = true
+        lastIssue = null
+        listenAddress = "${ip.hostAddress}:${ss.localPort}"
+        val id = store.identity(store.receiverCaps())
+        nsd.register(OtDiscovery.Advert(LinkStore.hex(id.deviceId), id.name, OtWire.ROLE_RECEIVER, id.caps, ss.localPort)) {
+            announce = it
+            refreshListening()
+        }
+        _state.value = listeningState()
+        Thread({ acceptLoop(ss) }, "opentv-link-listen").apply { isDaemon = true; start() }
+    }
+
+    /** Abre 2 minutos la posibilidad de emparejar un teléfono nuevo. */
+    fun openPairing() {
+        pairingUntilMs = System.currentTimeMillis() + PAIRING_WINDOW_MS
+        refreshListening()
+    }
+
+    private fun pairingOpen() = System.currentTimeMillis() < pairingUntilMs
+
+    private fun listeningState() = LinkReceiverState.Listening(listenAddress, announce, pairingOpen(), store.peers().map { it.name }, lastIssue)
+
+    private fun refreshListening() {
+        if (listening && _state.value is LinkReceiverState.Listening) _state.value = listeningState()
+    }
+
+    private fun acceptLoop(ss: ServerSocket) {
+        while (running && !ss.isClosed) {
+            val s = try { ss.accept() } catch (e: IOException) { return }
+            val pair = pairingOpen()
+            try {
+                val streamed = try {
+                    serve(s, pair)
+                } catch (e: OtProtocolException) {
+                    lastIssue = "Un teléfono intentó conectarse y fue rechazado: ${e.message}. Si es nuevo, abrí «Emparejar un teléfono» en este equipo antes."
+                    false
+                } catch (e: IOException) {
+                    lastIssue = "Conexión cortada: ${e.message ?: "sin detalle"}"
+                    false
+                }
+                if (pair) pairingUntilMs = 0L // la ventana sirve para un solo intento
+                if (streamed) lastIssue = null
+            } finally {
+                runCatching { s.close() }
+                socket = null
+                if (running) _state.value = listeningState()
+            }
+        }
     }
 
     private fun runLoop(host: String, port: Int, firstPair: Boolean) {
@@ -102,9 +192,20 @@ class LinkReceiverController private constructor(context: Context) {
     private fun session(host: String, port: Int, pair: Boolean): Boolean {
         val s = Socket()
         socket = s
-        var got = false
         try {
             s.connect(InetSocketAddress(host, port), 5_000)
+            return serve(s, pair)
+        } finally {
+            runCatching { s.close() }
+            socket = null
+        }
+    }
+
+    /** Atiende una conexión ya abierta (en cualquiera de los dos sentidos). Devuelve `true` si llegó a recibir video. */
+    private fun serve(s: Socket, pair: Boolean): Boolean {
+        socket = s
+        var got = false
+        try {
             s.tcpNoDelay = true
             s.soTimeout = 90_000
             val channel = OtChannel(s.getInputStream(), s.getOutputStream())
@@ -145,8 +246,6 @@ class LinkReceiverController private constructor(context: Context) {
             runCatching { secure.send(OtWire.Type.BYE) }
         } finally {
             source.close()
-            runCatching { s.close() }
-            socket = null
         }
         return got
     }
@@ -177,6 +276,7 @@ class LinkReceiverController private constructor(context: Context) {
     companion object {
         const val MAX_ATTEMPTS = 20
         const val RETRY_MS = 3_000L
+        const val PAIRING_WINDOW_MS = 120_000L
         @Volatile private var instance: LinkReceiverController? = null
         fun get(context: Context): LinkReceiverController =
             instance ?: synchronized(this) { instance ?: LinkReceiverController(context).also { instance = it } }

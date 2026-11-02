@@ -408,3 +408,11 @@ Alcance: SOLO descubrir dispositivos Wi-Fi Direct con la API pública y mostrar 
 - **Tests**: 392 JVM OK (K2 y K1.9). Chequeo de tipos contra stubs escritos a mano: 0 errores (K2 y K1.9) en el código Android sin Compose/media3.
 - **NO realizado**: compilación Android real (no hay SDK ni Maven en este entorno; la confirma GitHub Actions), pantallas Compose, `TsDataSource`, edición de `WfdDiagnosticSession`, manifiesto y nada en teléfono ni televisores.
 - Protegidos idénticos a H2 (`FocusableSurface` conserva el cambio de 6.2, idéntico a esa entrega).
+
+## Fase 6.4: corrección de rumbo de OpenTV Link, audio solo en TV, ciclo de vida IPTV, catálogo
+- **OpenTV Link = teléfono → televisor/receptor HDMI** (no teléfono↔teléfono): el receptor escucha y se anuncia; el teléfono lo elige y se conecta; ventana de emparejamiento de 2 minutos; el emisor reintenta solo. Textos de menú y pantallas corregidos. Documento: `docs/OPENTV-LINK-ARQUITECTURA.md` (límites de LG NetCast y receptor HDMI).
+- **IPTV, corte al salir de la pantalla**: no se encontró una causa en la pantalla (el canal vive en `IptvController`). Se agregaron `TransmissionLocks` (CPU + Wi‑Fi, permiso normal `WAKE_LOCK`, único permiso nuevo) y el **motivo de cada parada** («Última parada»). La causa real queda por confirmar en el Noblex.
+- **Audio solo en TV (experimental)**: `LocalMuteJudge` (lógica pura, 9 pruebas) + `LocalAudioMuter`: espera sonido, baja el volumen multimedia del teléfono y mide si la captura sigue recibiendo sonido; si cae a silencio, restaura y lo dice. Botón en la pantalla IPTV. No confirma lo que oye el televisor.
+- **CatalogLogicTest**: línea 211 con smart cast sobre `r.problem` (propiedad de otro módulo) → variables locales tipadas. Nuevo `runit2.py` compila main y test como módulos separados y reproduce ese error exacto con la versión anterior del archivo (antes el arnés lo ocultaba).
+- Auditoría de todas las conexiones: `docs/AUDITORIA-CONEXIONES.md`.
+- Tests: 404 JVM OK (K2 y K1.9, módulos separados). NO verificado: compilación Android real, pantallas Compose, nada en dispositivos.
