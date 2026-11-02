@@ -13,42 +13,37 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.opentv.app.MainActivity
+import com.opentv.app.transmission.TransmissionRegistry
+import com.opentv.app.transmission.TransmissionText
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
- * Servicio en primer plano del canal IPTV. Android exige uno (con el tipo «captura de pantalla» desde la versión 14)
- * para capturar la pantalla mientras OpenTV no está a la vista. Su notificación trae «Detener». No hace el trabajo:
- * eso lo hace [IptvController]. No usa permisos nuevos: son los mismos que ya declara la app.
+ * Servicio en primer plano de las transmisiones de OpenTV (IPTV y OpenTV Link). Android exige uno (con el tipo «captura de
+ * pantalla» desde la versión 14) para capturar la pantalla mientras OpenTV no está a la vista. Su notificación es el
+ * control general: lee de [TransmissionRegistry] la tecnología activa, resolución, FPS, bitrate y audio, y su botón
+ * «Detener» corta todas las transmisiones registradas. No hace el trabajo: eso lo hacen los controladores.
+ * No usa permisos nuevos: son los mismos que ya declara la app.
  */
 class IptvService : Service() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var watching = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            IptvController.get(this).stop()
+            TransmissionRegistry.stopAll()
             stopSelf()
             return START_NOT_STICKY
         }
         createChannel()
-        val open = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val stop = PendingIntent.getService(
-            this, 2, Intent(this, IptvService::class.java).setAction(ACTION_STOP),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val notification: Notification = NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle("OpenTV está emitiendo el canal IPTV")
-            .setContentText("Cualquier equipo de tu Wi‑Fi con la dirección puede verlo. «Detener» corta la emisión.")
-            .setOngoing(true)
-            .setContentIntent(open)
-            .addAction(android.R.drawable.ic_media_pause, "Detener", stop)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
         try {
+            val notification = build(TransmissionRegistry.state.value)
             if (Build.VERSION.SDK_INT >= 29) {
                 startForeground(
                     ID, notification,
@@ -61,19 +56,53 @@ class IptvService : Service() {
         } catch (e: RuntimeException) {
             ready = false
             stopSelf()
+            return START_NOT_STICKY
+        }
+        if (!watching) {
+            watching = true
+            scope.launch {
+                TransmissionRegistry.state.collect { list ->
+                    getSystemService(NotificationManager::class.java).notify(ID, build(list))
+                }
+            }
         }
         return START_NOT_STICKY
     }
 
+    private fun build(list: List<com.opentv.app.transmission.TransmissionInfo>): Notification {
+        val text = TransmissionText.render(list)
+        val open = PendingIntent.getActivity(
+            this, 0, Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val stop = PendingIntent.getService(
+            this, 2, Intent(this, IptvService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val footer = "El espejo nativo del sistema y DLNA tienen su propio aviso y no aparecen aquí."
+        return NotificationCompat.Builder(this, CHANNEL)
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setContentTitle(text.title)
+            .setContentText(text.text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text.bigText + "\n" + footer))
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(open)
+            .addAction(android.R.drawable.ic_media_pause, "Detener", stop)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+    }
+
     override fun onDestroy() {
         ready = false
+        scope.cancel()
         super.onDestroy()
     }
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < 26) return
         getSystemService(NotificationManager::class.java)
-            .createNotificationChannel(NotificationChannel(CHANNEL, "Canal IPTV", NotificationManager.IMPORTANCE_LOW))
+            .createNotificationChannel(NotificationChannel(CHANNEL, "Transmisiones de OpenTV", NotificationManager.IMPORTANCE_LOW))
     }
 
     companion object {
@@ -86,6 +115,11 @@ class IptvService : Service() {
 
         fun start(context: Context) {
             runCatching { ContextCompat.startForegroundService(context, Intent(context, IptvService::class.java)) }
+        }
+
+        /** Apaga el servicio solo si ya no queda ninguna transmisión registrada (otra tecnología puede seguir activa). */
+        fun stopIfIdle(context: Context) {
+            if (TransmissionRegistry.isEmpty) runCatching { context.stopService(Intent(context, IptvService::class.java)) }
         }
 
         fun stop(context: Context) {

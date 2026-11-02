@@ -35,6 +35,10 @@ class PlaybackAudioEncoder(
     @Volatile var lastSoundAtMs: Long = 0
         private set
 
+    /** `true` si alguna vez llegó una muestra distinta de cero (si no, la captura entrega solo ceros). */
+    @Volatile var everNonZero: Boolean = false
+        private set
+
     /** Muestras de audio entregadas al codificador (para comprobar que de verdad se capturan). */
     @Volatile var capturedSamples: Long = 0
         private set
@@ -108,6 +112,7 @@ class PlaybackAudioEncoder(
                 }
                 if (!running) break
                 if (AudioActivityMeter.isSound(pcm)) lastSoundAtMs = System.currentTimeMillis()
+                if (!everNonZero && AudioActivityMeter.hasAnySignal(pcm)) everNonZero = true
                 val index = encoder.dequeueInputBuffer(20_000L)
                 if (index >= 0) {
                     val input = encoder.getInputBuffer(index)

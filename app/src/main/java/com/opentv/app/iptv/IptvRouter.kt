@@ -11,6 +11,9 @@ sealed interface IptvResponse {
 
     /** Flujo TS continuo (sin fin), que el servidor alimenta desde el [com.opentv.app.stream.StreamHub]. */
     data object LiveTs : IptvResponse
+
+    /** MP4 fragmentado continuo: segmento de inicio y luego fragmentos (ver [Mp4Feed]). */
+    data object LiveMp4 : IptvResponse
 }
 
 /** Qué sabe el router del estado de la emisión; lo implementa el controlador (y las pruebas con datos falsos). */
@@ -35,10 +38,25 @@ class IptvRouter(
     private val status: IptvStatusSource,
     private val nowMs: () -> Long,
 ) {
+    /** Recibe lo que informa el navegador del televisor desde la página de entrada (texto ya limpio y acotado). */
+    var onDiag: (String) -> Unit = {}
+
+    /** La página `/` solo existe con la dirección corta (`/tv`): con código aleatorio la raíz no revela el canal. */
+    private val rootEnabled: Boolean get() = token == IptvAccess.SHORT.fixedToken
+
     /** [hostHeader]: valor de `Host` del pedido (sirve para armar direcciones que el cliente pueda reutilizar). */
     fun route(method: String, rawPath: String, hostHeader: String?, range: String? = null): IptvResponse {
         if (method != "GET" && method != "HEAD") return text(405, "Método no permitido", mapOf("Allow" to "GET, HEAD"))
         val path = rawPath.substringBefore('?')
+        val query = rawPath.substringAfter('?', "").ifEmpty { null }
+        if (rootEnabled && (path == "/" || path == "/index.html")) {
+            val html = LandingPage.render(token, LandingPage.mode(query), M3uBuilder.clean(status.channelName), "${status.width}×${status.height} · ${status.fps} fps · ${status.bitrateBps / 1000} kbit/s")
+            return IptvResponse.Body(200, "text/html; charset=utf-8", html.toByteArray(Charsets.UTF_8), NO_CACHE)
+        }
+        if (rootEnabled && path == "/diag") {
+            onDiag(DiagText.clean(query ?: ""))
+            return IptvResponse.Body(204, "text/plain", ByteArray(0), NO_CACHE)
+        }
         val prefix = "/$token/"
         if (!path.startsWith(prefix)) return text(404, "No encontrado")
         val name = path.removePrefix(prefix)
@@ -48,6 +66,7 @@ class IptvRouter(
             name == "channel.m3u" -> m3u(base, false)
             name == "compat.m3u" -> m3u(base, true)
             name == "live.ts" -> IptvResponse.LiveTs
+            name == "live.mp4" -> IptvResponse.LiveMp4
             name == "status.json" -> statusJson()
             else -> {
                 val seq = HlsNames.parseSegment(name) ?: return text(404, "No encontrado")
@@ -83,6 +102,7 @@ class IptvRouter(
             listOf(
                 M3uChannel("opentv-hls", "$name · prueba 1: HLS (m3u8)", "$base/index.m3u8", "Pruebas OpenTV"),
                 M3uChannel("opentv-ts", "$name · prueba 2: TS directo", "$base/live.ts", "Pruebas OpenTV"),
+                M3uChannel("opentv-mp4", "$name · prueba 3: MP4 progresivo", "$base/live.mp4", "Pruebas OpenTV"),
             )
         } else {
             listOf(M3uChannel("opentv", name, "$base/index.m3u8"))

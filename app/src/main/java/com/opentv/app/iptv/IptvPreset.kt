@@ -17,7 +17,9 @@ enum class IptvPreset(
     BALANCED("720p · 30 fps · 3 Mbps · segmentos de 2 s", "720p · 30 fps", 1280, 720, 30, 3_000_000, 2_000),
     FULL_HD("1080p · 30 fps · 6 Mbps · segmentos de 2 s (exige más)", "1080p · 30 fps", 1920, 1080, 30, 6_000_000, 2_000),
     HD_60("720p · 60 fps · 6 Mbps · segmentos de 4 s", "720p · 60 fps", 1280, 720, 60, 6_000_000, 4_000),
-    FULL_HD_60("1080p · 60 fps · 10 Mbps · segmentos de 4 s (exige mucho)", "1080p · 60 fps", 1920, 1080, 60, 10_000_000, 4_000);
+    FULL_HD_60("1080p · 60 fps · 10 Mbps · segmentos de 4 s (exige mucho)", "1080p · 60 fps", 1920, 1080, 60, 10_000_000, 4_000),
+    COMPAT_480("480p · 30 fps · 1,5 Mbps · segmentos de 4 s (equipos viejos)", "480p · 30 fps", 854, 480, 30, 1_500_000, 4_000),
+    COMPAT_360("360p · 30 fps · 0,8 Mbps · segmentos de 4 s (equipos muy limitados)", "360p · 30 fps", 640, 360, 30, 800_000, 4_000);
 
     /**
      * Retraso teórico de HLS: los reproductores empiezan unos 3 segmentos antes del final de la playlist.
@@ -43,7 +45,10 @@ enum class IptvAccess(val label: String) {
 
 /** Qué se está emitiendo de audio. Nunca se informa «con sonido» sin haber medido muestras no nulas. */
 enum class IptvAudio(val label: String) {
-    SILENT_TRACK("pista en silencio (no se captura el audio del teléfono)"),
+    SILENT_TRACK("pista en silencio de respaldo (no se captura el audio del teléfono)"),
+    NO_PERMISSION("permiso de audio no concedido: pista en silencio"),
+    UNAVAILABLE("captura no disponible en este teléfono: pista en silencio"),
+    CAPTURING_ZEROS("captura activa pero solo llegan ceros: nada suena o la app de origen bloquea la captura"),
     CAPTURING_NO_SOUND("capturando, sin sonido en los últimos segundos"),
     CAPTURING_SOUND("capturando y se detecta sonido"),
 }

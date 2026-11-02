@@ -32,3 +32,16 @@ Hecho y probado solo en lógica JVM/ffmpeg: IPTV, protocolo, audio de captura (c
 4. F5 Control remoto reutilizando el emparejamiento/cripto de OpenTV Link.
 5. DLNA/navegador/Wi‑Fi Direct con medición.
 6. F6 Pulido y matriz de pruebas por tecnología.
+
+## 6. Etapas del prompt de continuación (2026-11-01) y su estado
+La numeración de FASES originales (F0–F7) no cambia. Las **etapas A–G** son un plan de trabajo sobre ellas, no fases nuevas.
+| Etapa | Contenido | Estado |
+|---|---|---|
+| A | IPTV y mediciones reales | 6.3: sondeo + benchmark de 60 fps, modo automático; **pendiente** medir en el Redmi 14C |
+| B | Audio | 6.3: captura real y estados (código); **pendiente** prueba real y sincronía A/V |
+| C | Navegador universal | 6.3: página `/` con HLS/MP4/TS y diagnóstico; **pendiente** prueba en LG 42LB5800 y Noblex |
+| D | OpenTV Link nativo | 6.3: emisor y receptor Android (código); **pendiente** prueba entre dos equipos |
+| E | Wi‑Fi Direct / Miracast | 6.3: secuencia de `connect()` con planificador; efecto sobre error 0 **pendiente** de prueba; Miracast nativo intacto |
+| F | DLNA / espejo navegador | 6.3: sin tocar protegidos; espejo por navegador vía página `/` |
+| G | Notificación persistente general | 6.3: IPTV y Link (código); Miracast/DLNA nativos fuera (protegidos) |
+| (F5 original) | Control remoto desde otro celular | Pendiente, preservada |

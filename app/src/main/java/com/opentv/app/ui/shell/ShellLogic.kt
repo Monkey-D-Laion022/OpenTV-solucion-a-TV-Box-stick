@@ -86,14 +86,14 @@ object NavCatalog {
     /** Protocolo propio de OpenTV y sus receptores: definido y probado, sin emisor/receptor Android todavía. */
     val opentvLink: List<NavEntry> = listOf(
         NavEntry(
-            "link", "Transmisión OpenTV", "Protocolo propio cifrado · pendiente en Android",
-            "El protocolo OpenTV Link está documentado y probado con un receptor de referencia. El emisor y el receptor dentro de la app todavía no existen.",
-            route = Routes.pending(PendingFeature.OPENTV_LINK), badge = "Pendiente",
+            "link", "Emitir con OpenTV Link", "Pantalla + audio cifrados hacia otro equipo con OpenTV",
+            "Emisor nativo: captura la pantalla, la codifica por hardware y la envía cifrada y emparejada a un receptor OpenTV. Sin probar todavía en equipos reales.",
+            route = Routes.LINK_SEND, badge = "Nuevo",
         ),
         NavEntry(
-            "receivers", "Receptores OpenTV", "Ninguno disponible todavía",
-            "Un receptor OpenTV para Android TV aún no está desarrollado. Hay un receptor de referencia para PC en tools/receiver-py.",
-            route = Routes.pending(PendingFeature.OPENTV_LINK), badge = "Pendiente",
+            "receivers", "Recibir con OpenTV Link", "Este equipo como receptor (TV Box, stick o teléfono)",
+            "Busca emisores OpenTV en la red, se empareja con un código de 6 dígitos y reproduce lo que llega. Sin probar todavía en equipos reales.",
+            route = Routes.LINK_RECEIVE, badge = "Nuevo",
         ),
     )
 
@@ -161,7 +161,7 @@ object NavCatalog {
     /** Todos los accesos que existían antes del rediseño y que NO pueden perderse. */
     val everyPreservedRoute: Set<String> = setOf(
         Routes.CONNECT, Routes.MIRROR, Routes.BROWSER, Routes.REMOTE, Routes.APPS, Routes.BENCH,
-        Routes.SHIZUKU_GUIDE, Routes.DEVICE, Routes.P2P_DISCOVERY, Routes.TOOLS, Routes.PLAYER, Routes.IPTV,
+        Routes.SHIZUKU_GUIDE, Routes.DEVICE, Routes.P2P_DISCOVERY, Routes.TOOLS, Routes.PLAYER, Routes.IPTV, Routes.LINK_SEND, Routes.LINK_RECEIVE,
     )
 }
 

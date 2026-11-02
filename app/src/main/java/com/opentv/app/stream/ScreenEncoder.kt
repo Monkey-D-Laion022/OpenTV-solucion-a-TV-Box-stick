@@ -23,6 +23,14 @@ class ScreenEncoder(
     private val lowLatency: Boolean = false,
     /** Nivel H.264 explícito (constante `AVCLevel*`); `null` conserva el comportamiento histórico (4.0 en 1080p, 3.1 en lo demás). */
     private val avcLevel: Int? = null,
+    /** Tamaño de salida; por defecto el del perfil (TvProjection no lo usa y conserva su comportamiento). */
+    private val width: Int = profile.width,
+    private val height: Int = profile.height,
+    /** Datos crudos para otros contenedores (MP4): configuración SPS/PPS en Annex B y cada fotograma con su hora en µs. */
+    /** Nombre del codificador a preferir (p. ej. el de hardware elegido por [com.opentv.app.iptv.EncoderProbe]); `null` = el predeterminado. */
+    private val codecName: String? = null,
+    private val onConfig: ((ByteArray) -> Unit)? = null,
+    private val onFrame: ((frame: ByteArray, ptsUs: Long, key: Boolean) -> Unit)? = null,
     private val onChunk: (chunk: ByteArray, keyStart: Boolean) -> Unit,
 ) {
     private var codec: MediaCodec? = null
@@ -33,21 +41,37 @@ class ScreenEncoder(
 
     /** Prepara el codificador y devuelve la superficie donde hay que dibujar. */
     fun start(): Surface {
-        val encoder = try {
-            create(withProfile = true)
-        } catch (e: RuntimeException) {
-            create(withProfile = false) // algunos codificadores rechazan perfil/nivel explícitos
+        // Se prueba en orden: codificador elegido con perfil/nivel → sin perfil → predeterminado con perfil → sin perfil.
+        var encoder: MediaCodec? = null
+        var failure: RuntimeException? = null
+        val attempts = buildList<Pair<String?, Boolean>> {
+            if (codecName != null) { add(codecName to true); add(codecName to false) }
+            add(null to true); add(null to false)
         }
-        val surface = encoder.createInputSurface()
-        encoder.start()
-        codec = encoder
+        for ((name, withProfile) in attempts) {
+            try {
+                encoder = create(name, withProfile)
+                break
+            } catch (e: RuntimeException) {
+                failure = e
+            }
+        }
+        val chosen = encoder ?: throw (failure ?: IllegalStateException("No hay codificador H.264"))
+        usedCodec = chosen.name
+        val surface = chosen.createInputSurface()
+        chosen.start()
+        codec = chosen
         running = true
-        thread = Thread({ drain(encoder) }, "opentv-encoder").apply { isDaemon = true; start() }
+        thread = Thread({ drain(chosen) }, "opentv-encoder").apply { isDaemon = true; start() }
         return surface
     }
 
-    private fun create(withProfile: Boolean): MediaCodec {
-        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, profile.width, profile.height).apply {
+    /** Nombre real del codificador en uso (para mostrarlo; vacío antes de [start]). */
+    @Volatile var usedCodec: String = ""
+        private set
+
+    private fun create(name: String?, withProfile: Boolean): MediaCodec {
+        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
@@ -57,17 +81,22 @@ class ScreenEncoder(
                 setInteger("latency", 1)
                 setInteger("priority", 0)
             }
+            if (fps > 30) {
+                // Pistas de tiempo real para sostener más de 30 fps (las ignora quien no las conoce).
+                setInteger(MediaFormat.KEY_OPERATING_RATE, fps)
+                setInteger(MediaFormat.KEY_PRIORITY, 0)
+            }
             setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 200_000L) // red de seguridad si se frena el dibujo
             setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
             if (withProfile) {
                 setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileMain)
                 setInteger(
                     MediaFormat.KEY_LEVEL,
-                    avcLevel ?: if (profile.height >= 1080) MediaCodecInfo.CodecProfileLevel.AVCLevel4 else MediaCodecInfo.CodecProfileLevel.AVCLevel31,
+                    avcLevel ?: if (height >= 1080) MediaCodecInfo.CodecProfileLevel.AVCLevel4 else MediaCodecInfo.CodecProfileLevel.AVCLevel31,
                 )
             }
         }
-        val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        val encoder = if (name != null) MediaCodec.createByCodecName(name) else MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
         try {
             encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         } catch (e: RuntimeException) {
@@ -83,6 +112,17 @@ class ScreenEncoder(
             codec?.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) })
         } catch (e: RuntimeException) {
             // El codificador ya se detuvo.
+        }
+    }
+
+    /** Cambia el bitrate en marcha (Android 19+); devuelve `false` si el codificador no lo admite o ya no existe. */
+    fun setBitrate(bps: Int): Boolean {
+        val c = codec ?: return false
+        return try {
+            c.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bps) })
+            true
+        } catch (e: RuntimeException) {
+            false
         }
     }
 
@@ -115,6 +155,7 @@ class ScreenEncoder(
                     buffer.get(data)
                     if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
                         muxer.setCodecConfig(data)
+                        onConfig?.invoke(data)
                     } else {
                         val now = System.nanoTime() / 1000 - originUs
                         val raw = info.presentationTimeUs - originUs
@@ -123,6 +164,7 @@ class ScreenEncoder(
                         if (pts < lastPts) pts = lastPts
                         lastPts = pts
                         val key = info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0
+                        onFrame?.invoke(data, pts, key)
                         onChunk(muxer.mux(data, pts, key), key)
                         encodedFrames.incrementAndGet()
                     }

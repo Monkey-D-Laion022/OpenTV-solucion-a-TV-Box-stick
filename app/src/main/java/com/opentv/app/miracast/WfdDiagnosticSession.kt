@@ -32,6 +32,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 /** Estado visible de una prueba de la etapa B. */
 data class WfdUi(
@@ -68,6 +70,9 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
     private var ended = true
     private var ownsGroup = false
     private var retries = 0
+    private var planner = P2pConnectPlanner()
+    private var sawPeer = false
+    private var lastPeerStatus: Int? = null
     private var startedAt = 0L
     private var peerAddress: String = ""
 
@@ -83,6 +88,9 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
         groupHandled = false
         ownsGroup = false
         retries = 0
+        planner = P2pConnectPlanner()
+        sawPeer = false
+        lastPeerStatus = null
         ended = false
         _ui.value = WfdUi(running = true, started = true, observation = WfdObservation(peerName = peer.name))
 
@@ -120,7 +128,83 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
             app, rx, IntentFilter(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION), ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         log("Prueba iniciada con «${peer.name}». Se puede cancelar en cualquier momento.")
-        sendConnect()
+        prepareThenConnect()
+    }
+
+    /**
+     * Secuencia previa a connect(): limpiar solicitudes/grupos viejos, descubrir pares EN ESTE canal y esperar a ver el
+     * televisor con su estado. Antes se conectaba directo sobre un canal recién creado (el error 0 de la prueba anterior).
+     */
+    private fun prepareThenConnect() {
+        val m = manager ?: return
+        val ch = channel ?: return
+        log("Preparación: se limpian solicitudes y grupos previos y se descubre el televisor en este canal antes de conectar.")
+        runCatching { m.cancelConnect(ch, null) }
+        runCatching { m.removeGroup(ch, null) }
+        scope.launch {
+            delay(400)
+            if (cancelRequested || ended) return@launch
+            try {
+                m.discoverPeers(ch, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() { if (!cancelRequested && !ended) { log("Descubrimiento iniciado en este canal."); waitForPeer() } }
+                    override fun onFailure(reason: Int) {
+                        if (cancelRequested || ended) return
+                        log("El descubrimiento previo falló: ${P2pText.failure(reason)}. Se intenta conectar igual.")
+                        sendConnect()
+                    }
+                })
+            } catch (e: SecurityException) {
+                log("Excepción de seguridad al descubrir: ${e.message ?: "sin detalle"}.")
+                sendConnect()
+            }
+        }
+    }
+
+    private fun waitForPeer() {
+        scope.launch {
+            val startWait = SystemClock.elapsedRealtime()
+            while (!cancelRequested && !ended) {
+                val (found, status) = peerStatus()
+                if (found) { sawPeer = true; lastPeerStatus = status }
+                val waited = SystemClock.elapsedRealtime() - startWait
+                val check = planner.onPeerCheck(found, status, waited)
+                if (check.action == P2pConnectPlanner.PeerAction.CONNECT) {
+                    log(check.note)
+                    sendConnect()
+                    return@launch
+                }
+                if (waited % 3_000L < 1_000L) log(check.note)
+                delay(1_000)
+            }
+        }
+    }
+
+    /** Si [peerAddress] está en la lista actual del canal y con qué estado. */
+    private suspend fun peerStatus(): Pair<Boolean, Int?> {
+        val m = manager ?: return false to null
+        val ch = channel ?: return false to null
+        return suspendCancellableCoroutine { cont ->
+            try {
+                m.requestPeers(ch) { list ->
+                    val dev = list?.deviceList?.firstOrNull { it.deviceAddress.equals(peerAddress, ignoreCase = true) }
+                    if (cont.isActive) cont.resume((dev != null) to dev?.status)
+                }
+            } catch (e: SecurityException) {
+                if (cont.isActive) cont.resume(false to null)
+            }
+        }
+    }
+
+    /** Cierra el canal, abre uno nuevo y repite la secuencia (reinicio real del estado Wi‑Fi Direct de esta app). */
+    private fun resetChannelAndRetry() {
+        val m = manager ?: return
+        channel?.let { old ->
+            runCatching { m.cancelConnect(old, null) }
+            runCatching { m.removeGroup(old, null) }
+            if (Build.VERSION.SDK_INT >= 27) runCatching { old.close() }
+        }
+        channel = m.initialize(app, Looper.getMainLooper(), null)
+        prepareThenConnect()
     }
 
     /** Cancela la prueba y libera todo (sockets, grupo creado por esta prueba, receptor y canal). */
@@ -156,17 +240,23 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
 
                 override fun onFailure(reason: Int) {
                     if (cancelRequested || ended) return
-                    if (reason == WifiP2pManager.BUSY && retries < WfdTimeouts.CONNECT_MAX_RETRIES) {
+                    val decision = planner.onConnectFailure(reason)
+                    log(decision.note)
+                    if (decision.kind != P2pConnectPlanner.Kind.GIVE_UP) {
                         retries++
-                        log("Sistema ocupado (código 2): reintento $retries de ${WfdTimeouts.CONNECT_MAX_RETRIES}.")
                         scope.launch {
-                            delay(WfdTimeouts.CONNECT_RETRY_DELAY_MS)
-                            if (!cancelRequested && !ended) sendConnect()
+                            delay(decision.delayMs)
+                            if (cancelRequested || ended) return@launch
+                            if (decision.kind == P2pConnectPlanner.Kind.WAIT_AND_RETRY) sendConnect() else resetChannelAndRetry()
                         }
                         return
                     }
                     updateObs { it.copy(connectAccepted = false, connectFailureCode = reason) }
-                    step(WfdPhase.CONNECT_REQUEST, StepOutcome.FAILED, "Android rechazó la solicitud: ${P2pText.failure(reason)}.")
+                    step(
+                        WfdPhase.CONNECT_REQUEST, StepOutcome.FAILED,
+                        "Android rechazó la solicitud: ${P2pText.failure(reason)}. " +
+                            P2pConnectPlanner.explainFailure(reason, planner.resets, sawPeer, lastPeerStatus),
+                    )
                     finishRun()
                 }
             })
@@ -448,6 +538,7 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
         val ch = channel
         var cleanupDetail = "Sockets cerrados."
         if (m != null && ch != null) {
+            runCatching { m.stopPeerDiscovery(ch, null) }
             val closeChannel: () -> Unit = { if (Build.VERSION.SDK_INT >= 27) runCatching { ch.close() } }
             if (ownsGroup) {
                 try {

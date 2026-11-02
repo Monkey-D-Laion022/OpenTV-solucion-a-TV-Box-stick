@@ -81,6 +81,21 @@ object AudioActivityMeter {
     const val SOUND_THRESHOLD_DB = -70.0
     fun isSound(pcm: ByteArray, length: Int = pcm.size) = rmsDb(pcm, length) > SOUND_THRESHOLD_DB
 
+    /** `true` si hay al menos una muestra distinta de cero (distingue «silencio exacto/captura bloqueada» de ruido bajo). */
+    fun hasAnySignal(pcm: ByteArray, length: Int = pcm.size): Boolean {
+        for (i in 0 until minOf(length, pcm.size)) if (pcm[i].toInt() != 0) return true
+        return false
+    }
+
+    /**
+     * Estado de una captura activa con la información disponible. No puede distinguir «no suena nada» de «la app
+     * bloquea la captura»: en ambos casos llegan solo ceros, y así se informa.
+     */
+    fun captureState(everNonZero: Boolean, lastSoundAtMs: Long, nowMs: Long, windowMs: Long = 5_000): IptvAudio = when {
+        !everNonZero -> IptvAudio.CAPTURING_ZEROS
+        else -> state(true, lastSoundAtMs, nowMs, windowMs)
+    }
+
     /** Estado de audio según cuándo se oyó sonido por última vez. */
     fun state(capturing: Boolean, lastSoundAtMs: Long, nowMs: Long, windowMs: Long = 5_000): IptvAudio = when {
         !capturing -> IptvAudio.SILENT_TRACK

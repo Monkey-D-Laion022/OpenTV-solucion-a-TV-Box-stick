@@ -45,6 +45,9 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val access by viewModel.access.collectAsStateWithLifecycle()
+    val auto by viewModel.auto.collectAsStateWithLifecycle()
+    val calibration by viewModel.calibration.collectAsStateWithLifecycle()
+    val measuring by viewModel.measuring.collectAsStateWithLifecycle()
     fun audioGranted() = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val data = result.data
@@ -81,6 +84,10 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                 is IptvState.Failed -> Text(s.message, style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.Warning)
                 is IptvState.Live -> {
                     Text("Emitiendo · pedido al codificador: ${s.preset.label}", style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.Success)
+                    if (s.pageUrl != null) {
+                        Text("Navegador del televisor (lo más simple): escribí esta dirección.", style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground)
+                        Text(s.pageUrl, style = MaterialTheme.typography.titleMedium, color = OpenTvColors.Success)
+                    }
                     Text("Lista M3U (cargala en la app IPTV):", style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground)
                     Text(s.m3uUrl, style = MaterialTheme.typography.titleMedium, color = OpenTvColors.Success)
                     Text("Canal HLS directo:", style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground)
@@ -91,14 +98,33 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                         style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
                     )
                     Text(
-                        "Equipos conectados: ${s.clients} · segmentos publicados: ${s.segments} · ${s.kbPerSecond} KB/s" +
-                            if (s.withAudio) " · audio: ${s.audio.label}" else " · sin pista de audio",
+                        "Codificador: ${s.codec.ifBlank { "no determinado" }} · MP4 progresivo (prueba): ${s.mp4Url}",
+                        style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
+                    )
+                    Text(
+                        "Equipos conectados: ${s.clients} · segmentos publicados: ${s.segments}",
                         style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground,
                     )
+                    Text(
+                        "Pedido y configurado: ${s.preset.width}×${s.preset.height} a ${s.preset.fps} fps, ${s.preset.bitrateBps / 1000} kbit/s.\n" +
+                            "Medido en el teléfono: ${"%.0f".format(s.encodedFps)} fps codificados · ${s.producedKbps} kbit/s producidos · " +
+                            "${s.deliveredKbps} kbit/s entregados a los equipos.\n" +
+                            "Resolución efectiva: la configurada (no se mide aparte). FPS y audio que reproduce el televisor: no se pueden medir desde aquí; " +
+                            "dependen de lo que veas y oigas en él.\n" +
+                            if (s.withAudio) "Audio: ${s.audio.label}" else "Sin pista de audio",
+                        style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground,
+                    )
+                    if (s.fpsWarning != null) Text(s.fpsWarning, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning)
+                    Text(
+                        "Página para navegadores viejos (TV): escribí http://" + s.hlsUrl.substringAfter("http://").substringBefore("/") + "/ " +
+                            "(solo con dirección corta). " +
+                            if (s.diag.isEmpty()) "Todavía ningún navegador informó." else "El navegador informó:\n" + s.diag.takeLast(4).joinToString("\n"),
+                        style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
+                    )
                     if (s.note != null) Text(s.note, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning)
-                    if (s.audio == IptvAudio.CAPTURING_NO_SOUND) {
+                    if (s.audio == IptvAudio.CAPTURING_NO_SOUND || s.audio == IptvAudio.CAPTURING_ZEROS) {
                         Text(
-                            "Se captura audio pero no se detecta sonido: si reproducís algo y sigue así, la app de origen bloquea la captura.",
+                            "Se captura audio pero no se detecta sonido. Si algo está sonando en el teléfono y sigue así, la app de origen bloquea la captura (Android no permite capturarla).",
                             style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning,
                         )
                     }
@@ -139,7 +165,20 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                         horizontalPadding = 20.dp,
                         modifier = Modifier.focusRequester(firstFocus),
                     )
-                    TvButton(text = "Calidad: ${preset.shortLabel}", onClick = viewModel::cyclePreset, horizontalPadding = 20.dp)
+                    TvButton(
+                        text = if (auto) "Calidad: automática (mejor medida)" else "Calidad: ${preset.shortLabel}",
+                        onClick = { if (auto) viewModel.toggleAuto() else viewModel.cyclePreset() }, horizontalPadding = 20.dp,
+                    )
+                    if (!auto) TvButton(text = "Volver a calidad automática", onClick = viewModel::toggleAuto, horizontalPadding = 20.dp)
+                    TvButton(
+                        text = if (measuring) "Midiendo… (unos segundos)" else "Medir mi teléfono (1080p60/720p60)",
+                        onClick = { if (!measuring) viewModel.measure() }, horizontalPadding = 20.dp,
+                    )
+                    Text(
+                        if (calibration.isEmpty()) "Sin medición: la calidad automática usa la elegida a mano hasta que midas."
+                        else "Última medición (codificación real, sin pantalla):\n" + calibration.joinToString("\n"),
+                        style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
+                    )
                     TvButton(text = "Dirección: ${access.label}", onClick = viewModel::cycleAccess, horizontalPadding = 20.dp)
                 }
                 TvButton(text = "Volver", onClick = onBack, horizontalPadding = 20.dp)

@@ -25,6 +25,8 @@ class IptvServer(
     private val maxClients: Int = 6,
     /** Dirección Wi‑Fi del propio teléfono: los pedidos que vienen de ella (o de loopback) NO cuentan como otro equipo. */
     private val ownAddress: InetAddress? = null,
+    /** Origen del MP4 fragmentado; `null` = esa ruta responde 503. */
+    private val mp4: Mp4Feed? = null,
 ) {
     private var server: ServerSocket? = null
     private val pool = Executors.newCachedThreadPool { r -> Thread(r, "opentv-iptv-http").apply { isDaemon = true } }
@@ -119,6 +121,11 @@ class IptvServer(
                     writeBody(out, response, head = method == "HEAD", keepAlive = keepAlive)
                     if (!keepAlive) return
                 }
+                IptvResponse.LiveMp4 -> {
+                    note("$method live.mp4 · " + (if (mp4?.init != null) "200 (continuo)" else "503"))
+                    streamMp4(client, out, head = method == "HEAD")
+                    return
+                }
                 IptvResponse.LiveTs -> {
                     note("$method live.ts · 200 (continuo)")
                     streamLive(client, out, head = method == "HEAD")
@@ -178,8 +185,39 @@ class IptvServer(
         }
     }
 
+    private fun streamMp4(client: Socket, out: OutputStream, head: Boolean) {
+        val feed = mp4
+        val init = feed?.init
+        if (feed == null || init == null) {
+            writeSimple(out, 503, "El MP4 todavía no está listo; reintentá en unos segundos", close = true)
+            return
+        }
+        out.write(("HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nCache-Control: no-cache, no-store\r\n" +
+            "Access-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n").toByteArray(Charsets.ISO_8859_1))
+        if (head) { out.flush(); return }
+        out.write(init); out.flush()
+        bytesSent.addAndGet(init.size.toLong())
+        client.soTimeout = 0
+        liveOpen.incrementAndGet()
+        val sub = feed.hub.subscribe()
+        try {
+            while (running && !sub.closed) {
+                val chunk = sub.poll(1_000) ?: continue
+                out.write(chunk)
+                bytesSent.addAndGet(chunk.size.toLong())
+            }
+        } catch (e: IOException) {
+            // el cliente cortó
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+        } finally {
+            feed.hub.unsubscribe(sub)
+            liveOpen.decrementAndGet()
+        }
+    }
+
     private fun reason(status: Int) = when (status) {
-        200 -> "OK"; 206 -> "Partial Content"; 400 -> "Bad Request"; 404 -> "Not Found"
+        200 -> "OK"; 204 -> "No Content"; 206 -> "Partial Content"; 400 -> "Bad Request"; 404 -> "Not Found"
         405 -> "Method Not Allowed"; 416 -> "Range Not Satisfiable"; 503 -> "Service Unavailable"
         else -> "Status"
     }

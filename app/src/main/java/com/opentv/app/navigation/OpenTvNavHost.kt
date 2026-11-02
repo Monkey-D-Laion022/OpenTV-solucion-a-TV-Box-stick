@@ -88,6 +88,12 @@ fun OpenTvNavHost(
         composable(Routes.IPTV) {
             com.opentv.app.ui.iptv.IptvScreen(onBack = goBack)
         }
+        composable(Routes.LINK_SEND) {
+            com.opentv.app.ui.link.LinkSendScreen(onBack = goBack)
+        }
+        composable(Routes.LINK_RECEIVE) {
+            com.opentv.app.ui.link.LinkReceiveScreen(onBack = goBack)
+        }
         composable(Routes.BENCH) {
             com.opentv.app.bench.BenchScreen(onBack = goBack)
         }

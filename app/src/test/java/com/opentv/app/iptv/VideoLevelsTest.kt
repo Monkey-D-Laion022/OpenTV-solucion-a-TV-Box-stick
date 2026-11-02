@@ -52,7 +52,7 @@ class VideoLevelsTest {
     }
 
     @Test fun accesoCortoUsaTv() { assertEquals("tv", IptvAccess.SHORT.fixedToken); assertNull(IptvAccess.CODE.fixedToken); assertEquals(IptvAccess.CODE, IptvAccess.SHORT.next()) }
-    @Test fun presetsDe60Fps() { assertEquals(60, IptvPreset.HD_60.fps); assertEquals(60, IptvPreset.FULL_HD_60.fps); assertEquals(IptvPreset.SAFE, IptvPreset.FULL_HD_60.next()) }
+    @Test fun presetsDe60Fps() { assertEquals(60, IptvPreset.HD_60.fps); assertEquals(60, IptvPreset.FULL_HD_60.fps); assertEquals(IptvPreset.COMPAT_480, IptvPreset.FULL_HD_60.next()) }
 
     @Test fun externoDistingueElPropioTelefono() {
         val own = InetAddress.getByName("192.168.1.20")

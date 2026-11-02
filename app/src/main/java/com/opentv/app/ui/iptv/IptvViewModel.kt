@@ -9,6 +9,7 @@ import com.opentv.app.iptv.IptvController
 import com.opentv.app.iptv.IptvPreset
 import com.opentv.app.iptv.IptvState
 import com.opentv.app.stream.MirrorRequest
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -26,6 +27,17 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun cycleAccess() = controller.cycleAccess()
+
+    val auto: StateFlow<Boolean> get() = controller.auto
+    val calibration: StateFlow<List<String>> get() = controller.calibration
+    val measuring: StateFlow<Boolean> get() = controller.measuring
+
+    fun toggleAuto() = controller.toggleAuto()
+
+    /** Mide el rendimiento real del codificador (unos 5 s por perfil) fuera del hilo principal. */
+    fun measure() {
+        viewModelScope.launch(Dispatchers.Default) { controller.measure() }
+    }
 
     fun cyclePreset() = controller.cyclePreset()
     fun stop() = controller.stop()

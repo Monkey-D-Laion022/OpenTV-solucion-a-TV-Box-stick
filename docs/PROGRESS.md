@@ -388,3 +388,23 @@ Alcance: SOLO descubrir dispositivos Wi-Fi Direct con la API pública y mostrar 
 - **Dirección corta** (`/tv`, ciclo con «Dirección») o con código aleatorio.
 - **Pedidos de otros equipos**: el servidor distingue los pedidos del propio teléfono/loopback de los de otros equipos y la pantalla muestra cuántos y desde qué IP; abrir `status.json` en el teléfono ya no se confunde con conectividad del TV.
 - Tests: 350 JVM OK (K2 y K1.9). Protegidos (29 archivos) idénticos a H2. NO verificado: compilación Android, captura de audio y 60 fps en el Redmi 14C, reproducción en el LG/SmartOne.
+
+## Fase 6.2: Etapa A (IPTV medido) + inicio de Etapa C (navegador liviano)
+- **Mediciones separadas** en pantalla: pedido/configurado vs FPS codificados medidos (contador del MediaCodec), kbit/s producidos por el codificador y kbit/s entregados a los equipos (bytes escritos por el servidor). FPS/audio que reproduce el televisor: no medibles desde el teléfono (se dice). Aviso cuando los FPS codificados quedan bajo 85 % de lo pedido.
+- **Perfiles 480p y 360p** (30 fps, 1,5 y 0,8 Mbit/s, segmentos de 4 s) con tamaño propio en `ScreenEncoder` (parámetros opcionales; TvProjection no cambia).
+- **Página `http://IP:8090/`** (solo con dirección corta): HTML mínimo + script ES3, sin recursos externos, enlaces HLS/TS/sin reproductor, y `/diag` por el que el navegador informa `canPlayType`, si el video arrancó o falló; se muestra en el teléfono. Con código aleatorio la raíz da 404.
+- **Audio**: nuevos estados NO_PERMISSION, UNAVAILABLE y CAPTURING_ZEROS (la captura activa que solo entrega ceros se informa como «nada suena o la app bloquea», porque Android no permite distinguirlo).
+- `docs/PRUEBAS-FISICAS.md` registra tus pruebas Noblex y LG con lectura honesta.
+- Tests: 362 JVM OK (K2 y K1.9). NO verificado: compilación Android, nada en el teléfono ni en los televisores.
+
+## Fase 6.3 (acumulada): etapas A–G en una sola versión
+- **A · 60 fps medidos**: `EncoderProbe` (MediaCodecList: hardware, tamaño/FPS declarados), `EncoderBenchmark` (codifica a la frecuencia pedida y cuenta cuadros reales), `PerfAdvisor` (prefiere 1080p60 > 720p60 > 1080p30 …; «sostenido» = ≥ 90 % de lo pedido). Modo automático + botón «Medir»; resultado guardado. Se distinguen pedido / configurado / codificado / entregado; el FPS del receptor no es medible desde el emisor y se dice. 1080i no se implementa (MediaCodec no entrelaza).
+- **B · Audio**: sin cambios de permisos; estados de audio unificados en pantalla, notificación y página.
+- **C · Navegador universal**: nuevo MP4 fragmentado (`Fmp4Muxer`, `/live.mp4`, validado con ffmpeg/ffprobe: decodifica, H.264 Main + AAC LC). La página `/` prueba HLS → MP4 → TS (primero lo que `canPlayType` declara), cae al siguiente por error o a los 12 s y, si nada reproduce, informa límites y alternativas.
+- **D · OpenTV Link nativo** (`link/`, `proto/`, `ui/link/`): emisor (captura, codificación por hardware, servidor TCP 8765, emparejado ECDH P‑256 + código de 6 dígitos, AES‑256‑GCM, control de bitrate por estadísticas del receptor) y receptor (ExoPlayer sobre `TsDataSource`, reconexión automática con secreto guardado, descubrimiento NSD `_opentv._tcp`). Entradas reales en el menú.
+- **E · Wi‑Fi Direct**: `P2pConnectPlanner` (puro) ordena limpieza → descubrir en el mismo canal → esperar estado del par → `connect()`; BUSY reintenta, ERROR(0) reinicia el canal hasta 2 veces y luego explica hechos medidos / hipótesis / límite real de la API (`WifiP2pWfdInfo` oculta: una app no puede anunciarse como fuente WFD). El efecto sobre el error 0 NO está probado.
+- **F · DLNA / espejo**: archivos protegidos sin tocar; el espejo por navegador se resuelve con la página `/` de IPTV (audio+video). DLNA sigue siendo envío de contenido, no espejo real.
+- **G · Notificación general**: `TransmissionRegistry` + `IptvService` (id 4102): tecnología, resolución, FPS, bitrate, audio y «Detener» para IPTV y Link. Miracast/DLNA nativos (ProjectionService, protegido) no entran.
+- **Tests**: 392 JVM OK (K2 y K1.9). Chequeo de tipos contra stubs escritos a mano: 0 errores (K2 y K1.9) en el código Android sin Compose/media3.
+- **NO realizado**: compilación Android real (no hay SDK ni Maven en este entorno; la confirma GitHub Actions), pantallas Compose, `TsDataSource`, edición de `WfdDiagnosticSession`, manifiesto y nada en teléfono ni televisores.
+- Protegidos idénticos a H2 (`FocusableSurface` conserva el cambio de 6.2, idéntico a esa entrega).
