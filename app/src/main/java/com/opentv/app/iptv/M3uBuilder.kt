@@ -20,4 +20,17 @@ object M3uBuilder {
         }
         return sb.toString()
     }
+
+    /**
+     * Lista mínima para reproductores muy estrictos: sin atributos `tvg-*` ni grupos, con saltos de línea CRLF y solo el
+     * nombre tras la coma. Algunos reproductores de televisores Linux rechazan listas con atributos que no conocen.
+     */
+    fun buildPlain(channels: List<M3uChannel>): String {
+        val sb = StringBuilder("#EXTM3U\r\n")
+        for (c in channels) {
+            require(c.url.startsWith("http://") || c.url.startsWith("https://")) { "URL no válida: ${c.url}" }
+            sb.append("#EXTINF:-1,").append(clean(c.name).ifEmpty { "Canal" }).append("\r\n").append(c.url).append("\r\n")
+        }
+        return sb.toString()
+    }
 }

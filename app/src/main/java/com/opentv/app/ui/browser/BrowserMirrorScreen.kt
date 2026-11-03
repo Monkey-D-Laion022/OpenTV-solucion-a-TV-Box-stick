@@ -82,7 +82,7 @@ fun BrowserMirrorScreen(
                         color = if (s.requests.isEmpty()) OpenTvColors.Warning else OpenTvColors.Muted,
                     )
                     Text(
-                        "TVs conectados: ${s.clients} · ${s.framesPerSecond} cuadros/s · ${s.kbPerSecond} KB/s",
+                        "TVs conectados: ${s.clients} · ${s.framesPerSecond} cuadros/s enviados · ${s.producedFps} producidos · calidad JPEG ${s.jpegQuality} · ${s.kbPerSecond} KB/s",
                         style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground,
                     )
                     Text(

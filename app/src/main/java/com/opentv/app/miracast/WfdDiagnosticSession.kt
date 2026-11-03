@@ -75,6 +75,7 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
     private var lastPeerStatus: Int? = null
     private var startedAt = 0L
     private var peerAddress: String = ""
+    private var peerName: String = ""
 
     fun hasPermission(): Boolean =
         Build.VERSION.SDK_INT >= P2pPolicy.FIRST_SDK_WITHOUT_LOCATION &&
@@ -102,6 +103,7 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
             return
         }
         peerAddress = address
+        peerName = peer.name
         if (!P2pPolicy.canRun(Build.VERSION.SDK_INT) || !hasPermission()) {
             log("Falta el permiso de dispositivos Wi-Fi cercanos o la versión de Android no lo permite.")
             updateObs { it.copy(connectAccepted = false) }
@@ -149,48 +151,82 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
                     override fun onSuccess() { if (!cancelRequested && !ended) { log("Descubrimiento iniciado en este canal."); waitForPeer() } }
                     override fun onFailure(reason: Int) {
                         if (cancelRequested || ended) return
-                        log("El descubrimiento previo falló: ${P2pText.failure(reason)}. Se intenta conectar igual.")
-                        sendConnect()
+                        log("El descubrimiento previo falló: ${P2pText.failure(reason)}. Se revisa igual la lista de pares del sistema.")
+                        waitForPeer()
                     }
                 })
             } catch (e: SecurityException) {
                 log("Excepción de seguridad al descubrir: ${e.message ?: "sin detalle"}.")
-                sendConnect()
+                updateObs { it.copy(connectAccepted = false) }
+                step(WfdPhase.CONNECT_REQUEST, StepOutcome.FAILED, "Android negó el descubrimiento por seguridad: ${e.message ?: "sin detalle"}.")
+                finishRun()
             }
         }
     }
 
     private fun waitForPeer() {
         scope.launch {
-            val startWait = SystemClock.elapsedRealtime()
+            var startWait = SystemClock.elapsedRealtime()
             while (!cancelRequested && !ended) {
-                val (found, status) = peerStatus()
-                if (found) { sawPeer = true; lastPeerStatus = status }
-                val waited = SystemClock.elapsedRealtime() - startWait
-                val check = planner.onPeerCheck(found, status, waited)
-                if (check.action == P2pConnectPlanner.PeerAction.CONNECT) {
-                    log(check.note)
-                    sendConnect()
-                    return@launch
+                val match = peerStatus()
+                val cand = match.candidate
+                if (cand != null) {
+                    sawPeer = true; lastPeerStatus = cand.status
+                    if (match.addressChanged) {
+                        log("El televisor cambió su dirección Wi‑Fi Direct desde el escaneo anterior; se usa la dirección vigente.")
+                        peerAddress = cand.address
+                    }
                 }
-                if (waited % 3_000L < 1_000L) log(check.note)
+                val waited = SystemClock.elapsedRealtime() - startWait
+                val check = planner.onPeerCheck(cand != null, cand?.status, waited)
+                when (check.action) {
+                    P2pConnectPlanner.PeerAction.CONNECT -> { log(check.note); sendConnect(); return@launch }
+                    P2pConnectPlanner.PeerAction.RESCAN -> {
+                        log(check.note)
+                        rediscover()
+                        startWait = SystemClock.elapsedRealtime()
+                    }
+                    P2pConnectPlanner.PeerAction.NOT_VISIBLE -> {
+                        log(check.note)
+                        updateObs { it.copy(connectAccepted = false) }
+                        step(WfdPhase.CONNECT_REQUEST, StepOutcome.FAILED, P2pConnectPlanner.explainNotVisible(planner.rescans, lastPeerStatus))
+                        finishRun()
+                        return@launch
+                    }
+                    P2pConnectPlanner.PeerAction.WAIT -> if (waited % 3_000L < 1_000L) log(check.note)
+                }
                 delay(1_000)
             }
         }
     }
 
-    /** Si [peerAddress] está en la lista actual del canal y con qué estado. */
-    private suspend fun peerStatus(): Pair<Boolean, Int?> {
-        val m = manager ?: return false to null
-        val ch = channel ?: return false to null
+    /** Reinicia el descubrimiento en este canal (la lista de pares del sistema caduca si no se refresca). */
+    private fun rediscover() {
+        val m = manager ?: return
+        val ch = channel ?: return
+        try {
+            m.stopPeerDiscovery(ch, null)
+            m.discoverPeers(ch, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() { log("Nuevo descubrimiento iniciado.") }
+                override fun onFailure(reason: Int) { log("El nuevo descubrimiento falló: ${P2pText.failure(reason)}.") }
+            })
+        } catch (e: SecurityException) {
+            log("Excepción de seguridad al redescubrir: ${e.message ?: "sin detalle"}.")
+        }
+    }
+
+    /** El par vigente en la lista actual del canal (por dirección o, si cambió, por nombre único). */
+    private suspend fun peerStatus(): P2pPeerMatcher.Match {
+        val m = manager ?: return P2pPeerMatcher.Match(null, false)
+        val ch = channel ?: return P2pPeerMatcher.Match(null, false)
         return suspendCancellableCoroutine { cont ->
             try {
                 m.requestPeers(ch) { list ->
-                    val dev = list?.deviceList?.firstOrNull { it.deviceAddress.equals(peerAddress, ignoreCase = true) }
-                    if (cont.isActive) cont.resume((dev != null) to dev?.status)
+                    val cands = list?.deviceList.orEmpty().map { P2pPeerMatcher.Candidate(it.deviceAddress ?: "", it.deviceName ?: "", it.status) }
+                    if (cont.isActive) cont.resume(P2pPeerMatcher.resolve(cands, peerAddress, peerName))
                 }
             } catch (e: SecurityException) {
-                if (cont.isActive) cont.resume(false to null)
+                if (cont.isActive) cont.resume(P2pPeerMatcher.Match(null, false))
             }
         }
     }

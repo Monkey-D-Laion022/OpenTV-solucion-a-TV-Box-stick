@@ -29,6 +29,9 @@ enum class IptvPreset(
 
     fun next(): IptvPreset = values()[(ordinal + 1) % values().size]
 
+    /** Los perfiles para equipos viejos piden H.264 Baseline (lo más abierto); los demás, Main. */
+    val baselineProfile: Boolean get() = this == COMPAT_480 || this == COMPAT_360
+
     fun hlsConfig(): HlsConfig = HlsConfig(targetSegmentMs = segmentMs, windowSegments = 4)
 }
 

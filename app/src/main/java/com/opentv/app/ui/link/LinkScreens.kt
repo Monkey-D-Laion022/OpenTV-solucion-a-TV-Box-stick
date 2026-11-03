@@ -59,6 +59,8 @@ import kotlinx.coroutines.delay
 fun LinkSendScreen(onBack: () -> Unit, vm: LinkSendViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val preset by vm.preset.collectAsStateWithLifecycle()
+    val soloOn by vm.controller.solo.enabled.collectAsStateWithLifecycle()
+    val soloLabel by vm.controller.solo.label.collectAsStateWithLifecycle()
     val context = LocalContext.current
     fun audioGranted() = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -161,6 +163,15 @@ fun LinkSendScreen(onBack: () -> Unit, vm: LinkSendViewModel = viewModel()) {
                     TvButton(text = "Avanzado: esperar a que un receptor se conecte", onClick = { begin(null) }, horizontalPadding = 20.dp)
                     TvButton(text = "Calidad: ${preset.shortLabel}", onClick = { vm.controller.cyclePreset() }, horizontalPadding = 20.dp)
                 }
+                TvButton(
+                    text = if (soloOn) "Audio solo en TV: activado (experimental)" else "Audio solo en TV: desactivado",
+                    onClick = { vm.controller.solo.toggle(active) }, horizontalPadding = 20.dp,
+                )
+                Text(
+                    (if (active || soloOn) soloLabel + "\n" else "") +
+                        "Baja el volumen del teléfono y mide si el sonido capturado sigue llegando; si se apaga, lo restaura. Con auriculares o Bluetooth, o con apps que bloquean la captura, puede no ser posible.",
+                    style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
+                )
                 TvButton(text = "Volver", onClick = onBack, horizontalPadding = 20.dp)
             }
         }

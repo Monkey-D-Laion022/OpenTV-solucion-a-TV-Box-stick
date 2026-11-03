@@ -43,6 +43,8 @@ class IptvServer(
     val externalRequests: Int get() = externalCount.get()
     val externalClientIps: Set<String> get() = externalIps.toSet()
     @Volatile private var running = false
+    /** Se llama si el servidor deja de aceptar conexiones sin que se haya pedido [stop] (con el motivo). */
+    @Volatile var onFailure: ((String) -> Unit)? = null
     private val recent = java.util.concurrent.ConcurrentLinkedDeque<String>()
 
     /** Conexiones abiertas ahora. */
@@ -70,12 +72,17 @@ class IptvServer(
 
     private fun note(line: String) {
         recent.addLast(line)
-        while (recent.size > 12) recent.pollFirst()
+        while (recent.size > 16) recent.pollFirst()
     }
 
     private fun acceptLoop(socket: ServerSocket) {
         while (running) {
-            val client = try { socket.accept() } catch (e: IOException) { return }
+            val client = try {
+                socket.accept()
+            } catch (e: IOException) {
+                if (running) onFailure?.invoke("El servidor HTTP dejó de aceptar conexiones (${e.message ?: "error de red"}).")
+                return
+            }
             if (!acceptClient(client.inetAddress) || open.get() >= maxClients) {
                 runCatching { client.close() }
                 continue
@@ -108,6 +115,7 @@ class IptvServer(
             val headers = lines.drop(1).filter { it.contains(':') }.associate { it.substringBefore(':').trim().lowercase() to it.substringAfter(':').trim() }
             val method = parts[0]
             val path = parts[1]
+            val who = client.inetAddress.hostAddress + (headers["user-agent"]?.let { " · " + it.take(30) } ?: "")
             val keepAlive = !(headers["connection"]?.equals("close", true) ?: (parts[2] == "HTTP/1.0"))
             val response = router.route(method, path, headers["host"], headers["range"])
             if (isExternal(client.inetAddress, ownAddress)) {
@@ -117,18 +125,23 @@ class IptvServer(
             }
             when (response) {
                 is IptvResponse.Body -> {
-                    note("$method ${path.substringBefore('?').substringAfterLast('/')} · ${response.status}")
-                    writeBody(out, response, head = method == "HEAD", keepAlive = keepAlive)
+                    note("$who · $method ${path.substringBefore('?').substringAfterLast('/')} · ${response.status} · ${response.body.size} B")
+                    try {
+                        writeBody(out, response, head = method == "HEAD", keepAlive = keepAlive)
+                    } catch (e: IOException) {
+                        note("$who · ${path.substringBefore('?').substringAfterLast('/')} · el cliente cortó durante la respuesta")
+                        return
+                    }
                     if (!keepAlive) return
                 }
                 IptvResponse.LiveMp4 -> {
-                    note("$method live.mp4 · " + (if (mp4?.init != null) "200 (continuo)" else "503"))
-                    streamMp4(client, out, head = method == "HEAD")
+                    note("$who · $method live.mp4 · " + (if (mp4?.init != null) "200 (continuo)" else "503"))
+                    streamMp4(client, out, head = method == "HEAD", who = who)
                     return
                 }
                 IptvResponse.LiveTs -> {
-                    note("$method live.ts · 200 (continuo)")
-                    streamLive(client, out, head = method == "HEAD")
+                    note("$who · $method live.ts · 200 (continuo)")
+                    streamLive(client, out, head = method == "HEAD", who = who)
                     return
                 }
             }
@@ -161,7 +174,7 @@ class IptvServer(
     private fun writeSimple(out: OutputStream, status: Int, message: String, close: Boolean) =
         writeBody(out, IptvResponse.Body(status, "text/plain; charset=utf-8", message.toByteArray()), head = false, keepAlive = !close)
 
-    private fun streamLive(client: Socket, out: OutputStream, head: Boolean) {
+    private fun streamLive(client: Socket, out: OutputStream, head: Boolean, who: String) {
         val header = "HTTP/1.1 200 OK\r\nContent-Type: video/MP2T\r\nCache-Control: no-cache, no-store\r\n" +
             "Access-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n"
         out.write(header.toByteArray(Charsets.ISO_8859_1)); out.flush()
@@ -169,23 +182,28 @@ class IptvServer(
         client.soTimeout = 0
         liveOpen.incrementAndGet()
         val sub = hub.subscribe()
+        val startedMs = System.currentTimeMillis()
+        var sent = 0L
+        var ending = "el servidor terminó"
         try {
             while (running && !sub.closed) {
                 val chunk = sub.poll(1_000) ?: continue
                 out.write(chunk)
+                sent += chunk.size
                 bytesSent.addAndGet(chunk.size.toLong())
             }
         } catch (e: IOException) {
-            // el cliente cortó: es lo normal
+            ending = "el cliente cortó"
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
         } finally {
             hub.unsubscribe(sub)
             liveOpen.decrementAndGet()
+            note("$who · live.ts cerrado tras ${(System.currentTimeMillis() - startedMs) / 1000} s, ${sent / 1024} KB ($ending)")
         }
     }
 
-    private fun streamMp4(client: Socket, out: OutputStream, head: Boolean) {
+    private fun streamMp4(client: Socket, out: OutputStream, head: Boolean, who: String) {
         val feed = mp4
         val init = feed?.init
         if (feed == null || init == null) {
@@ -200,19 +218,24 @@ class IptvServer(
         client.soTimeout = 0
         liveOpen.incrementAndGet()
         val sub = feed.hub.subscribe()
+        val startedMs = System.currentTimeMillis()
+        var sent = init.size.toLong()
+        var ending = "el servidor terminó"
         try {
             while (running && !sub.closed) {
                 val chunk = sub.poll(1_000) ?: continue
                 out.write(chunk)
+                sent += chunk.size
                 bytesSent.addAndGet(chunk.size.toLong())
             }
         } catch (e: IOException) {
-            // el cliente cortó
+            ending = "el cliente cortó"
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
         } finally {
             feed.hub.unsubscribe(sub)
             liveOpen.decrementAndGet()
+            note("$who · live.mp4 cerrado tras ${(System.currentTimeMillis() - startedMs) / 1000} s, ${sent / 1024} KB ($ending)")
         }
     }
 

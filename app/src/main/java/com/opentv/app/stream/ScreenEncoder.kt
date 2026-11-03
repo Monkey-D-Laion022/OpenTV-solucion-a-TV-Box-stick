@@ -31,6 +31,12 @@ class ScreenEncoder(
     private val codecName: String? = null,
     private val onConfig: ((ByteArray) -> Unit)? = null,
     private val onFrame: ((frame: ByteArray, ptsUs: Long, key: Boolean) -> Unit)? = null,
+    /** Repite el último cuadro si no llega uno nuevo en este tiempo (µs). Con la bomba de cuadros ya no hace falta, pero no estorba. */
+    private val repeatAfterUs: Long = 200_000L,
+    /** Perfil H.264 Baseline (lo más abierto para televisores antiguos) en lugar de Main. Si el codificador no lo admite se intenta sin perfil. */
+    private val baseline: Boolean = false,
+    /** Se llama (desde el hilo del codificador) si el codificador termina por sí solo, sin que se haya pedido [stop]. */
+    private val onEnded: ((String) -> Unit)? = null,
     private val onChunk: (chunk: ByteArray, keyStart: Boolean) -> Unit,
 ) {
     private var codec: MediaCodec? = null
@@ -51,6 +57,7 @@ class ScreenEncoder(
         for ((name, withProfile) in attempts) {
             try {
                 encoder = create(name, withProfile)
+                profileApplied = withProfile
                 break
             } catch (e: RuntimeException) {
                 failure = e
@@ -65,6 +72,10 @@ class ScreenEncoder(
         thread = Thread({ drain(chosen) }, "opentv-encoder").apply { isDaemon = true; start() }
         return surface
     }
+
+    /** `true` si el perfil/nivel pedido se aplicó (si no, el codificador eligió el suyo). */
+    @Volatile var profileApplied: Boolean = false
+        private set
 
     /** Nombre real del codificador en uso (para mostrarlo; vacío antes de [start]). */
     @Volatile var usedCodec: String = ""
@@ -86,10 +97,13 @@ class ScreenEncoder(
                 setInteger(MediaFormat.KEY_OPERATING_RATE, fps)
                 setInteger(MediaFormat.KEY_PRIORITY, 0)
             }
-            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 200_000L) // red de seguridad si se frena el dibujo
+            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, repeatAfterUs) // red de seguridad si se frena el dibujo
             setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
             if (withProfile) {
-                setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileMain)
+                setInteger(
+                    MediaFormat.KEY_PROFILE,
+                    if (baseline) MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline else MediaCodecInfo.CodecProfileLevel.AVCProfileMain,
+                )
                 setInteger(
                     MediaFormat.KEY_LEVEL,
                     avcLevel ?: if (height >= 1080) MediaCodecInfo.CodecProfileLevel.AVCLevel4 else MediaCodecInfo.CodecProfileLevel.AVCLevel31,
@@ -172,7 +186,8 @@ class ScreenEncoder(
                 encoder.releaseOutputBuffer(index, false)
             }
         } catch (e: IllegalStateException) {
-            // El codificador se detuvo mientras se leía: es parte del cierre normal.
+            // Si se pidió detener, es el cierre normal; si no, el codificador murió solo y hay que avisarlo.
+            if (running) onEnded?.invoke("El codificador se detuvo por sí solo (${e.javaClass.simpleName}: ${e.message ?: "sin detalle"}).")
         }
     }
 

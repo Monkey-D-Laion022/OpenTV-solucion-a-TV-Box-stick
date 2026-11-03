@@ -65,6 +65,7 @@ class IptvRouter(
             name == "index.m3u8" -> playlist()
             name == "channel.m3u" -> m3u(base, false)
             name == "compat.m3u" -> m3u(base, true)
+            name == "plain.m3u" -> plainM3u(base)
             name == "live.ts" -> IptvResponse.LiveTs
             name == "live.mp4" -> IptvResponse.LiveMp4
             name == "status.json" -> statusJson()
@@ -108,6 +109,17 @@ class IptvRouter(
             listOf(M3uChannel("opentv", name, "$base/index.m3u8"))
         }
         return IptvResponse.Body(200, "audio/x-mpegurl", M3uBuilder.build(channels).toByteArray(Charsets.UTF_8), NO_CACHE + CORS)
+    }
+
+    /** Lista mínima (sin atributos, CRLF) para reproductores estrictos; mismo contenido que las pruebas de compatibilidad. */
+    private fun plainM3u(base: String): IptvResponse {
+        val name = status.channelName
+        val channels = listOf(
+            M3uChannel("ts", "$name TS directo", "$base/live.ts"),
+            M3uChannel("hls", "$name HLS", "$base/index.m3u8"),
+            M3uChannel("mp4", "$name MP4", "$base/live.mp4"),
+        )
+        return IptvResponse.Body(200, "audio/x-mpegurl", M3uBuilder.buildPlain(channels).toByteArray(Charsets.UTF_8), NO_CACHE + CORS)
     }
 
     private fun statusJson(): IptvResponse {

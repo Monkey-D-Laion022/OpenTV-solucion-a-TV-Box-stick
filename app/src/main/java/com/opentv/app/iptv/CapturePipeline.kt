@@ -38,6 +38,10 @@ class CapturePipeline(
     private val captureAudio: Boolean,
     private val sink: PipelineSink,
     private val onProjectionStopped: () -> Unit,
+    /** Bomba de cuadros a ritmo fijo (recomendado); si no se puede iniciar se usa la captura directa. */
+    private val usePump: Boolean = true,
+    /** Fin inesperado de una parte de la tubería (codificador, etc.), con el motivo. */
+    private val onEnded: (StopReason, String) -> Unit = { _, _ -> },
 ) {
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -46,6 +50,8 @@ class CapturePipeline(
     private var playback: PlaybackAudioEncoder? = null
     private var projection: MediaProjection? = null
     private var display: VirtualDisplay? = null
+    private var pump: FramePump? = null
+    private var encoderSurface: android.view.Surface? = null
     private val produced = AtomicLong(0)
     private val locks = TransmissionLocks(context)
 
@@ -61,6 +67,21 @@ class CapturePipeline(
     val hasAudioTrack: Boolean = SilentAudioEncoder.isAvailable()
 
     val encodedFrames: Long get() = encoder?.encodedFrames?.get() ?: 0L
+
+    /** `true` si los cuadros pasan por la bomba de ritmo fijo; `false` = captura directa al codificador. */
+    val pumpActive: Boolean get() = pump != null
+
+    /** Cuadros nuevos recibidos de la captura de pantalla; `null` si no se pueden contar (captura directa). */
+    val capturedFrames: Long? get() = pump?.capturedFrames?.get()
+
+    /** Cuadros entregados al codificador por la bomba; `null` en captura directa. */
+    val renderedFrames: Long? get() = pump?.renderedFrames?.get()
+
+    /** Error en tiempo de ejecución de la bomba (si dejó de dibujar). */
+    val pumpFailure: String? get() = pump?.failure
+
+    /** `true` si el codificador aplicó el perfil y nivel pedidos. */
+    val profileApplied: Boolean get() = encoder?.profileApplied ?: false
     val producedBytes: Long get() = produced.get()
 
     fun audioState(nowMs: Long): IptvAudio {
@@ -73,7 +94,23 @@ class CapturePipeline(
 
     fun takeAudioPeakDb(): Double = playback?.takePeakDb() ?: -96.0
 
+    /**
+     * Si la bomba falló en marcha: la libera y conecta la pantalla virtual directo al codificador (como antes de la bomba).
+     * Debe llamarse desde el hilo principal.
+     */
+    fun fallbackToDirect() {
+        val direct = encoderSurface ?: return
+        val fp = pump ?: return
+        runCatching { fp.stop() }
+        pump = null
+        runCatching { display?.surface = direct }
+        note = listOfNotNull(note, "El ritmo fijo de cuadros falló y se pasó a la captura directa.").joinToString(" ")
+    }
+
     fun requestKeyFrame() { encoder?.requestKeyFrame() }
+
+    /** Ritmo en vivo del redibujado (solo con el ritmo fijo activo). `false` si no hay bomba. */
+    fun setPumpFps(fps: Int): Boolean { val p = pump ?: return false; p.setFps(fps); return true }
 
     fun setBitrate(bps: Int): Boolean = encoder?.setBitrate(bps) ?: false
 
@@ -100,13 +137,28 @@ class CapturePipeline(
             codecName = EncoderProbe.pick(preset.width, preset.height, preset.fps),
             onConfig = { cfg -> synchronized(mp4) { mp4.setConfig(cfg) } },
             onFrame = { frame, ptsUs, key -> synchronized(mp4) { mp4.addVideo(frame, ptsUs, key) } },
+            baseline = preset.baselineProfile,
+            onEnded = { why -> mainHandler.post { onEnded(StopReason.ENCODER_STOPPED, why) } },
         ) { chunk, key ->
             produced.addAndGet(chunk.size.toLong())
             sink.onTs(chunk, key)
         }
         encoder = enc
-        val surface = enc.start()
+        val encoderSurface = enc.start()
+        this.encoderSurface = encoderSurface
         codecName = enc.usedCodec
+        var captureSurface = encoderSurface
+        var pumpNote: String? = null
+        if (usePump) {
+            try {
+                val fp = FramePump(encoderSurface, preset.width, preset.height, preset.fps)
+                captureSurface = fp.start()
+                pump = fp
+            } catch (e: RuntimeException) {
+                pump = null
+                pumpNote = "No se pudo iniciar el ritmo fijo de cuadros (${e.message ?: e.javaClass.simpleName}); se usa la captura directa."
+            }
+        }
 
         val onAudio: (ByteArray, Long) -> Unit = { adts, pts ->
             val ts = muxer.muxAudio(adts, pts)
@@ -125,7 +177,7 @@ class CapturePipeline(
         }, mainHandler)
         display = p.createVirtualDisplay(
             "OpenTV-captura", preset.width, preset.height, appContext.resources.displayMetrics.densityDpi,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, surface, null, null,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, captureSurface, null, null,
         ) ?: throw IllegalStateException("Android no creó la pantalla de captura.")
 
         var audioNote: String? = null
@@ -147,16 +199,17 @@ class CapturePipeline(
             }
             if (playback == null) silent = SilentAudioEncoder(originUs, onAudio).also { it.start() }
         }
-        note = audioNote
+        note = listOfNotNull(audioNote, pumpNote).joinToString(" ").ifBlank { null }
     }
 
     fun stop() {
         locks.release()
         runCatching { display?.release() }
+        runCatching { pump?.stop() }
         runCatching { playback?.stop() }
         runCatching { silent?.stop() }
         runCatching { encoder?.stop() }
         runCatching { projection?.stop() }
-        display = null; playback = null; silent = null; encoder = null; projection = null
+        display = null; pump = null; playback = null; silent = null; encoder = null; projection = null
     }
 }

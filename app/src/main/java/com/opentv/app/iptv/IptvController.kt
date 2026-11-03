@@ -44,6 +44,26 @@ sealed interface IptvState {
         val mp4Url: String = "",
         /** Página `http://IP:puerto/` para navegadores de TV (solo con dirección corta). */
         val pageUrl: String? = null,
+        /** Cuadros nuevos por segundo que llegan de la captura de pantalla (lo que cambia en pantalla); `null` = no medible (captura directa). */
+        val capturedFps: Double? = null,
+        /** Cuadros por segundo que la bomba entrega al codificador; `null` = captura directa. */
+        val renderedFps: Double? = null,
+        val pumpActive: Boolean = false,
+        /** Milisegundos desde el último cuadro codificado. */
+        val msSinceFrame: Long = 0,
+        /** Resumen de salud verificado (cuadros y datos entregados), no solo «el servicio sigue vivo». */
+        val health: String = "",
+        val healthy: Boolean = true,
+        val profileApplied: Boolean = true,
+        val requestedLabel: String = "",
+        /** FPS objetivo vigente del gobernador (puede ser menor que el pedido si el teléfono no sostiene el ritmo). */
+        val targetFps: Int = 0,
+        /** Último cuello de botella observado por el gobernador (o «sin cuello de botella visible»). */
+        val bottleneck: String = "",
+        /** Último ajuste automático del ritmo, con su causa. */
+        val governorNote: String? = null,
+        /** Estado térmico informado por Android (10+); `null` = no disponible. Ni es la temperatura del procesador. */
+        val thermal: String? = null,
     ) : IptvState
     data class Failed(val message: String) : IptvState
 }
@@ -73,32 +93,29 @@ class IptvController private constructor(context: Context) {
     /** Motivo de la última parada (o `null` si no hubo ninguna desde que se abrió la app). */
     val lastStop: StateFlow<String?> = _lastStop.asStateFlow()
 
-    private val judge = LocalMuteJudge()
-    private val muter = LocalAudioMuter(appContext)
-    private val _soloTv = MutableStateFlow(prefs.getBoolean("solo_tv", false))
+    private val solo = SoloTvAudio.get(appContext)
 
     /** «Audio solo en TV» pedido por el usuario (experimental: se comprueba midiendo, ver [LocalMuteJudge]). */
-    val soloTv: StateFlow<Boolean> = _soloTv.asStateFlow()
-    private val _localAudio = MutableStateFlow(LocalMuteJudge.Phase.OFF.label)
+    val soloTv: StateFlow<Boolean> get() = solo.enabled
 
     /** Estado real del modo «Audio solo en TV». */
-    val localAudio: StateFlow<String> = _localAudio.asStateFlow()
+    val localAudio: StateFlow<String> get() = solo.label
 
-    fun toggleSoloTv() {
-        val on = !_soloTv.value
-        _soloTv.value = on
-        prefs.edit().putBoolean("solo_tv", on).apply()
-        if (session != null) applyJudge(if (on) { judge.arm(); LocalMuteJudge.Action.NONE } else judge.disarm())
-        _localAudio.value = judge.phase.label
-    }
+    fun toggleSoloTv() = solo.toggle(session != null)
 
-    private fun applyJudge(action: LocalMuteJudge.Action) {
-        when (action) {
-            LocalMuteJudge.Action.MUTE -> muter.mute()
-            LocalMuteJudge.Action.RESTORE -> muter.restore()
-            LocalMuteJudge.Action.NONE -> Unit
-        }
-        _localAudio.value = judge.phase.label
+    /** Detalle técnico del último fallo (se agrega al motivo de la parada). */
+    @Volatile private var lastDetail: String? = null
+
+    private val _pump = MutableStateFlow(prefs.getBoolean("pump", true))
+
+    /** Ritmo fijo de cuadros (bomba GL) activado para la próxima emisión. */
+    val pump: StateFlow<Boolean> = _pump.asStateFlow()
+
+    fun togglePump() {
+        if (session != null) return
+        val on = !_pump.value
+        _pump.value = on
+        prefs.edit().putBoolean("pump", on).apply()
     }
 
     private val _preset = MutableStateFlow(IptvPreset.BALANCED)
@@ -184,7 +201,10 @@ class IptvController private constructor(context: Context) {
         }
         val results = loadResults()
         val requested = if (_auto.value) (PerfAdvisor.best(results) ?: _preset.value) else _preset.value
-        val choice = IptvProfilePicker.pick(requested) { w, h, f -> EncoderProbe.supports(w, h, f) }
+        // En automático se baja a lo que el codificador declara soportar; si el usuario eligió el perfil a mano se intenta tal cual
+        // (no hay límite artificial: el FPS codificado real se muestra y, si el codificador no puede, se informa el error).
+        val choice = if (_auto.value) IptvProfilePicker.pick(requested) { w, h, f -> EncoderProbe.supports(w, h, f) }
+        else ProfileChoice(requested, "Perfil elegido a mano: se intentó ${requested.shortLabel} sin comprobar soporte previo.")
         val preset = choice.preset
         IptvService.start(appContext)
         val hub = StreamHub(maxQueuedBytes = 1024 * 1024)
@@ -208,6 +228,7 @@ class IptvController private constructor(context: Context) {
             }
             val router = IptvRouter(token, segmenter, status) { System.currentTimeMillis() }
             val srv = IptvServer(router, hub, acceptClient = ::isLanClient, ownAddress = ip, mp4 = mp4)
+            srv.onFailure = { why -> lastDetail = why; mainHandler.post { stop(StopReason.SERVER_STOPPED) } }
             server = srv
             val port = startServer(srv, ip)
 
@@ -222,6 +243,8 @@ class IptvController private constructor(context: Context) {
                     override fun onMp4Fragment(fragment: ByteArray) = mp4.onFragment(fragment)
                 },
                 onProjectionStopped = { stop(StopReason.PROJECTION_ENDED) },
+                usePump = _pump.value,
+                onEnded = { reason, why -> lastDetail = why; stop(reason) },
             )
             pipeline = pipe
             pipe.start()
@@ -232,7 +255,15 @@ class IptvController private constructor(context: Context) {
             val base = "http://${ip.hostAddress}:$port/$token"
             val pageUrl = if (token == IptvAccess.SHORT.fixedToken) "http://${ip.hostAddress}:$port/" else null
             val timer = java.util.Timer("opentv-iptv-stats", true)
-            val encRate = RateMeter(); val sentRate = RateMeter(); val servedRate = RateMeter()
+            val encRate = RateMeter(); val sentRate = RateMeter(); val servedRate = RateMeter(); val capRate = RateMeter(); val renRate = RateMeter()
+            var lastEncoded = 0L
+            var lastProgressMs = startedAt
+            var fallbackDone = false
+            var lastDeliveryMs = startedAt
+            val governor = FpsGovernor(preset.fps)
+            var governorNote: String? = null
+            var thermal: String? = null
+            var tick = 0
             val diagLog = java.util.concurrent.ConcurrentLinkedDeque<String>()
             router.onDiag = { line -> diagLog.addLast(line); while (diagLog.size > 6) diagLog.pollFirst() }
             val aspect = appContext.resources.displayMetrics.let { it.widthPixels.toDouble() / it.heightPixels.coerceAtLeast(1) }
@@ -243,7 +274,36 @@ class IptvController private constructor(context: Context) {
                     val producedKbps = (sentRate.sample(pipe.producedBytes, now) * 8 / 1000).toInt()
                     val deliveredKbps = (servedRate.sample(srv.bytesSent.get(), now) * 8 / 1000).toInt()
                     val audio = pipe.audioState(now)
-                    if (_soloTv.value && pipe.capturesSystemAudio) applyJudge(judge.onSecond(pipe.takeAudioPeakDb()))
+                    val encodedTotal = pipe.encodedFrames
+                    if (encodedTotal > lastEncoded) { lastEncoded = encodedTotal; lastProgressMs = now }
+                    val sinceFrame = now - lastProgressMs
+                    if (deliveredKbps > 0) lastDeliveryMs = now
+                    val capFps = pipe.capturedFrames?.let { capRate.sample(it, now) }
+                    val renFps = pipe.renderedFrames?.let { renRate.sample(it, now) }
+                    val pumpProblem = pipe.pumpFailure
+                    if (pumpProblem != null && !fallbackDone) {
+                        fallbackDone = true
+                        lastDetail = "La bomba de cuadros falló ($pumpProblem); se pasó a la captura directa."
+                        mainHandler.post { pipe.fallbackToDirect() }
+                    }
+                    if (sinceFrame > 3_000) mainHandler.post { pipe.requestKeyFrame() }
+                    val verdict = StreamHealth.judge(
+                        sinceFrameMs = sinceFrame, elapsedMs = now - startedAt, pumpActive = pipe.pumpActive, capturedFps = capFps,
+                        sinceDeliveryMs = now - lastDeliveryMs, deliveredKbps = deliveredKbps, clients = srv.activeClients,
+                        networkUp = LanIp.pick() != null,
+                    )
+                    solo.onSecond(pipe.capturesSystemAudio, pipe.takeAudioPeakDb())
+                    if (tick++ % 5 == 0) thermal = com.opentv.app.bench.ThermalProbe.read(appContext).androidStatus
+                    if (pipe.pumpActive) {
+                        val d = governor.onSecond(
+                            FpsGovernor.Sample(encFps, renFps, producedKbps, deliveredKbps, srv.activeClients, FpsGovernor.thermalLimited(thermal)),
+                        )
+                        if (d.changed) {
+                            governorNote = d.note
+                            val bps = (preset.bitrateBps.toLong() * d.targetFps / preset.fps).toInt().coerceAtLeast(preset.bitrateBps / 3)
+                            mainHandler.post { pipe.setPumpFps(d.targetFps); pipe.setBitrate(bps) }
+                        } else if (d.note != null) governorNote = d.note
+                    }
                     val live = IptvState.Live(
                         hlsUrl = "$base/index.m3u8", m3uUrl = "$base/channel.m3u", compatM3uUrl = "$base/compat.m3u",
                         tsUrl = "$base/live.ts", clients = srv.activeClients, segments = segmenter.publishedSegments,
@@ -251,8 +311,11 @@ class IptvController private constructor(context: Context) {
                         audio = audio, note = note,
                         externalRequests = srv.externalRequests, externalClients = srv.externalClientIps.size, lastExternal = srv.lastExternal,
                         encodedFps = encFps, producedKbps = producedKbps, deliveredKbps = deliveredKbps, diag = diagLog.toList(),
-                        fpsWarning = FpsVerdict.describe(preset.fps, encFps, (now - startedAt) / 1000),
+                        fpsWarning = FpsVerdict.describe(governor.targetFps, encFps, (now - startedAt) / 1000),
                         codec = pipe.codecName, mp4Url = "$base/live.mp4", pageUrl = pageUrl,
+                        capturedFps = capFps, renderedFps = renFps, pumpActive = pipe.pumpActive, msSinceFrame = sinceFrame,
+                        health = verdict.text, healthy = verdict.healthy, profileApplied = pipe.profileApplied, requestedLabel = preset.label,
+                        targetFps = governor.targetFps, bottleneck = governor.lastCause.label, governorNote = governorNote, thermal = thermal,
                     )
                     if (session != null) _state.value = live
                     TransmissionRegistry.publish(
@@ -261,8 +324,7 @@ class IptvController private constructor(context: Context) {
                 }
             }, 1_000, 1_000)
             session = Session(pipe, srv, hub, segmenter, mp4, timer)
-            if (_soloTv.value && pipe.capturesSystemAudio) judge.arm() else judge.disarm()
-            _localAudio.value = judge.phase.label
+            solo.onStart(pipe.capturesSystemAudio)
             TransmissionRegistry.publish(
                 TransmissionInfo(ID, "IPTV", preset.width, preset.height, preset.fps, null, null, "midiendo…", aspect),
             ) { mainHandler.post { stop(StopReason.NOTIFICATION) } }
@@ -287,7 +349,8 @@ class IptvController private constructor(context: Context) {
 
     fun stop(reason: StopReason = StopReason.USER) {
         val s = session
-        if (s != null) _lastStop.value = reason.label
+        if (s != null) _lastStop.value = reason.label + (lastDetail?.let { " Detalle: $it" } ?: "")
+        lastDetail = null
         session = null
         if (s != null) teardown(s.server, s.pipeline, s.hub, s.segmenter, s.mp4, s.timer)
         TransmissionRegistry.remove(ID)
@@ -306,9 +369,7 @@ class IptvController private constructor(context: Context) {
         server: IptvServer?, pipeline: CapturePipeline?, hub: StreamHub, segmenter: HlsSegmenter, mp4: Mp4Feed, timer: java.util.Timer?,
     ) {
         timer?.cancel()
-        runCatching { muter.restore() }
-        judge.disarm()
-        _localAudio.value = judge.phase.label
+        solo.onStop()
         runCatching { segmenter.end() }
         runCatching { pipeline?.stop() }
         runCatching { hub.closeAll() }

@@ -61,7 +61,7 @@ var n=-1,ok=false,tm=null;
 function next(){
 if(tm){clearTimeout(tm);}
 n++;
-if(n>=L.length){say('Este navegador no pudo reproducir ningún formato. Alternativas: cargá http://'+location.host+U.m3u+' en una app IPTV del televisor, usá OpenTV Link con otro equipo Android, o el espejo nativo (Miracast) del sistema.');send('failed','all');return;}
+if(n>=L.length){say('Este navegador no pudo reproducir ningún formato. Alternativas: 1) cargá http://'+location.host+U.m3u+' en una app IPTV del televisor (en un LG antiguo con Smart IPTV usá el canal de la prueba 2, TS directo); 2) el espejo nativo (Miracast) del sistema; 3) un receptor HDMI (TV box o stick Android) con OpenTV. Los navegadores de televisores muy antiguos suelen no reproducir HLS ni MP4 en vivo.');send('failed','all');return;}
 say('Probando '+L[n][0]+'…');send('try',L[n][0]);
 v.src=L[n][1];try{v.load();}catch(e){}try{v.play();}catch(e){}
 tm=setTimeout(function(){if(!ok){send('timeout',L[n][0]);next();}},12000);}

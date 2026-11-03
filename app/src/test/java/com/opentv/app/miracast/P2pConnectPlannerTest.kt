@@ -13,14 +13,25 @@ class P2pConnectPlannerTest {
     @Test fun esperaSiAunNoAparece() =
         assertEquals(PeerAction.WAIT, P2pConnectPlanner().onPeerCheck(false, null, 2_000).action)
 
-    @Test fun trasLaEsperaConectaIgualYLoDice() {
+    @Test fun trasLaEsperaNoConectaConParAusenteYRedescubre() {
         val c = P2pConnectPlanner().onPeerCheck(false, null, P2pConnectPlanner.PEER_WAIT_MS)
-        assertEquals(PeerAction.CONNECT, c.action); assertTrue(c.note.contains("no apareció"))
+        assertEquals(PeerAction.RESCAN, c.action); assertTrue(c.note.contains("no apareció") && c.note.contains("No se llama a connect()"))
     }
-    @Test fun noDisponibleEsperaYLuegoIntenta() {
+    @Test fun trasAgotarLosRedescubrimientosInformaNoVisibleSinConectar() {
+        val p = P2pConnectPlanner()
+        repeat(3) { assertEquals(PeerAction.RESCAN, p.onPeerCheck(false, null, P2pConnectPlanner.PEER_WAIT_MS).action) }
+        val last = p.onPeerCheck(false, null, P2pConnectPlanner.PEER_WAIT_MS)
+        assertEquals(PeerAction.NOT_VISIBLE, last.action); assertEquals(3, p.rescans)
+        assertTrue(P2pConnectPlanner.explainNotVisible(p.rescans, null).contains("no se llamó a connect()"))
+    }
+    @Test fun noDisponibleEsperaYLuegoRedescubre() {
         val p = P2pConnectPlanner()
         assertEquals(PeerAction.WAIT, p.onPeerCheck(true, P2pConnectPlanner.STATUS_UNAVAILABLE, 1_000).action)
-        assertEquals(PeerAction.CONNECT, p.onPeerCheck(true, P2pConnectPlanner.STATUS_UNAVAILABLE, P2pConnectPlanner.PEER_WAIT_MS).action)
+        assertEquals(PeerAction.RESCAN, p.onPeerCheck(true, P2pConnectPlanner.STATUS_UNAVAILABLE, P2pConnectPlanner.PEER_WAIT_MS).action)
+    }
+    @Test fun parInvitadoOConOtroEstadoSiConecta() {
+        assertEquals(PeerAction.CONNECT, P2pConnectPlanner().onPeerCheck(true, P2pConnectPlanner.STATUS_INVITED, 0).action)
+        assertEquals(PeerAction.CONNECT, P2pConnectPlanner().onPeerCheck(true, P2pConnectPlanner.STATUS_FAILED, 0).action)
     }
     @Test fun ocupadoReintentaTresVecesYLuegoReinicia() {
         val p = P2pConnectPlanner()

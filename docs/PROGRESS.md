@@ -416,3 +416,19 @@ Alcance: SOLO descubrir dispositivos Wi-Fi Direct con la API pública y mostrar 
 - **CatalogLogicTest**: línea 211 con smart cast sobre `r.problem` (propiedad de otro módulo) → variables locales tipadas. Nuevo `runit2.py` compila main y test como módulos separados y reproduce ese error exacto con la versión anterior del archivo (antes el arnés lo ocultaba).
 - Auditoría de todas las conexiones: `docs/AUDITORIA-CONEXIONES.md`.
 - Tests: 404 JVM OK (K2 y K1.9, módulos separados). NO verificado: compilación Android real, pantallas Compose, nada en dispositivos.
+
+## Fase 6.5: corte de IPTV, ritmo de cuadros, compatibilidad, audio en Link
+- Pruebas de la 6.4 (APK compilado por Actions): ver `docs/IPTV-CORTE-Y-60FPS.md` y `docs/COMPATIBILIDAD-TELEVISORES.md`.
+- **FramePump** (OpenGL ES): la pantalla virtual → `SurfaceTexture` → hilo GL → codificador a FPS fijos, con respaldo a captura directa. Ataca la causa más probable del corte (cuadros que dejan de llegar con pantalla quieta). Botón para desactivarlo.
+- **Estado verificado**: «salud» basada en cuadros codificados recientes y datos entregados; métricas separadas (solicitado, capturado, entregado al codificador, codificado, bitrate producido/entregado; recibido/Hz del TV: no disponible).
+- **Motivos de parada** ampliados (codificador, servidor, captura, red) y detalle técnico; el servidor y el codificador avisan si terminan solos.
+- **Historial HTTP** con IP, agente de usuario, bytes y cierres; lista `plain.m3u` mínima; perfiles 480p/360p con H.264 Baseline; mensaje de la página raíz más claro.
+- **Perfil manual** ya no se baja por consulta previa.
+- **Audio solo en TV** compartido (`SoloTvAudio`) y activo también en OpenTV Link.
+- Tests: 414 JVM OK (K2 y K1.9, main y test por separado). NO verificado: compilación Android real de esta versión, el GL en dispositivos, nada físico.
+
+## Fase 6.6 (conectividad)
+- Wi‑Fi Direct: ya no se llama a `connect()` con un par que el sistema no lista (hipótesis, sin confirmar en equipo: así se producía el error 0). Se repite el descubrimiento hasta 3 veces y se resuelve el par por nombre si cambió su dirección. `P2pPeerMatcher`, `P2pConnectPlanner` (RESCAN / NOT_VISIBLE). Tests nuevos.
+- IPTV y Link: `FpsGovernor` (60→30→24→15, con causa: dibujado, codificador, temperatura, red). Ajusta en vivo el ritmo de la bomba de cuadros y el bitrate, sin otro permiso.
+- Espejo por navegador: `MjpegAdaptive` baja o sube la calidad JPEG según lo producido contra lo enviado (pantalla quieta ≠ congestión). Muestra cuadros producidos y calidad.
+- NO hecho (ver informe): DLNA (está en `connect/`, protegido), mejoras de Miracast nativo, audio en navegador, transporte propio sobre Wi‑Fi Direct, compilación Android real.

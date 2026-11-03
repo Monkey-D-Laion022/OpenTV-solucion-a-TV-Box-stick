@@ -38,6 +38,9 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
     val localAudio: StateFlow<String> get() = controller.localAudio
     fun toggleSoloTv() = controller.toggleSoloTv()
 
+    val pump: StateFlow<Boolean> get() = controller.pump
+    fun togglePump() = controller.togglePump()
+
     fun toggleAuto() = controller.toggleAuto()
 
     /** Mide el rendimiento real del codificador (unos 5 s por perfil) fuera del hilo principal. */

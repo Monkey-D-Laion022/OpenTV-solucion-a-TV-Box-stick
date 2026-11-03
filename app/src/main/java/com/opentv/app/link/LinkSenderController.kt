@@ -4,10 +4,12 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import com.opentv.app.iptv.CapturePipeline
+import com.opentv.app.iptv.FpsGovernor
 import com.opentv.app.iptv.IptvPreset
 import com.opentv.app.iptv.IptvService
 import com.opentv.app.iptv.PipelineSink
 import com.opentv.app.iptv.RateMeter
+import com.opentv.app.iptv.SoloTvAudio
 import com.opentv.app.proto.OtBitrateController
 import com.opentv.app.proto.OtChannel
 import com.opentv.app.proto.OtControl
@@ -64,6 +66,8 @@ class LinkSenderController private constructor(context: Context) {
     private val app = context.applicationContext
     private val store = LinkStore(app)
     private val nsd = LinkNsd(app)
+    /** «Audio solo en TV» (el mismo modo que en IPTV). */
+    val solo: SoloTvAudio = SoloTvAudio.get(app)
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val _state = MutableStateFlow<LinkSenderState>(LinkSenderState.Idle)
@@ -125,6 +129,7 @@ class LinkSenderController private constructor(context: Context) {
             pipe.start()
             pipeline = pipe
             running = true
+            solo.onStart(pipe.capturesSystemAudio)
             val listenSocket: ServerSocket? = ss
             if (destination == null && listenSocket != null) {
                 address = "${ip.hostAddress}:${listenSocket.localPort}"
@@ -179,6 +184,7 @@ class LinkSenderController private constructor(context: Context) {
 
     private fun cleanup(ss: ServerSocket?, pipe: CapturePipeline?) {
         running = false
+        solo.onStop()
         target = null
         timer?.cancel(); timer = null
         nsd.unregister()
@@ -336,7 +342,9 @@ class LinkSenderController private constructor(context: Context) {
     }
 
     private fun startStats(pipe: CapturePipeline, preset: IptvPreset) {
-        val encRate = RateMeter(); val sentRate = RateMeter()
+        val encRate = RateMeter(); val sentRate = RateMeter(); val renRate = RateMeter()
+        val governor = FpsGovernor(preset.fps)
+        var governorNote: String? = null
         val aspect = app.resources.displayMetrics.let { it.widthPixels.toDouble() / it.heightPixels.coerceAtLeast(1) }
         val t = java.util.Timer("opentv-link-stats", true)
         t.schedule(object : java.util.TimerTask() {
@@ -345,7 +353,16 @@ class LinkSenderController private constructor(context: Context) {
                 val enc = encRate.sample(pipe.encodedFrames, now)
                 val kbps = (sentRate.sample(pipe.producedBytes, now) * 8 / 1000).toInt()
                 val audio = pipe.audioState(now).label
+                solo.onSecond(pipe.capturesSystemAudio, pipe.takeAudioPeakDb())
                 val a = active
+                val renFps = pipe.renderedFrames?.let { renRate.sample(it, now) }
+                if (pipe.pumpActive && a != null && !a.closed) {
+                    val d = governor.onSecond(FpsGovernor.Sample(enc, renFps, kbps, kbps, 1, false))
+                    if (d.changed) {
+                        governorNote = d.note
+                        mainHandler.post { pipe.setPumpFps(d.targetFps) }
+                    }
+                }
                 TransmissionRegistry.publish(
                     TransmissionInfo(ID, "OpenTV Link", preset.width, preset.height, preset.fps, enc, kbps, audio, aspect,
                         detail = if (a == null) "esperando receptor" else "enviando a ${a.peerName}"),
@@ -353,7 +370,7 @@ class LinkSenderController private constructor(context: Context) {
                 if (a != null && !a.closed && running) {
                     _state.value = LinkSenderState.Streaming(
                         a.peerName, address, preset, enc, kbps, (a.bitrate.currentBps / 1000).toInt(), a.bufferMs, a.dropped,
-                        a.queue.queuedBytes / 1024, audio, pipe.codecName, note = pipe.note ?: lastIssue,
+                        a.queue.queuedBytes / 1024, audio, pipe.codecName, note = listOfNotNull(pipe.note ?: lastIssue, governorNote).joinToString(" ").ifBlank { null },
                     )
                 }
             }

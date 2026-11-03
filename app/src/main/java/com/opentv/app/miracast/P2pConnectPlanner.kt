@@ -10,30 +10,44 @@ package com.opentv.app.miracast
  * un número acotado de veces. No hay certeza de que resuelva el problema: lo que se prueba aquí es la decisión, no el
  * comportamiento del sistema Android ni del televisor.
  */
-class P2pConnectPlanner(private val maxBusyWaits: Int = 3, private val maxResets: Int = 2) {
+class P2pConnectPlanner(private val maxBusyWaits: Int = 3, private val maxResets: Int = 2, private val maxRescans: Int = 3) {
     enum class Kind { WAIT_AND_RETRY, RESET_AND_RETRY, GIVE_UP }
     data class Decision(val kind: Kind, val delayMs: Long, val note: String)
-    enum class PeerAction { WAIT, CONNECT }
+    enum class PeerAction { WAIT, CONNECT, RESCAN, NOT_VISIBLE }
     data class PeerCheck(val action: PeerAction, val note: String)
 
     var busyWaits = 0
         private set
     var resets = 0
         private set
+    var rescans = 0
+        private set
 
     /** Tiempo máximo de espera a que el par aparezca en la lista del canal antes de intentar conectar igual. */
     val peerWaitMs: Long get() = PEER_WAIT_MS
 
+    /**
+     * Decide si conectar. Regla de 6.6: NUNCA se llama a connect() con un par que el sistema no lista en este momento.
+     * Lo más probable (a confirmar en el equipo) es que el framework rechace con el código 0 un connect() a una dirección que no
+     * está en su lista de pares vigente; la 6.3 a 6.5 conectaban «igual» tras 10 s y eso producía justo ese error. Ahora, si el
+     * par no aparece, se repite el descubrimiento hasta [maxRescans] veces y, si sigue ausente, se informa que el televisor no
+     * es visible (condición del televisor o de la red), sin llamar a connect().
+     */
     fun onPeerCheck(found: Boolean, status: Int?, waitedMs: Long): PeerCheck = when {
         found && status == STATUS_AVAILABLE -> PeerCheck(PeerAction.CONNECT, "El televisor aparece disponible en la lista de este canal.")
         found && status == STATUS_INVITED -> PeerCheck(PeerAction.CONNECT, "El televisor ya figura invitado: se envía la solicitud.")
-        found && status == STATUS_UNAVAILABLE -> if (waitedMs >= PEER_WAIT_MS)
-            PeerCheck(PeerAction.CONNECT, "El televisor figura NO disponible (ocupado con otro grupo o con Screen Share cerrado); se intenta igual.")
+        found && status == STATUS_UNAVAILABLE -> if (waitedMs >= PEER_WAIT_MS) peerGone("El televisor sigue figurando NO disponible (ocupado con otro grupo o Screen Share cerrado)")
         else PeerCheck(PeerAction.WAIT, "El televisor figura no disponible; se espera a que cambie.")
         found -> PeerCheck(PeerAction.CONNECT, "El televisor figura con estado ${statusName(status)}; se envía la solicitud.")
-        waitedMs >= PEER_WAIT_MS -> PeerCheck(PeerAction.CONNECT, "El televisor no apareció en ${PEER_WAIT_MS / 1000} s en este canal; se intenta conectar igual para registrar la respuesta.")
+        waitedMs >= PEER_WAIT_MS -> peerGone("El televisor no apareció en ${PEER_WAIT_MS / 1000} s en la lista de este canal")
         else -> PeerCheck(PeerAction.WAIT, "Esperando que el televisor aparezca en la lista de este canal…")
     }
+
+    private fun peerGone(what: String): PeerCheck =
+        if (rescans < maxRescans) {
+            rescans++
+            PeerCheck(PeerAction.RESCAN, "$what: se repite el descubrimiento (intento $rescans de $maxRescans). No se llama a connect() con un par ausente.")
+        } else PeerCheck(PeerAction.NOT_VISIBLE, "$what tras $maxRescans descubrimientos: no se llama a connect().")
 
     fun onConnectFailure(reason: Int): Decision = when (reason) {
         REASON_BUSY -> if (busyWaits < maxBusyWaits) {
@@ -64,6 +78,13 @@ class P2pConnectPlanner(private val maxBusyWaits: Int = 3, private val maxResets
             STATUS_CONNECTED -> "conectado"; STATUS_INVITED -> "invitado"; STATUS_FAILED -> "fallido"
             STATUS_AVAILABLE -> "disponible"; STATUS_UNAVAILABLE -> "no disponible"; else -> "desconocido"
         }
+
+        /** Resultado cuando el televisor nunca estuvo en la lista del sistema: no es un fallo de connect() sino de visibilidad. */
+        fun explainNotVisible(rescans: Int, lastKnownStatus: Int?): String =
+            "El televisor no apareció en la lista de Wi‑Fi Direct del sistema tras $rescans descubrimientos, así que no se llamó a connect() " +
+                "(con un par ausente Android responde error 0). Esto es una condición del televisor o del entorno, no de OpenTV: " +
+                "abrí en el televisor la función Screen Share / Pantalla compartida y dejala en espera, o acercá el teléfono. " +
+                "Último estado visto: ${statusName(lastKnownStatus)}."
 
         /** Explicación final cuando se agotan los reintentos. Separa lo medido de las hipótesis y de un límite real de Android. */
         fun explainFailure(reason: Int, resets: Int, sawPeer: Boolean, peerStatus: Int?): String {

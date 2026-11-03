@@ -30,6 +30,10 @@ sealed interface BrowserMirrorState {
         val kbPerSecond: Int,
         /** Últimos pedidos que llegaron al servidor: si está vacío, el TV nunca llegó hasta el teléfono. */
         val requests: List<String> = emptyList(),
+        /** Cuadros nuevos por segundo producidos por el teléfono (puede ser mayor que los enviados si el TV lee lento). */
+        val producedFps: Int = 0,
+        /** Calidad JPEG vigente (baja sola si el navegador no puede con el ritmo). */
+        val jpegQuality: Int = 0,
     ) : BrowserMirrorState
     data class Failed(val message: String) : BrowserMirrorState
 }
@@ -114,6 +118,7 @@ class BrowserMirror(context: Context) {
             val (w, h) = q.captureSize(metrics.widthPixels, metrics.heightPixels)
             val imageReader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
             reader = imageReader
+            val adaptive = MjpegAdaptive(q.jpegQuality)
             val encoder = FrameEncoder(imageReader, hub, q)
             encoderHolder = encoder
             imageReader.setOnImageAvailableListener({ encoder.onImage() }, Handler(thread.looper))
@@ -130,15 +135,22 @@ class BrowserMirror(context: Context) {
             val timer = java.util.Timer("opentv-mjpeg-stats", true)
             var lastFrames = 0L
             var lastBytes = 0L
+            var lastSeq = 0L
             timer.schedule(object : java.util.TimerTask() {
                 override fun run() {
                     val frames = server.framesSent.get()
                     val bytes = server.bytesSent.get()
+                    val seq = hub.latest()?.seq ?: 0L
+                    val produced = (seq - lastSeq).toDouble()
+                    val clients = server.activeClients
+                    val sentPerClient = (frames - lastFrames).toDouble() / maxOf(clients, 1)
+                    encoder.jpegQuality = adaptive.onSecond(produced, sentPerClient, clients)
                     val s = BrowserMirrorState.Serving(
-                        home, slow, server.activeClients,
+                        home, slow, clients,
                         (frames - lastFrames).toInt(), ((bytes - lastBytes) / 1024).toInt(), server.history,
+                        producedFps = produced.toInt(), jpegQuality = encoder.jpegQuality,
                     )
-                    lastFrames = frames; lastBytes = bytes
+                    lastFrames = frames; lastBytes = bytes; lastSeq = seq
                     if (session != null) _state.value = s
                 }
             }, 1_000, 1_000)
@@ -201,6 +213,8 @@ class BrowserMirror(context: Context) {
      * (nunca se acumula nada). Solo se publica un cuadro más nuevo que el último publicado.
      */
     private class FrameEncoder(private val reader: ImageReader, private val hub: MjpegHub, private val quality: MjpegQuality) {
+        /** Calidad JPEG vigente: la ajusta el temporizador de estadísticas sin reiniciar la captura. */
+        @Volatile var jpegQuality: Int = quality.jpegQuality
         private val minIntervalMs = 1000L / quality.fps
         private var lastMs = 0L
         private val slots = java.util.concurrent.ArrayBlockingQueue<Int>(WORKERS).also { q -> repeat(WORKERS) { q.add(it) } }
@@ -257,7 +271,7 @@ class BrowserMirror(context: Context) {
                 val out = ByteArrayOutputStream(128 * 1024)
                 // El ancho extra por relleno de filas queda fuera: se comprime solo el área visible.
                 val visible = if (bmp.width == width) bmp else Bitmap.createBitmap(bmp, 0, 0, width, height)
-                visible.compress(Bitmap.CompressFormat.JPEG, quality.jpegQuality, out)
+                visible.compress(Bitmap.CompressFormat.JPEG, jpegQuality, out)
                 if (visible !== bmp) visible.recycle()
                 synchronized(publishLock) {
                     if (index > published) {

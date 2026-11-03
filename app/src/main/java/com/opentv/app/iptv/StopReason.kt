@@ -9,5 +9,9 @@ enum class StopReason(val label: String) {
     NOTIFICATION("Detenida con el botón «Detener» de la notificación."),
     PROJECTION_ENDED("Android cerró la captura de pantalla (el sistema o el usuario terminó la proyección; no fue OpenTV)."),
     SERVICE_LOST("Android detuvo el servicio en primer plano de OpenTV (posible ahorro de batería del sistema)."),
+    ENCODER_STOPPED("El codificador de video se detuvo por sí solo."),
+    SERVER_STOPPED("El servidor HTTP local se detuvo por sí solo."),
+    CAPTURE_ERROR("Error de captura de pantalla."),
+    NETWORK_ERROR("Error de red: ya no hay una Wi‑Fi local utilizable."),
     ERROR("Se detuvo por un error."),
 }

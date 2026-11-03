@@ -37,7 +37,7 @@ Hecho y probado solo en lógica JVM/ffmpeg: IPTV, protocolo, audio de captura (c
 La numeración de FASES originales (F0–F7) no cambia. Las **etapas A–G** son un plan de trabajo sobre ellas, no fases nuevas.
 | Etapa | Contenido | Estado |
 |---|---|---|
-| A | IPTV y mediciones reales | 6.4: sondeo + benchmark de 60 fps, candados de CPU/Wi‑Fi y motivo de parada; **pendiente** medir en el Redmi 14C y confirmar la causa del corte |
+| A | IPTV y mediciones reales | 6.5: ritmo fijo de cuadros (FramePump), estado verificado, métricas separadas, perfil manual sin límite; **pendiente** confirmar en el Redmi 14C que el corte desaparece. (6.4: sondeo + benchmark de 60 fps, candados de CPU/Wi‑Fi y motivo de parada; **pendiente** medir en el Redmi 14C y confirmar la causa del corte) |
 | B | Audio | 6.4: captura real, estados y «Audio solo en TV» experimental (mide, no asume); **pendiente** prueba real |
 | C | Navegador universal | 6.3: página `/` con HLS/MP4/TS y diagnóstico; **pendiente** prueba en LG 42LB5800 y Noblex |
 | D | OpenTV Link nativo | 6.4: rediseñado **teléfono → televisor / receptor HDMI** (receptor escucha, teléfono elige); **pendiente** prueba en TV box y diseño de receptor para NetCast (no viable nativo, ver `OPENTV-LINK-ARQUITECTURA.md`) |

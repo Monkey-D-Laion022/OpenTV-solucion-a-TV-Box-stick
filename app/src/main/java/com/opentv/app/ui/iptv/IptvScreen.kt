@@ -64,6 +64,7 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
     val lastStop by viewModel.lastStop.collectAsStateWithLifecycle()
     val soloTv by viewModel.soloTv.collectAsStateWithLifecycle()
     val localAudio by viewModel.localAudio.collectAsStateWithLifecycle()
+    val pump by viewModel.pump.collectAsStateWithLifecycle()
     val running = state is IptvState.Live || state is IptvState.Starting
 
     SafeArea {
@@ -112,12 +113,26 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                         style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground,
                     )
                     Text(
-                        "Pedido y configurado: ${s.preset.width}×${s.preset.height} a ${s.preset.fps} fps, ${s.preset.bitrateBps / 1000} kbit/s.\n" +
-                            "Medido en el teléfono: ${"%.0f".format(s.encodedFps)} fps codificados · ${s.producedKbps} kbit/s producidos · " +
-                            "${s.deliveredKbps} kbit/s entregados a los equipos.\n" +
-                            "Resolución efectiva: la configurada (no se mide aparte). FPS y audio que reproduce el televisor: no se pueden medir desde aquí; " +
-                            "dependen de lo que veas y oigas en él.\n" +
+                        (if (s.healthy) "Estado verificado: " else "ATENCIÓN: ") + s.health,
+                        style = MaterialTheme.typography.bodyLarge, color = if (s.healthy) OpenTvColors.Success else OpenTvColors.Warning,
+                    )
+                    val captured = s.capturedFps?.let { "%.0f".format(it) } ?: "no medible (captura directa)"
+                    val rendered = s.renderedFps?.let { "%.0f".format(it) } ?: "no aplica (captura directa)"
+                    Text(
+                        "Solicitado: ${s.preset.width}×${s.preset.height} a ${s.preset.fps} fps, ${s.preset.bitrateBps / 1000} kbit/s" +
+                            (if (s.profileApplied) "." else " (el codificador no aceptó el perfil pedido y eligió el suyo).") + "\n" +
+                            "Resolución capturada y codificada: ${s.preset.width}×${s.preset.height} (mismo tamaño en la pantalla virtual y el codificador).\n" +
+                            "FPS capturados (cambios reales en pantalla): $captured · entregados al codificador a ritmo fijo: $rendered.\n" +
+                            "FPS codificados (medidos): ${"%.0f".format(s.encodedFps)} · último cuadro hace ${s.msSinceFrame} ms.\n" +
+                            "Bitrate producido: ${s.producedKbps} kbit/s · entregado a los equipos: ${s.deliveredKbps} kbit/s.\n" +
+                            "FPS recibidos y refresco del televisor: no disponibles (el televisor no los informa; son cosas distintas: cuadros por segundo no es lo mismo que Hz).\n" +
                             if (s.withAudio) "Audio: ${s.audio.label}" else "Sin pista de audio",
+                        style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground,
+                    )
+                    if (s.pumpActive) Text(
+                        "Gobernador de FPS: objetivo ${s.targetFps} fps de ${s.preset.fps} pedidos · causa observada: ${s.bottleneck}." +
+                            (s.governorNote?.let { "\n$it" } ?: "") +
+                            "\nEstado térmico de Android: ${s.thermal ?: "no disponible"}.",
                         style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground,
                     )
                     if (s.fpsWarning != null) Text(s.fpsWarning, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning)
@@ -186,6 +201,10 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                         style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
                     )
                     TvButton(text = "Dirección: ${access.label}", onClick = viewModel::cycleAccess, horizontalPadding = 20.dp)
+                    TvButton(
+                        text = if (pump) "Ritmo fijo de cuadros: activado (recomendado)" else "Ritmo fijo de cuadros: desactivado (captura directa)",
+                        onClick = viewModel::togglePump, horizontalPadding = 20.dp,
+                    )
                 }
                 TvButton(
                     text = if (soloTv) "Audio solo en TV: activado (experimental)" else "Audio solo en TV: desactivado",
