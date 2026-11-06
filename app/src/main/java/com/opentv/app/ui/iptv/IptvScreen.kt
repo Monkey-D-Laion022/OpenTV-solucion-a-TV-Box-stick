@@ -30,6 +30,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.opentv.app.iptv.IptvAudio
 import com.opentv.app.iptv.IptvState
+import com.opentv.app.media.dlna.DlnaPhase
 import com.opentv.app.ui.components.SafeArea
 import com.opentv.app.ui.components.TvButton
 import com.opentv.app.ui.theme.OpenTvColors
@@ -64,7 +65,12 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
     val lastStop by viewModel.lastStop.collectAsStateWithLifecycle()
     val soloTv by viewModel.soloTv.collectAsStateWithLifecycle()
     val localAudio by viewModel.localAudio.collectAsStateWithLifecycle()
+    val governorOn by viewModel.governor.collectAsStateWithLifecycle()
+    val marksOn by viewModel.marks.collectAsStateWithLifecycle()
     val pump by viewModel.pump.collectAsStateWithLifecycle()
+    val renderers by viewModel.renderers.collectAsStateWithLifecycle()
+    val searching by viewModel.searching.collectAsStateWithLifecycle()
+    val dlna by viewModel.dlna.collectAsStateWithLifecycle()
     val running = state is IptvState.Live || state is IptvState.Starting
 
     SafeArea {
@@ -133,6 +139,10 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                         "Gobernador de FPS: objetivo ${s.targetFps} fps de ${s.preset.fps} pedidos · causa observada: ${s.bottleneck}." +
                             (s.governorNote?.let { "\n$it" } ?: "") +
                             "\nEstado térmico de Android: ${s.thermal ?: "no disponible"}.",
+                        style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground,
+                    )
+                    if (s.timing != null) Text(
+                        s.timing,
                         style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground,
                     )
                     if (s.fpsWarning != null) Text(s.fpsWarning, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning)
@@ -205,6 +215,35 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                         text = if (pump) "Ritmo fijo de cuadros: activado (recomendado)" else "Ritmo fijo de cuadros: desactivado (captura directa)",
                         onClick = viewModel::togglePump, horizontalPadding = 20.dp,
                     )
+                }
+                TvButton(
+                    text = if (governorOn) "Gobernador de FPS: activado (baja el ritmo si no se sostiene)" else "Gobernador de FPS: desactivado (ritmo fijo del perfil, para medir)",
+                    onClick = viewModel::toggleGovernor, horizontalPadding = 20.dp,
+                )
+                TvButton(
+                    text = if (marksOn) "Marcas de diagnóstico: activadas (contador en la esquina)" else "Marcas de diagnóstico: desactivadas",
+                    onClick = viewModel::toggleMarks, horizontalPadding = 20.dp,
+                )
+                Text(
+                    "Enviar por DLNA (sin instalar nada en el televisor): el televisor tiene que ser un renderizador DLNA y estar en la misma red. " +
+                        "Prueba varios formatos según lo que el televisor declare. Latencia de segundos y 30 fps como máximo; si el televisor no reproduce, el motivo aparece abajo.",
+                    style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
+                )
+                TvButton(
+                    text = if (searching) "Buscando televisores…" else "Buscar televisores DLNA",
+                    onClick = { if (!searching) viewModel.searchRenderers() }, horizontalPadding = 20.dp,
+                )
+                if (running) renderers.forEach { r ->
+                    TvButton(text = "Enviar a ${r.friendlyName} (${r.modelName})", onClick = { viewModel.sendToRenderer(r) }, horizontalPadding = 20.dp)
+                } else if (renderers.isNotEmpty()) Text("Iniciá la emisión IPTV para poder enviarla.", style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning)
+                val d = dlna
+                if (d != null) {
+                    Text(
+                        "DLNA → ${d.renderer}: ${d.phase.name}" + (if (d.offer.isNotEmpty()) " · ${d.offer}" else "") + "\n" + d.log.takeLast(8).joinToString("\n"),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (d.phase == DlnaPhase.PLAYING) OpenTvColors.Success else if (d.phase == DlnaPhase.FAILED) OpenTvColors.Warning else OpenTvColors.Muted,
+                    )
+                    TvButton(text = "Detener DLNA", onClick = viewModel::stopRenderer, horizontalPadding = 20.dp)
                 }
                 TvButton(
                     text = if (soloTv) "Audio solo en TV: activado (experimental)" else "Audio solo en TV: desactivado",

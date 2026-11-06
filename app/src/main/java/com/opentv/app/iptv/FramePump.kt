@@ -65,6 +65,14 @@ class FramePump(
     @Volatile private var running = false
     private var nextNs = 0L
     /** Intervalo entre cuadros; el gobernador de FPS lo puede cambiar en vivo (no exige otro permiso ni reiniciar la captura). */
+    /** Intervalos reales entre dibujos y tics atrasados: dicen si el ritmo es parejo o con tirones. */
+    val intervals = IntervalWindow()
+    val lateTicks = java.util.concurrent.atomic.AtomicLong(0)
+    private var lastDrawNs = 0L
+
+    /** Dibuja en la esquina superior izquierda un contador de 4 bits (cuadros mod 16) para filmar el televisor y contar cuadros mostrados. */
+    @Volatile var marks: Boolean = false
+
     @Volatile private var intervalNs = 1_000_000_000L / fps.coerceIn(1, 120)
 
     /** Cambia el ritmo de redibujado. Solo baja o sube la cadencia de repetición; la resolución no se toca. */
@@ -142,6 +150,13 @@ class FramePump(
                     hasFrame = true
                 }
                 if (hasFrame) {
+                    val t0 = System.nanoTime()
+                    if (lastDrawNs != 0L) {
+                        val gap = t0 - lastDrawNs
+                        intervals.add(gap / 1_000_000.0)
+                        if (gap > intervalNs * 3 / 2) lateTicks.incrementAndGet()
+                    }
+                    lastDrawNs = t0
                     draw()
                     renderedFrames.incrementAndGet()
                 }
@@ -173,9 +188,23 @@ class FramePump(
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         GLES20.glDisableVertexAttribArray(aPosition)
         GLES20.glDisableVertexAttribArray(aTexCoord)
+        if (marks) drawMarks(renderedFrames.get())
         // Hora del cuadro en el reloj monotónico del sistema, el mismo que usa el resto de la tubería.
         EGLExt.eglPresentationTimeANDROID(eglDisplay, eglSurface, System.nanoTime())
         if (!EGL14.eglSwapBuffers(eglDisplay, eglSurface)) throw IllegalStateException("eglSwapBuffers falló (0x${Integer.toHexString(EGL14.eglGetError())})")
+    }
+
+    private fun drawMarks(counter: Long) {
+        val side = (height / 18).coerceAtLeast(16)
+        GLES20.glEnable(GLES20.GL_SCISSOR_TEST)
+        for (bit in 0 until 4) {
+            val on = (counter shr bit) and 1L == 1L
+            GLES20.glScissor(bit * side, height - side, side, side)
+            val v = if (on) 1f else 0f
+            GLES20.glClearColor(v, v, v, 1f)
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+        }
+        GLES20.glDisable(GLES20.GL_SCISSOR_TEST)
     }
 
     private fun initGl() {

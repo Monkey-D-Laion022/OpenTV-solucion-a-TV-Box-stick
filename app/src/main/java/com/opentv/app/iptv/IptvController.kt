@@ -64,6 +64,8 @@ sealed interface IptvState {
         val governorNote: String? = null,
         /** Estado térmico informado por Android (10+); `null` = no disponible. Ni es la temperatura del procesador. */
         val thermal: String? = null,
+        /** Intervalos entre cuadros y entregas de segmentos: separan tirones de la captura, del codificador y del envío. */
+        val timing: String? = null,
     ) : IptvState
     data class Failed(val message: String) : IptvState
 }
@@ -116,6 +118,28 @@ class IptvController private constructor(context: Context) {
         val on = !_pump.value
         _pump.value = on
         prefs.edit().putBoolean("pump", on).apply()
+    }
+
+    private val _governor = MutableStateFlow(prefs.getBoolean("governor", true))
+
+    /** Gobernador de FPS: si se apaga, el ritmo queda fijo en el perfil elegido (para comparar y medir). */
+    val governor: StateFlow<Boolean> = _governor.asStateFlow()
+
+    fun toggleGovernor() {
+        val on = !_governor.value
+        _governor.value = on
+        prefs.edit().putBoolean("governor", on).apply()
+    }
+
+    private val _marks = MutableStateFlow(false)
+
+    /** Marcas de diagnóstico: contador de cuadros de 4 bits en la esquina de la imagen (solo para medir; se apaga solo al reiniciar la app). */
+    val marks: StateFlow<Boolean> = _marks.asStateFlow()
+
+    fun toggleMarks() {
+        val on = !_marks.value
+        _marks.value = on
+        session?.pipeline?.setMarks(on)
     }
 
     private val _preset = MutableStateFlow(IptvPreset.BALANCED)
@@ -227,7 +251,7 @@ class IptvController private constructor(context: Context) {
                 override val startedAtMs = startedAt
             }
             val router = IptvRouter(token, segmenter, status) { System.currentTimeMillis() }
-            val srv = IptvServer(router, hub, acceptClient = ::isLanClient, ownAddress = ip, mp4 = mp4)
+            val srv = IptvServer(router, hub, acceptClient = ::isLanClient, ownAddress = ip, mp4 = mp4, segmentInfo = { seq -> segmenter.segment(seq) })
             srv.onFailure = { why -> lastDetail = why; mainHandler.post { stop(StopReason.SERVER_STOPPED) } }
             server = srv
             val port = startServer(srv, ip)
@@ -235,8 +259,9 @@ class IptvController private constructor(context: Context) {
             val pipe = CapturePipeline(
                 appContext, request, preset, captureAudio,
                 object : PipelineSink {
-                    override fun onTs(chunk: ByteArray, keyStart: Boolean) {
-                        segmenter.onChunk(chunk, keyStart, System.currentTimeMillis())
+                    override fun onTs(chunk: ByteArray, keyStart: Boolean) = onTsKind(chunk, keyStart, false)
+                    override fun onTsKind(chunk: ByteArray, keyStart: Boolean, video: Boolean) {
+                        segmenter.onChunk(chunk, keyStart, System.currentTimeMillis(), video)
                         hub.publish(chunk, keyStart)
                     }
                     override fun onMp4Init(init: ByteArray) = mp4.onInit(init)
@@ -293,8 +318,9 @@ class IptvController private constructor(context: Context) {
                         networkUp = LanIp.pick() != null,
                     )
                     solo.onSecond(pipe.capturesSystemAudio, pipe.takeAudioPeakDb())
+                    pipe.setMarks(_marks.value)
                     if (tick++ % 5 == 0) thermal = com.opentv.app.bench.ThermalProbe.read(appContext).androidStatus
-                    if (pipe.pumpActive) {
+                    if (pipe.pumpActive && _governor.value) {
                         val d = governor.onSecond(
                             FpsGovernor.Sample(encFps, renFps, producedKbps, deliveredKbps, srv.activeClients, FpsGovernor.thermalLimited(thermal)),
                         )
@@ -316,6 +342,7 @@ class IptvController private constructor(context: Context) {
                         capturedFps = capFps, renderedFps = renFps, pumpActive = pipe.pumpActive, msSinceFrame = sinceFrame,
                         health = verdict.text, healthy = verdict.healthy, profileApplied = pipe.profileApplied, requestedLabel = preset.label,
                         targetFps = governor.targetFps, bottleneck = governor.lastCause.label, governorNote = governorNote, thermal = thermal,
+                        timing = "Intervalo entre cuadros: ${pipe.frameIntervals().describe()} · tics atrasados: ${pipe.lateTicks}\n${srv.deliveries.summary().describe()}",
                     )
                     if (session != null) _state.value = live
                     TransmissionRegistry.publish(

@@ -34,6 +34,8 @@ sealed interface BrowserMirrorState {
         val producedFps: Int = 0,
         /** Calidad JPEG vigente (baja sola si el navegador no puede con el ritmo). */
         val jpegQuality: Int = 0,
+        /** De los cuadros enviados por segundo, cuántos fueron repeticiones del último (pantalla quieta): explica un «1 FPS». */
+        val repeatedFps: Int = 0,
     ) : BrowserMirrorState
     data class Failed(val message: String) : BrowserMirrorState
 }
@@ -136,6 +138,7 @@ class BrowserMirror(context: Context) {
             var lastFrames = 0L
             var lastBytes = 0L
             var lastSeq = 0L
+            var lastRepeats = 0L
             timer.schedule(object : java.util.TimerTask() {
                 override fun run() {
                     val frames = server.framesSent.get()
@@ -149,8 +152,9 @@ class BrowserMirror(context: Context) {
                         home, slow, clients,
                         (frames - lastFrames).toInt(), ((bytes - lastBytes) / 1024).toInt(), server.history,
                         producedFps = produced.toInt(), jpegQuality = encoder.jpegQuality,
+                        repeatedFps = (server.repeatsSent.get() - lastRepeats).toInt(),
                     )
-                    lastFrames = frames; lastBytes = bytes; lastSeq = seq
+                    lastFrames = frames; lastBytes = bytes; lastSeq = seq; lastRepeats = server.repeatsSent.get()
                     if (session != null) _state.value = s
                 }
             }, 1_000, 1_000)

@@ -432,3 +432,10 @@ Alcance: SOLO descubrir dispositivos Wi-Fi Direct con la API pública y mostrar 
 - IPTV y Link: `FpsGovernor` (60→30→24→15, con causa: dibujado, codificador, temperatura, red). Ajusta en vivo el ritmo de la bomba de cuadros y el bitrate, sin otro permiso.
 - Espejo por navegador: `MjpegAdaptive` baja o sube la calidad JPEG según lo producido contra lo enviado (pantalla quieta ≠ congestión). Muestra cuadros producidos y calidad.
 - NO hecho (ver informe): DLNA (está en `connect/`, protegido), mejoras de Miracast nativo, audio en navegador, transporte propio sobre Wi‑Fi Direct, compilación Android real.
+
+## Fase 6.7
+- Instrumentación de microcortes (intervalos, cuadros tardíos, entrega por segmento, marcas GL, gobernador conmutable): implementada, probada en JVM la parte pura; **efecto sobre los cortes no verificado**.
+- MJPEG: contador de repetidos vs nuevos. Wi-Fi Direct: estado previo a `connect()` registrado.
+- DLNA independiente (`media/dlna/`): ver `docs/DLNA-INDEPENDIENTE.md`. UI en la pantalla IPTV.
+- Receptor PS3: núcleo C probado en PC; capa PS3 sin compilar ni probar (`docs/PS3-RECEPTOR.md`).
+- No hecho: mejoras de OpenTV Link para receptores no-Android (capacidades en HELLO, código en pantalla, reanudación), alternativas de navegador para LG NetCast, cifrado en el receptor PS3.

@@ -42,6 +42,8 @@ class MjpegHttpServer(
     private val prefix: String = if (token.isEmpty()) "/" else "/$token/"
     val bytesSent = AtomicLong(0)
     val framesSent = AtomicLong(0)
+    /** Cuadros que fueron REPETICIONES del último (pantalla sin cambios), no imágenes nuevas. */
+    val repeatsSent = AtomicLong(0)
 
     /** Empieza a escuchar y devuelve el puerto: el primero libre de [preferredPorts] (fijo y fácil de teclear) o uno al azar. */
     fun start(bindAddress: InetAddress?, preferredPorts: List<Int> = emptyList()): Int {
@@ -144,6 +146,7 @@ class MjpegHttpServer(
         while (running && !hub.isClosed) {
             val newer = hub.awaitNewer(lastSeq, idleResendMs)
             val frame = newer ?: lastFrame ?: continue // sin novedades: se repite el último para mantener viva la conexión
+            if (newer == null) repeatsSent.incrementAndGet()
             writeFrame(out, frame.jpeg)
             lastSeq = frame.seq
             lastFrame = frame

@@ -19,6 +19,8 @@ import java.util.concurrent.atomic.AtomicLong
 interface PipelineSink {
     /** Bloque MPEG‑TS; [keyStart] = empieza en un fotograma clave (lleva PAT/PMT). */
     fun onTs(chunk: ByteArray, keyStart: Boolean)
+    /** Igual que [onTs] pero indica si el bloque es un cuadro de video (para contar cuadros por segmento). */
+    fun onTsKind(chunk: ByteArray, keyStart: Boolean, video: Boolean) = onTs(chunk, keyStart)
     /** Segmento de inicio del MP4 fragmentado (se repite para cada cliente nuevo). */
     fun onMp4Init(init: ByteArray) {}
     /** Fragmento MP4 que empieza en un fotograma clave. */
@@ -79,6 +81,10 @@ class CapturePipeline(
 
     /** Error en tiempo de ejecución de la bomba (si dejó de dibujar). */
     val pumpFailure: String? get() = pump?.failure
+    /** Intervalos entre cuadros dibujados por la bomba (vacío si no hay bomba). */
+    fun frameIntervals(): IntervalStats = pump?.intervals?.snapshot() ?: IntervalStats(0, 0.0, 0.0, 0.0, 0.0)
+    val lateTicks: Long get() = pump?.lateTicks?.get() ?: 0L
+    fun setMarks(on: Boolean) { pump?.marks = on }
 
     /** `true` si el codificador aplicó el perfil y nivel pedidos. */
     val profileApplied: Boolean get() = encoder?.profileApplied ?: false
@@ -141,7 +147,7 @@ class CapturePipeline(
             onEnded = { why -> mainHandler.post { onEnded(StopReason.ENCODER_STOPPED, why) } },
         ) { chunk, key ->
             produced.addAndGet(chunk.size.toLong())
-            sink.onTs(chunk, key)
+            sink.onTsKind(chunk, key, true)
         }
         encoder = enc
         val encoderSurface = enc.start()
@@ -163,7 +169,7 @@ class CapturePipeline(
         val onAudio: (ByteArray, Long) -> Unit = { adts, pts ->
             val ts = muxer.muxAudio(adts, pts)
             produced.addAndGet(ts.size.toLong())
-            sink.onTs(ts, false)
+            sink.onTsKind(ts, false, false)
             synchronized(mp4) { mp4.addAudio(adts, pts) }
         }
 

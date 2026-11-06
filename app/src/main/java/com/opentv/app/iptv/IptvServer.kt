@@ -27,6 +27,10 @@ class IptvServer(
     private val ownAddress: InetAddress? = null,
     /** Origen del MP4 fragmentado; `null` = esa ruta responde 503. */
     private val mp4: Mp4Feed? = null,
+    /** Registro de entregas de segmentos HLS (tiempo de envío, cuadros, separación entre pedidos). */
+    val deliveries: SegmentDeliveryLog = SegmentDeliveryLog(),
+    /** Datos del segmento pedido (duración y cuadros), para completar el registro. */
+    private val segmentInfo: (Long) -> HlsSegment? = { null },
 ) {
     private var server: ServerSocket? = null
     private val pool = Executors.newCachedThreadPool { r -> Thread(r, "opentv-iptv-http").apply { isDaemon = true } }
@@ -126,8 +130,14 @@ class IptvServer(
             when (response) {
                 is IptvResponse.Body -> {
                     note("$who · $method ${path.substringBefore('?').substringAfterLast('/')} · ${response.status} · ${response.body.size} B")
+                    val segSeq: Long? = HlsNames.parseSegment(path.substringBefore('?').substringAfterLast('/'))
+                    val t0 = System.currentTimeMillis()
                     try {
                         writeBody(out, response, head = method == "HEAD", keepAlive = keepAlive)
+                        val seg: HlsSegment? = if (segSeq != null && response.status in 200..299) segmentInfo(segSeq) else null
+                        if (segSeq != null && seg != null) {
+                            deliveries.record(SegmentDelivery(segSeq, response.body.size, System.currentTimeMillis() - t0, seg.durationMs, seg.frames, t0))
+                        }
                     } catch (e: IOException) {
                         note("$who · ${path.substringBefore('?').substringAfterLast('/')} · el cliente cortó durante la respuesta")
                         return

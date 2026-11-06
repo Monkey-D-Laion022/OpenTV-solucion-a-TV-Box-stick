@@ -253,9 +253,32 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
 
     // ---- Fase 1: solicitud de conexión ----
 
+    /** Experimento D4: deja en el registro cómo ve el sistema al televisor y si ya hay un grupo ANTES de conectar. */
+    private fun logPreConnectState(m: WifiP2pManager, ch: WifiP2pManager.Channel) {
+        try {
+            m.requestPeers(ch) { list ->
+                val d = list?.deviceList?.firstOrNull { it.deviceAddress.equals(peerAddress, ignoreCase = true) }
+                log(
+                    if (d == null) "Antes de conectar: el televisor no figura en la lista del sistema."
+                    else "Antes de conectar: «${d.deviceName}» estado ${P2pText.status(d.status)}, tipo ${d.primaryDeviceType ?: "sin dato"}, " +
+                        "${if (d.isServiceDiscoveryCapable) "con" else "sin"} descubrimiento de servicios.",
+                )
+            }
+            m.requestGroupInfo(ch) { g ->
+                log(
+                    if (g == null) "Antes de conectar: no hay ningún grupo Wi‑Fi Direct activo en este teléfono."
+                    else "Antes de conectar: ya hay un grupo activo (${g.networkName ?: "sin nombre"}, ${if (g.isGroupOwner) "este teléfono es propietario" else "este teléfono es cliente"}, ${g.clientList.size} cliente(s)).",
+                )
+            }
+        } catch (e: SecurityException) {
+            log("No se pudo leer el estado previo: ${e.message ?: "sin detalle"}.")
+        }
+    }
+
     private fun sendConnect() {
         val m = manager ?: return
         val ch = channel ?: return
+        logPreConnectState(m, ch)
         val config = WifiP2pConfig().apply {
             deviceAddress = peerAddress
             wps.setup = WpsInfo.PBC

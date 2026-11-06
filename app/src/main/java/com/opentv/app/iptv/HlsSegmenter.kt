@@ -1,7 +1,7 @@
 package com.opentv.app.iptv
 
 /** Un trozo de video/audio MPEG-TS listo para servir por HLS. */
-class HlsSegment(val sequence: Long, val durationMs: Long, val data: ByteArray) {
+class HlsSegment(val sequence: Long, val durationMs: Long, val data: ByteArray, val frames: Int = 0) {
     val name: String get() = HlsNames.segment(sequence)
 }
 
@@ -42,12 +42,13 @@ class HlsSegmenter(private val config: HlsConfig = HlsConfig()) {
     private var nextSequence = 0L
     private var retainedBytes = 0L
     private var ended = false
+    private var currentFrames = 0
 
     /** Segmentos completos publicados desde el inicio (sirve para mostrar actividad). */
     val publishedSegments: Long get() = synchronized(lock) { nextSequence }
 
     /** [keyStart]: el bloque empieza en un fotograma clave. Antes del primero no se guarda nada (no se podría decodificar). */
-    fun onChunk(chunk: ByteArray, keyStart: Boolean, nowMs: Long) {
+    fun onChunk(chunk: ByteArray, keyStart: Boolean, nowMs: Long, video: Boolean = false) {
         synchronized(lock) {
             if (ended) return
             if (currentStartMs < 0) {
@@ -58,14 +59,17 @@ class HlsSegmenter(private val config: HlsConfig = HlsConfig()) {
                 currentStartMs = nowMs
             }
             current.write(chunk)
+            if (video) currentFrames++
         }
     }
 
     private fun closeCurrent(nowMs: Long) {
         val data = current.toByteArray()
         current = java.io.ByteArrayOutputStream()
+        val frames = currentFrames
+        currentFrames = 0
         if (data.isEmpty()) return
-        val seg = HlsSegment(nextSequence++, (nowMs - currentStartMs).coerceAtLeast(1), data)
+        val seg = HlsSegment(nextSequence++, (nowMs - currentStartMs).coerceAtLeast(1), data, frames)
         done.addLast(seg)
         retainedBytes += data.size
         val keep = config.windowSegments + config.extraKept
