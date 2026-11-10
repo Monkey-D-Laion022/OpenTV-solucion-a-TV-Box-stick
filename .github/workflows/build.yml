@@ -45,8 +45,8 @@ jobs:
           sudo apt-get install -y build-essential autoconf automake libtool zlib1g-dev wget python3
       - name: Configurar toolchain y compilar receptor PS3
         run: |
-          make -C ps3/ clean || make clean
-          make -C ps3/ || make
+          make clean || true
+          make
       - name: Guardar PKG de PS3
         if: success()
         uses: actions/upload-artifact@v4
@@ -54,7 +54,6 @@ jobs:
           name: opentv-ps3-pkg
           path: |
             *.pkg
-            ps3/*.pkg
             build/*.pkg
           if-no-files-found: warn
           
