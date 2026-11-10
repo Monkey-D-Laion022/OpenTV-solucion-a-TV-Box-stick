@@ -1,3 +1,4 @@
+
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
@@ -5,53 +6,41 @@ P="${PS3DEV:?ERROR: PS3DEV no está definido}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 N="$P/ppu/powerpc64-ps3-elf"
-L="$P/ppu/ppu/lib"
-ASM_HEADER="$HERE/ppc-asm.h"
+
+if [ ! -d "$N/include" ]; then
+    echo "ERROR: faltan los headers PPU: $N/include" >&2
+    exit 1
+fi
 
 BASE=(
     --target=powerpc64-unknown-elf
-    -mcpu=970
+    -mcpu=cell
+    -mabi=elfv1
+    -mbig-endian
+    -ffreestanding
     -nostdlibinc
     -isystem "$N/include"
     -fno-pic
     -fno-pie
     -fno-stack-protector
-    -Wno-everything
-    -Wno-unused-command-line-argument
 )
 
-# ------------------------------------------------------------
-# 1. Argumentos
-# ------------------------------------------------------------
-
 args=()
-asm=0
 compile=0
 
 for a in "$@"; do
     case "$a" in
-        -D__ASSEMBLY__)
-            asm=1
-            args+=("$a")
-            ;;
-
         -c|-S|-E|-M|-MM|-fsyntax-only)
             compile=1
             args+=("$a")
             ;;
-
-        -mcpu=cell|-Wa,-mcell|-mregnames|-mhard-float|-fmodulo-sched|-mminimal-toc|-Wl,-Map,*)
+        -mcpu=cell|-Wa,-mcell)
             ;;
-
         *)
             args+=("$a")
             ;;
     esac
 done
-
-# ------------------------------------------------------------
-# 2. Consultas informativas de Clang
-# ------------------------------------------------------------
 
 if [ "$#" -eq 1 ]; then
     case "$1" in
@@ -61,72 +50,10 @@ if [ "$#" -eq 1 ]; then
     esac
 fi
 
-# ------------------------------------------------------------
-# 3. Comprobar headers
-# ------------------------------------------------------------
-
-if [ ! -d "$N/include" ]; then
-    echo "ERROR: faltan los headers PPU: $N/include" >&2
-    exit 1
+if [ "$compile" -eq 1 ]; then
+    exec clang "${BASE[@]}" "${args[@]}"
 fi
 
-# ------------------------------------------------------------
-# 4. Compilación sin enlazado
-# ------------------------------------------------------------
-
-if [ "$compile" = 1 ]; then
-    extra=()
-
-    if [ "$asm" = 1 ]; then
-        if [ ! -f "$ASM_HEADER" ]; then
-            echo "ERROR: falta ppc-asm.h: $ASM_HEADER" >&2
-            exit 1
-        fi
-
-        extra=(-include "$ASM_HEADER")
-    fi
-
-    exec clang \
-        "${BASE[@]}" \
-        "${extra[@]}" \
-        "${args[@]}"
-fi
-
-# ------------------------------------------------------------
-# 5. Comprobar archivos necesarios para enlazar
-# ------------------------------------------------------------
-
-for f in \
-    "$L/lv2.ld" \
-    "$L/lv2-crt0.o" \
-    "$L/lv2-crti.o" \
-    "$L/lv2-crtn.o" \
-    "$L/lv2-sprx.o"
-do
-    if [ ! -e "$f" ]; then
-        echo "ERROR: falta archivo necesario para enlazar: $f" >&2
-        exit 1
-    fi
-done
-
-# ------------------------------------------------------------
-# 6. Enlazado experimental PS3
-# ------------------------------------------------------------
-
-exec clang \
-    "${BASE[@]}" \
-    -nostdlib \
-    -nostartfiles \
-    -fuse-ld=lld \
-    -static \
-    -Wl,--no-pie,-T,"$L/lv2.ld",--allow-multiple-definition,--no-gc-sections,-z,norelro \
-    "$L/lv2-crt0.o" \
-    "$L/lv2-crti.o" \
-    "${args[@]}" \
-    -L"$P/ppu/lib" \
-    -L"$N/lib" \
-    -Wl,--start-group \
-    -lc -lsysbase -lnosys \
-    -Wl,--end-group \
-    "$L/lv2-crtn.o" \
-    "$L/lv2-sprx.o"
+echo "ERROR: el enlazado final PS3 todavía no está habilitado." >&2
+echo "No se debe generar un ejecutable hasta validar CRT, linker y ABI." >&2
+exit 1
