@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # ============================================================
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PS3_ROOT="$(cd "$HERE/.." && pwd)"
+PS3_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 BUILD_ROOT="${PS3_BUILD_ROOT:?ERROR: PS3_BUILD_ROOT no esta definido}"
 PS3DEV="${PS3DEV:?ERROR: PS3DEV no esta definido}"
