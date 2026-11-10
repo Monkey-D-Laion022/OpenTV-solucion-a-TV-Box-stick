@@ -4,19 +4,26 @@ set -Eeuo pipefail
 
 # ============================================================
 # OpenTV PS3 - Descarga y verificacion de dependencias
-# Esta fase NO compila ni instala bibliotecas.
+# Descarga FAAD2 y mbedTLS.
+# NO compila ni instala bibliotecas.
 # ============================================================
 
 BUILD_ROOT="${PS3_BUILD_ROOT:?ERROR: PS3_BUILD_ROOT no esta definido}"
 
+# FAAD2: commit fijado para mantener una version reproducible.
 FAAD_REPO="https://github.com/knik0/faad2.git"
 FAAD_COMMIT="a335040022e14ff9b6c54bbd459590d4c7edffe8"
 
+# mbedTLS: version fijada.
 MBED_REPO="https://github.com/Mbed-TLS/mbedtls.git"
 MBED_TAG="v3.6.2"
 
 FAAD_DIR="$BUILD_ROOT/faad2"
 MBED_DIR="$BUILD_ROOT/mbedtls"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PS3_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+CONFIG="$PS3_ROOT/third_party/ot_mbedtls_config.h"
 
 mkdir -p "$BUILD_ROOT"
 
@@ -25,77 +32,120 @@ echo " OpenTV PS3 - Descarga de dependencias"
 echo "============================================"
 
 # ------------------------------------------------------------
-# FAAD2
+# 1. FAAD2
 # ------------------------------------------------------------
 
 echo
 echo "1. Descargando FAAD2..."
 
-if [ -d "$FAAD_DIR/.git" ]; then
-    echo "Repositorio FAAD2 existente."
-else
-    rm -rf "$FAAD_DIR"
-    git clone "$FAAD_REPO" "$FAAD_DIR"
-fi
+rm -rf "$FAAD_DIR"
 
-git -C "$FAAD_DIR" fetch origin "$FAAD_COMMIT"
-git -C "$FAAD_DIR" checkout --detach "$FAAD_COMMIT"
+mkdir -p "$FAAD_DIR"
 
-if [ ! -f "$FAAD_DIR/include/neaacdec.h" ]; then
-    echo "ERROR: no se encontro include/neaacdec.h en FAAD2."
+git -C "$FAAD_DIR" init
+git -C "$FAAD_DIR" remote add origin "$FAAD_REPO"
+
+if ! git -C "$FAAD_DIR" fetch --depth 1 origin "$FAAD_COMMIT"; then
+    echo "ERROR: no se pudo descargar el commit fijado de FAAD2."
+    echo "Commit: $FAAD_COMMIT"
+    echo "No se utilizara otra version automaticamente."
     exit 1
 fi
 
-echo "FAAD2 descargado:"
-git -C "$FAAD_DIR" rev-parse HEAD
+git -C "$FAAD_DIR" checkout --detach FETCH_HEAD
+
+if [ ! -f "$FAAD_DIR/CMakeLists.txt" ]; then
+    echo "ERROR: falta CMakeLists.txt en FAAD2."
+    exit 1
+fi
+
+if [ ! -f "$FAAD_DIR/include/neaacdec.h" ]; then
+    echo "ERROR: falta include/neaacdec.h en FAAD2."
+    exit 1
+fi
+
+ACTUAL_FAAD="$(git -C "$FAAD_DIR" rev-parse HEAD)"
+
+if [ "$ACTUAL_FAAD" != "$FAAD_COMMIT" ]; then
+    echo "ERROR: el commit descargado de FAAD2 no coincide."
+    exit 1
+fi
+
+echo "[OK] FAAD2 descargado."
+echo "Commit: $ACTUAL_FAAD"
 
 # ------------------------------------------------------------
-# mbedTLS
+# 2. mbedTLS
 # ------------------------------------------------------------
 
 echo
 echo "2. Descargando mbedTLS..."
 
-if [ -d "$MBED_DIR/.git" ]; then
-    echo "Repositorio mbedTLS existente."
-else
-    rm -rf "$MBED_DIR"
-    git clone --branch "$MBED_TAG" --depth 1 "$MBED_REPO" "$MBED_DIR"
-fi
+rm -rf "$MBED_DIR"
 
-if [ ! -f "$MBED_DIR/CMakeLists.txt" ]; then
-    echo "ERROR: no se encontro CMakeLists.txt en mbedTLS."
+if ! git clone \
+    --branch "$MBED_TAG" \
+    --depth 1 \
+    "$MBED_REPO" \
+    "$MBED_DIR"; then
+    echo "ERROR: no se pudo descargar mbedTLS $MBED_TAG."
     exit 1
 fi
 
-if [ ! -f "$MBED_DIR/include/mbedtls/build_info.h" ]; then
+if [ ! -f "$MBED_DIR/CMakeLists.txt" ]; then
+    echo "ERROR: falta CMakeLists.txt en mbedTLS."
+    exit 1
+fi
+
+if [ ! -f "$MBED_DIR/include/mbedtls/ssl.h" ]; then
     echo "ERROR: faltan los headers de mbedTLS."
     exit 1
 fi
 
-echo "mbedTLS descargado:"
-git -C "$MBED_DIR" describe --tags --exact-match
+ACTUAL_MBED="$(git -C "$MBED_DIR" describe --tags --exact-match)"
+
+if [ "$ACTUAL_MBED" != "$MBED_TAG" ]; then
+    echo "ERROR: la version descargada de mbedTLS no coincide."
+    exit 1
+fi
+
+echo "[OK] mbedTLS descargado."
+echo "Version: $ACTUAL_MBED"
 
 # ------------------------------------------------------------
-# Configuracion OpenTV
+# 3. Configuracion OpenTV
 # ------------------------------------------------------------
 
 echo
 echo "3. Comprobando configuracion OpenTV..."
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PS3_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-CONFIG="$PS3_ROOT/third_party/ot_mbedtls_config.h"
-
 if [ ! -f "$CONFIG" ]; then
-    echo "ERROR: falta ot_mbedtls_config.h: $CONFIG"
+    echo "ERROR: falta ot_mbedtls_config.h:"
+    echo "$CONFIG"
     exit 1
 fi
 
-echo "Configuracion encontrada: $CONFIG"
+echo "[OK] Configuracion encontrada:"
+echo "$CONFIG"
 
 # ------------------------------------------------------------
-# Resultado
+# 4. Guardar informacion de versiones
+# ------------------------------------------------------------
+
+echo
+echo "4. Guardando versiones..."
+
+cat > "$BUILD_ROOT/deps-versions.txt" <<EOF
+FAAD2_REPOSITORY=$FAAD_REPO
+FAAD2_COMMIT=$ACTUAL_FAAD
+MBEDTLS_REPOSITORY=$MBED_REPO
+MBEDTLS_VERSION=$ACTUAL_MBED
+EOF
+
+echo "[OK] Versiones guardadas."
+
+# ------------------------------------------------------------
+# 5. Resultado
 # ------------------------------------------------------------
 
 echo
@@ -104,5 +154,7 @@ echo " DESCARGA COMPLETADA"
 echo "============================================"
 echo "FAAD2:   $FAAD_DIR"
 echo "mbedTLS: $MBED_DIR"
+echo "Config:  $CONFIG"
 echo
-echo "IMPORTANTE: las bibliotecas todavia NO estan compiladas."
+echo "Las fuentes estan descargadas."
+echo "Las bibliotecas todavia NO estan compiladas."
