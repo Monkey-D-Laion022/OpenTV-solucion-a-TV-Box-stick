@@ -4,18 +4,17 @@ set -Eeuo pipefail
 
 # ============================================================
 # OpenTV PS3 - Diagnostico de SDK, Clang y dependencias PPU
-# No compila ni instala dependencias.
+# No compila ni enlaza dependencias.
 # ============================================================
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PS3_ROOT="$(cd "$HERE/.." && pwd)"
-WRAPPER="$HERE/ppu-gcc.clang-wrapper"
+PS3_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 BUILD_ROOT="${PS3_BUILD_ROOT:?ERROR: PS3_BUILD_ROOT no esta definido}"
 PS3DEV="${PS3DEV:?ERROR: PS3DEV no esta definido}"
+WRAPPER="$HERE/ppu-gcc.clang-wrapper"
 
 DIAG="$BUILD_ROOT/diagnostic"
-
 ERRORS=0
 WARNINGS=0
 
@@ -40,26 +39,31 @@ echo "============================================"
 mkdir -p "$DIAG"
 
 # ------------------------------------------------------------
-# 1. Variables de entorno
+# 1. Variables y rutas
 # ------------------------------------------------------------
 
 echo
-echo "1. Variables de entorno"
+echo "1. Variables y rutas"
 
-if [ -d "$PS3DEV" ]; then
-    ok "PS3DEV=$PS3DEV"
+[ -d "$PS3DEV" ] && ok "PS3DEV: $PS3DEV" || fail "No existe PS3DEV."
+[ -d "$BUILD_ROOT" ] && ok "BUILD_ROOT: $BUILD_ROOT" || fail "No existe BUILD_ROOT."
+
+if [ -d "$PS3_ROOT" ]; then
+    ok "Raiz del repositorio: $PS3_ROOT"
 else
-    fail "No existe PS3DEV: $PS3DEV"
+    fail "No se encontro la raiz del repositorio."
 fi
 
-if [ -d "$BUILD_ROOT" ]; then
-    ok "PS3_BUILD_ROOT=$BUILD_ROOT"
+CONFIG="$PS3_ROOT/third_party/ot_mbedtls_config.h"
+
+if [ -s "$CONFIG" ]; then
+    ok "Configuracion mbedTLS encontrada."
 else
-    fail "No existe PS3_BUILD_ROOT: $BUILD_ROOT"
+    fail "No se encontro third_party/ot_mbedtls_config.h."
 fi
 
 if [ -n "${NEWLIB_SRC:-}" ] && [ -d "$NEWLIB_SRC" ]; then
-    ok "Newlib fuente: $NEWLIB_SRC"
+    ok "Fuentes Newlib: $NEWLIB_SRC"
 else
     warn "NEWLIB_SRC no esta disponible."
 fi
@@ -75,18 +79,25 @@ for tool in clang ld.lld make cmake git python3 ar ranlib file; do
     if command -v "$tool" >/dev/null 2>&1; then
         ok "$tool: $(command -v "$tool")"
     else
-        fail "No se encontro $tool"
+        fail "No se encontro $tool."
     fi
 done
 
+if command -v readelf >/dev/null 2>&1; then
+    ok "readelf disponible."
+else
+    warn "readelf no esta disponible; se usara file."
+fi
+
 # ------------------------------------------------------------
-# 3. Herramientas PS3 necesarias
+# 3. Herramientas PS3DEV
 # ------------------------------------------------------------
 
 echo
 echo "3. Herramientas PS3DEV"
 
 for tool in \
+    "$PS3DEV/ppu/bin/ppu-gcc" \
     "$PS3DEV/ppu/bin/ppu-strip" \
     "$PS3DEV/bin/sprxlinker" \
     "$PS3DEV/bin/fself" \
@@ -94,30 +105,25 @@ for tool in \
     "$PS3DEV/bin/pkg"
 do
     if [ -x "$tool" ]; then
-        ok "Herramienta encontrada: $tool"
+        ok "Encontrada: $tool"
     else
-        fail "Falta herramienta ejecutable: $tool"
+        warn "No encontrada o no ejecutable: $tool"
     fi
 done
 
-# ppu-gcc se inspecciona como referencia del SDK.
 if [ -x "$PS3DEV/ppu/bin/ppu-gcc" ]; then
-    ok "Compilador original del SDK encontrado."
-
     "$PS3DEV/ppu/bin/ppu-gcc" -dumpmachine \
         > "$DIAG/ppu-gcc-dumpmachine.txt" 2>&1 || true
 
     "$PS3DEV/ppu/bin/ppu-gcc" --version \
         > "$DIAG/ppu-gcc-version.txt" 2>&1 || true
 
-    echo "Target informado por ppu-gcc:"
+    echo "Target de referencia:"
     cat "$DIAG/ppu-gcc-dumpmachine.txt"
-else
-    warn "No se encontro ppu-gcc para comparar el target."
 fi
 
 # ------------------------------------------------------------
-# 4. Estructura SDK
+# 4. Estructura del SDK
 # ------------------------------------------------------------
 
 echo
@@ -126,7 +132,7 @@ echo "4. Estructura del SDK"
 for path in \
     "$PS3DEV/ppu" \
     "$PS3DEV/ppu/bin" \
-    "$PS3DEV/ppu/lib" \
+    "$PS3DEV/ppu/ppu/lib" \
     "$PS3DEV/ppu/powerpc64-ps3-elf/include" \
     "$PS3DEV/bin"
 do
@@ -138,31 +144,55 @@ do
 done
 
 echo
-echo "Buscando headers PPU..."
+echo "Buscando bibliotecas del SDK en todas sus carpetas..."
 
-find "$PS3DEV/ppu" \
-    -type d \
-    \( -name include -o -name headers \) \
-    -print 2>/dev/null | head -30 || true
+: > "$DIAG/sdk-libraries.txt"
+
+find "$PS3DEV" \
+    \( -type f -o -type l \) \
+    \( -name 'libc.a' -o -name 'libsysbase.a' -o -name 'lib*.a' \) \
+    -print 2>/dev/null |
+    sort -u > "$DIAG/sdk-libraries.txt" || true
+
+if [ -s "$DIAG/sdk-libraries.txt" ]; then
+    cat "$DIAG/sdk-libraries.txt"
+else
+    warn "No se encontraron bibliotecas estaticas en el SDK."
+fi
+
+LIBC_FOUND=0
+SYSBASE_FOUND=0
+
+while IFS= read -r path; do
+    case "$(basename "$path")" in
+        libc.a) LIBC_FOUND=1 ;;
+        libsysbase.a) SYSBASE_FOUND=1 ;;
+    esac
+done < "$DIAG/sdk-libraries.txt"
+
+if [ "$LIBC_FOUND" -eq 1 ]; then
+    ok "Se encontro libc.a."
+else
+    warn "No se encontro libc.a. Su ubicacion o construccion sigue pendiente."
+fi
+
+if [ "$SYSBASE_FOUND" -eq 1 ]; then
+    ok "Se encontro libsysbase.a."
+else
+    warn "No se encontro libsysbase.a. Su ubicacion o construccion sigue pendiente."
+fi
 
 echo
-echo "Buscando bibliotecas del SDK..."
+echo "Archivos CRT y linker:"
 
 find "$PS3DEV/ppu" \
-    -type f \
-    \( -name '*.a' -o -name '*.so' -o -name '*.o' \) \
-    -print 2>/dev/null | head -60 || true
-
-echo
-echo "Buscando archivos CRT y linker..."
-
-find "$PS3DEV/ppu" \
-    -type f \
+    \( -type f -o -type l \) \
     \( -name 'lv2.ld' -o -name 'lv2-crt*.o' -o -name 'lv2-sprx.o' \) \
-    -print 2>/dev/null | head -30 || true
+    -print 2>/dev/null |
+    sort -u | tee "$DIAG/sdk-crt-files.txt" || true
 
 # ------------------------------------------------------------
-# 5. Archivos OpenTV
+# 5. Archivos del proyecto
 # ------------------------------------------------------------
 
 echo
@@ -171,20 +201,17 @@ echo "5. Archivos del proyecto"
 for f in \
     "$WRAPPER" \
     "$HERE/ps3-ppu-clang.cmake" \
-    "$PS3_ROOT/third_party/ot_mbedtls_config.h"
+    "$CONFIG"
 do
-    if [ -f "$f" ]; then
+    if [ -s "$f" ]; then
         ok "Encontrado: $f"
     else
         fail "Falta archivo: $f"
     fi
 done
 
-if [ -x "$WRAPPER" ]; then
-    ok "Wrapper ejecutable."
-else
-    warn "El wrapper no tiene permiso de ejecucion; se intentara corregir."
-    chmod +x "$WRAPPER" 2>/dev/null || fail "No se pudo dar permiso al wrapper."
+if [ -f "$WRAPPER" ]; then
+    chmod +x "$WRAPPER" || fail "No se pudo dar permiso al wrapper."
 fi
 
 # ------------------------------------------------------------
@@ -207,23 +234,25 @@ else
 fi
 
 # ------------------------------------------------------------
-# 7. Bibliotecas compiladas y arquitectura de sus objetos
+# 7. Inspeccion de bibliotecas estaticas
 # ------------------------------------------------------------
 
 echo
 echo "7. Bibliotecas compiladas"
 
-FAAD_LIB="$BUILD_ROOT/faad-out/libfaad.a"
-MBED_LIB="$BUILD_ROOT/mbed-out/libmbed_ppu.a"
+: > "$DIAG/faad-object-types.txt"
+: > "$DIAG/mbed-object-types.txt"
 
 check_archive() {
     local lib="$1"
     local name="$2"
     local extract_dir="$DIAG/${name}-objects"
     local members="$DIAG/${name}-members.txt"
+    local types="$DIAG/${name}-object-types.txt"
     local object
     local description
     local object_count=0
+    local member_count=0
 
     if [ ! -s "$lib" ]; then
         fail "Biblioteca ausente o vacia: $lib"
@@ -242,14 +271,13 @@ check_archive() {
         return
     fi
 
+    member_count="$(wc -l < "$members")"
+
     rm -rf "$extract_dir"
     mkdir -p "$extract_dir"
 
-    if ! (
-        cd "$extract_dir"
-        ar x "$lib"
-    ); then
-        fail "No se pudieron extraer los objetos de $lib"
+    if ! (cd "$extract_dir" && ar x "$lib"); then
+        fail "No se pudieron extraer los objetos: $lib"
         return
     fi
 
@@ -257,22 +285,35 @@ check_archive() {
         object_count=$((object_count + 1))
         description="$(file -b "$object")"
 
-        echo "$description" >> "$DIAG/${name}-object-types.txt"
+        echo "$description" >> "$types"
 
         if ! grep -Eqi 'PowerPC|ppc64' <<< "$description"; then
             fail "Objeto no identificado como PowerPC: $object ($description)"
         fi
-    done < <(find "$extract_dir" -type f -name '*.o' -print0)
+
+        if command -v readelf >/dev/null 2>&1; then
+            readelf -h "$object" \
+                >> "$DIAG/${name}-elf-headers.txt" 2>&1 || true
+        fi
+    done < <(find "$extract_dir" -type f -print0)
 
     if [ "$object_count" -eq 0 ]; then
-        fail "No se encontraron objetos .o dentro de $lib"
-    else
-        ok "$name: $object_count objetos inspeccionados."
+        fail "No se encontraron objetos extraidos de $lib."
+        return
     fi
+
+    if [ "$object_count" -ne "$member_count" ]; then
+        warn "$name: miembros AR ($member_count) y archivos extraidos ($object_count) no coinciden. Revisar duplicados."
+    fi
+
+    ok "$name: $object_count archivos inspeccionados."
 }
 
-: > "$DIAG/faad-object-types.txt"
-: > "$DIAG/mbed-object-types.txt"
+FAAD_LIB="$BUILD_ROOT/faad-out/libfaad.a"
+MBED_LIB="$BUILD_ROOT/mbed-out/libmbed_ppu.a"
+
+: > "$DIAG/faad-elf-headers.txt"
+: > "$DIAG/mbed-elf-headers.txt"
 
 check_archive "$FAAD_LIB" "faad"
 check_archive "$MBED_LIB" "mbed"
@@ -291,7 +332,7 @@ for header in \
     "$BUILD_ROOT/mbed-out/include/ot_mbedtls_config.h"
 do
     if [ -s "$header" ]; then
-        ok "Encabezado encontrado: $header"
+        ok "Encabezado: $header"
     else
         fail "Falta encabezado: $header"
     fi
@@ -323,13 +364,18 @@ if [ -x "$WRAPPER" ]; then
         if [ -s "$PROBE_O" ]; then
             ok "Objeto de prueba generado."
 
-            DESCRIPTION="$(file "$PROBE_O")"
+            DESCRIPTION="$(file -b "$PROBE_O")"
             echo "$DESCRIPTION" | tee "$DIAG/ppu-probe-file.txt"
 
             if grep -Eqi 'PowerPC|ppc64' <<< "$DESCRIPTION"; then
                 ok "Objeto identificado como PowerPC."
             else
                 fail "El objeto no fue identificado como PowerPC."
+            fi
+
+            if command -v readelf >/dev/null 2>&1; then
+                readelf -h "$PROBE_O" \
+                    > "$DIAG/ppu-probe-elf-header.txt" 2>&1 || true
             fi
         else
             fail "La compilacion no genero un objeto valido."
@@ -358,6 +404,13 @@ echo
 echo "Informes guardados en:"
 echo "$DIAG"
 
+echo
+echo "IMPORTANTE:"
+echo "La arquitectura PowerPC detectada NO confirma ABI PS3."
+echo "La presencia de bibliotecas NO confirma que sean compatibles."
+echo "No se ha probado el enlazado ni la generacion de PKG."
+echo "El wrapper mantiene bloqueado el enlazado final."
+
 if [ "$ERRORS" -gt 0 ]; then
     echo
     echo "DIAGNOSTICO FALLIDO."
@@ -367,6 +420,4 @@ fi
 
 echo
 echo "DIAGNOSTICO BASICO COMPLETADO."
-echo "Los objetos se identificaron por arquitectura."
-echo "Esto NO confirma ABI PS3."
-echo "Tampoco confirma el enlazado ni el PKG."
+echo "Revisar los avisos antes de habilitar nuevas etapas."
