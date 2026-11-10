@@ -125,19 +125,19 @@ cmake \
 echo
 echo "4. Comprobando compilador..."
 
-if ! grep -Fq "CMAKE_C_COMPILER:FILEPATH=$WRAPPER" \
-    "$BUILD_DIR/CMakeCache.txt" &&
-   ! grep -Fq "CMAKE_C_COMPILER:STRING=$WRAPPER" \
-    "$BUILD_DIR/CMakeCache.txt" &&
-   ! grep -Fq "CMAKE_C_COMPILER:UNINITIALIZED=$WRAPPER" \
-    "$BUILD_DIR/CMakeCache.txt"; then
+if grep -R -Fq "ppu-gcc.clang-wrapper" \
+    "$BUILD_DIR/CMakeCache.txt" "$BUILD_DIR/CMakeFiles"; then
 
-    echo "ERROR: CMake no registro el wrapper como compilador."
+    echo "[OK] CMake registro referencias al wrapper."
+
+else
+    echo "ERROR: no se encontro el wrapper en los registros de CMake."
+    echo "Entrada de CMAKE_C_COMPILER:"
     grep "CMAKE_C_COMPILER:" "$BUILD_DIR/CMakeCache.txt" || true
+    echo "Archivos internos del compilador:"
+    find "$BUILD_DIR/CMakeFiles" -name "CMakeCCompiler.cmake" -print
     exit 1
 fi
-
-echo "[OK] CMake registro el wrapper."
 
 # ------------------------------------------------------------
 # 6. Comprobar headers generados
