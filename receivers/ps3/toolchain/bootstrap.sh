@@ -6,6 +6,10 @@ set -Eeuo pipefail
 # OpenTV PS3 - Preparacion del entorno experimental Clang
 # ============================================================
 
+: "${RUNNER_TEMP:?ERROR: RUNNER_TEMP no esta definido}"
+: "${GITHUB_ENV:?ERROR: GITHUB_ENV no esta definido}"
+: "${GITHUB_PATH:?ERROR: GITHUB_PATH no esta definido}"
+
 PS3DEV="$RUNNER_TEMP/ps3dev"
 BUILD_ROOT="$RUNNER_TEMP/ps3build"
 EXTRACT="$RUNNER_TEMP/ps3dev-extract"
@@ -237,32 +241,53 @@ do
 done
 
 # ------------------------------------------------------------
-# 9. Verificar archivos necesarios para Clang
+# 9. Verificar estructura PPU y archivos CRT
 # ------------------------------------------------------------
 
 echo "Verificando estructura PPU..."
 
-CHECK_PATHS=(
+REQUIRED_PATHS=(
   "$PS3DEV/ppu/powerpc64-ps3-elf/include"
   "$PS3DEV/ppu/ppu/lib/lv2.ld"
   "$PS3DEV/ppu/ppu/lib/lv2-crt0.o"
   "$PS3DEV/ppu/ppu/lib/lv2-crti.o"
   "$PS3DEV/ppu/ppu/lib/lv2-crtn.o"
   "$PS3DEV/ppu/ppu/lib/lv2-sprx.o"
-  "$PS3DEV/ppu/lib/libc.a"
-  "$PS3DEV/ppu/lib/libsysbase.a"
 )
 
-for path in "${CHECK_PATHS[@]}"; do
+for path in "${REQUIRED_PATHS[@]}"; do
   if [ -e "$path" ]; then
     echo "OK: $path"
   else
-    echo "NO ENCONTRADO: $path"
+    echo "ERROR: archivo requerido no encontrado: $path"
+    exit 1
   fi
 done
 
 # ------------------------------------------------------------
-# 10. Verificar Clang y LLD
+# 10. Buscar bibliotecas del sistema
+# ------------------------------------------------------------
+
+echo "Buscando bibliotecas del sistema..."
+
+for library in libc.a libsysbase.a; do
+  FOUND=0
+
+  while IFS= read -r -d '' path; do
+    echo "ENCONTRADA: $path"
+    FOUND=1
+  done < <(
+    find "$PS3DEV/ppu" -type f -name "$library" -print0
+  )
+
+  if [ "$FOUND" -eq 0 ]; then
+    echo "AVISO: $library no encontrada en el SDK."
+    echo "Puede requerir compilacion de Newlib/libgloss."
+  fi
+done
+
+# ------------------------------------------------------------
+# 11. Verificar Clang y LLD
 # ------------------------------------------------------------
 
 echo "Verificando Clang..."
@@ -274,7 +299,7 @@ echo "Verificando LLD..."
 ld.lld --version
 
 # ------------------------------------------------------------
-# 11. Resumen
+# 12. Resumen
 # ------------------------------------------------------------
 
 echo "============================================"
@@ -288,6 +313,7 @@ echo "NEWLIB_SRC=$NEWLIB_SRC"
 echo "IMPORTANTE:"
 echo "Newlib fue descargada, pero aun no compilada."
 echo "Las dependencias FAAD2 y mbedTLS aun no fueron compiladas."
-echo "La compatibilidad de Clang con el SDK debe verificarse."
+echo "La compatibilidad ABI de Clang con PS3 aun no esta validada."
+echo "El enlazado final permanece deshabilitado."
 
 echo "Preparacion finalizada."
