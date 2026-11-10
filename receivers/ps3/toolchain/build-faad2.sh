@@ -5,10 +5,10 @@ set -Eeuo pipefail
 # ============================================================
 # OpenTV PS3 - Compilacion de FAAD2 para PPU con Clang
 # No genera ejecutables Linux.
+# No habilita enlazado final PS3.
 # ============================================================
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PS3_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 BUILD_ROOT="${PS3_BUILD_ROOT:?ERROR: PS3_BUILD_ROOT no esta definido}"
 PS3DEV="${PS3DEV:?ERROR: PS3DEV no esta definido}"
@@ -16,6 +16,7 @@ PS3DEV="${PS3DEV:?ERROR: PS3DEV no esta definido}"
 FAAD_DIR="$BUILD_ROOT/faad2"
 BUILD_DIR="$BUILD_ROOT/faad-build"
 OUT_DIR="$BUILD_ROOT/faad-out"
+INSPECT_DIR="$BUILD_ROOT/faad-inspect"
 
 WRAPPER="$HERE/ppu-gcc.clang-wrapper"
 TOOLCHAIN="$HERE/ps3-ppu-clang.cmake"
@@ -30,7 +31,7 @@ echo "============================================"
 # 1. Comprobar herramientas
 # ------------------------------------------------------------
 
-for tool in cmake clang ar ranlib file; do
+for tool in cmake clang ar ranlib file git; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "ERROR: falta herramienta: $tool"
         exit 1
@@ -76,13 +77,10 @@ if [ "$ACTUAL_COMMIT" != "$EXPECTED_COMMIT" ]; then
     exit 1
 fi
 
-if [ ! -f "$FAAD_DIR/CMakeLists.txt" ]; then
-    echo "ERROR: falta CMakeLists.txt."
-    exit 1
-fi
-
-if [ ! -f "$FAAD_DIR/include/neaacdec.h" ]; then
-    echo "ERROR: falta include/neaacdec.h."
+if [ ! -f "$FAAD_DIR/CMakeLists.txt" ] ||
+   [ ! -f "$FAAD_DIR/include/neaacdec.h" ] ||
+   [ ! -f "$FAAD_DIR/include/faad.h.in" ]; then
+    echo "ERROR: fuentes o plantilla de headers FAAD2 incompletas."
     exit 1
 fi
 
@@ -95,10 +93,11 @@ echo "[OK] Fuentes FAAD2 verificadas."
 echo
 echo "2. Preparando directorios..."
 
-rm -rf "$BUILD_DIR" "$OUT_DIR"
+rm -rf "$BUILD_DIR" "$OUT_DIR" "$INSPECT_DIR"
 
 mkdir -p "$BUILD_DIR"
 mkdir -p "$OUT_DIR/include"
+mkdir -p "$INSPECT_DIR"
 
 # ------------------------------------------------------------
 # 4. Configurar CMake
@@ -141,11 +140,28 @@ fi
 echo "[OK] CMake registro el wrapper."
 
 # ------------------------------------------------------------
-# 6. Compilar biblioteca
+# 6. Comprobar headers generados
 # ------------------------------------------------------------
 
 echo
-echo "5. Compilando biblioteca FAAD2..."
+echo "5. Comprobando headers generados por CMake..."
+
+if [ ! -s "$BUILD_DIR/include/faad.h" ] ||
+   [ ! -s "$BUILD_DIR/include/neaacdec.h" ]; then
+    echo "ERROR: CMake no genero los headers esperados."
+    echo "Contenido de include:"
+    find "$BUILD_DIR" -maxdepth 3 -type f -path '*/include/*' -print
+    exit 1
+fi
+
+echo "[OK] Headers generados."
+
+# ------------------------------------------------------------
+# 7. Compilar biblioteca
+# ------------------------------------------------------------
+
+echo
+echo "6. Compilando biblioteca FAAD2..."
 
 JOBS="${JOBS:-2}"
 
@@ -155,11 +171,11 @@ cmake \
     --parallel "$JOBS"
 
 # ------------------------------------------------------------
-# 7. Localizar y verificar biblioteca
+# 8. Localizar y verificar biblioteca
 # ------------------------------------------------------------
 
 echo
-echo "6. Verificando biblioteca..."
+echo "7. Verificando biblioteca..."
 
 LIBRARY="$BUILD_DIR/libfaad.a"
 
@@ -181,36 +197,82 @@ if [ ! -s "$BUILD_ROOT/faad-archive-members.txt" ]; then
 fi
 
 # ------------------------------------------------------------
-# 8. Verificar headers
+# 9. Verificar arquitectura de los objetos
 # ------------------------------------------------------------
 
 echo
-echo "7. Comprobando headers..."
+echo "8. Inspeccionando arquitectura de objetos..."
+
+OBJECT="$INSPECT_DIR/object.tmp"
+OBJECT_COUNT=0
+
+while IFS= read -r member; do
+    [ -n "$member" ] || continue
+
+    if ! ar p "$LIBRARY" "$member" > "$OBJECT"; then
+        echo "ERROR: no se pudo extraer el objeto: $member"
+        exit 1
+    fi
+
+    if [ ! -s "$OBJECT" ]; then
+        echo "ERROR: objeto vacio: $member"
+        exit 1
+    fi
+
+    DESCRIPTION="$(file -b "$OBJECT")"
+
+    echo "$member: $DESCRIPTION"
+
+    if ! printf '%s\n' "$DESCRIPTION" | grep -Eqi 'PowerPC|powerpc'; then
+        echo "ERROR: objeto sin arquitectura PowerPC reconocible."
+        echo "Objeto: $member"
+        exit 1
+    fi
+
+    OBJECT_COUNT=$((OBJECT_COUNT + 1))
+
+done < "$BUILD_ROOT/faad-archive-members.txt"
+
+rm -f "$OBJECT"
+
+if [ "$OBJECT_COUNT" -eq 0 ]; then
+    echo "ERROR: no se inspeccionaron objetos."
+    exit 1
+fi
+
+echo "[OK] $OBJECT_COUNT objetos con arquitectura PowerPC reconocible."
+
+# ------------------------------------------------------------
+# 10. Verificar headers
+# ------------------------------------------------------------
+
+echo
+echo "9. Comprobando headers..."
 
 if [ ! -s "$FAAD_DIR/include/neaacdec.h" ]; then
     echo "ERROR: falta neaacdec.h."
     exit 1
 fi
 
-if [ ! -s "$BUILD_DIR/include/faad.h" ]; then
-    echo "ERROR: falta faad.h en el directorio de compilacion."
-    echo "No se puede completar la instalacion de headers."
+if [ ! -s "$BUILD_DIR/include/faad.h" ] ||
+   [ ! -s "$BUILD_DIR/include/neaacdec.h" ]; then
+    echo "ERROR: faltan headers generados por CMake."
     exit 1
 fi
 
 # ------------------------------------------------------------
-# 9. Instalar biblioteca y headers
+# 11. Instalar biblioteca y headers
 # ------------------------------------------------------------
 
 echo
-echo "8. Instalando salida..."
+echo "10. Instalando salida..."
 
 install -m 0644 "$LIBRARY" "$OUT_DIR/libfaad.a"
-install -m 0644 "$FAAD_DIR/include/neaacdec.h" "$OUT_DIR/include/neaacdec.h"
+install -m 0644 "$BUILD_DIR/include/neaacdec.h" "$OUT_DIR/include/neaacdec.h"
 install -m 0644 "$BUILD_DIR/include/faad.h" "$OUT_DIR/include/faad.h"
 
 # ------------------------------------------------------------
-# 10. Verificacion final
+# 12. Verificacion final
 # ------------------------------------------------------------
 
 if [ ! -s "$OUT_DIR/libfaad.a" ]; then
@@ -231,7 +293,7 @@ fi
 
 echo
 echo "============================================"
-echo " FAAD2 COMPILADA"
+echo " FAAD2 COMPILADA Y VERIFICADA"
 echo "============================================"
 
 echo "Biblioteca:"
@@ -242,18 +304,15 @@ echo "Headers:"
 ls -lh "$OUT_DIR/include/"
 
 echo
-echo "Objetos incluidos:"
-wc -l "$BUILD_ROOT/faad-archive-members.txt"
-
-echo
-echo "Arquitectura de los objetos:"
-FIRST_OBJECT="$(head -n 1 "$BUILD_ROOT/faad-archive-members.txt")"
-
-if [ -n "$FIRST_OBJECT" ]; then
-    echo "Los objetos se verificaran posteriormente."
-fi
+echo "Objetos inspeccionados:"
+echo "$OBJECT_COUNT"
 
 echo
 echo "IMPORTANTE:"
-echo "La compilacion y el formato AR no demuestran compatibilidad ABI PS3."
-echo "El enlazado final se verificara posteriormente."
+echo "La arquitectura PowerPC reconocible fue comprobada."
+echo "Esto NO demuestra compatibilidad ABI PS3."
+echo "El enlazado final permanece deshabilitado."
+echo "La biblioteca aun debe superar las siguientes verificaciones."
+
+echo
+echo "Proceso FAAD2 finalizado."
