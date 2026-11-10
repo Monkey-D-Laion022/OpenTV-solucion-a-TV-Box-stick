@@ -22,7 +22,10 @@ INSPECT_DIR="$BUILD_ROOT/mbed-inspect"
 WRAPPER="$HERE/ppu-gcc.clang-wrapper"
 TOOLCHAIN="$HERE/ps3-ppu-clang.cmake"
 
-CONFIG="$PS3_ROOT/third_party/ot_mbedtls_config.h"
+# Ruta REAL del archivo dentro del repositorio.
+CONFIG_DIR="$PS3_ROOT/receivers/ps3/third_party"
+CONFIG="$CONFIG_DIR/ot_mbedtls_config.h"
+
 EXPECTED_TAG="v3.6.2"
 LIBRARY="$OUT_DIR/libmbedcrypto.a"
 
@@ -60,11 +63,14 @@ if [ ! -f "$TOOLCHAIN" ]; then
 fi
 
 echo "Raiz del repositorio: $PS3_ROOT"
+echo "Directorio de configuracion: $CONFIG_DIR"
 echo "Ruta de configuracion: $CONFIG"
 
 if [ ! -f "$CONFIG" ]; then
-    echo "ERROR: no existe ot_mbedtls_config.h."
-    echo "Buscando el archivo dentro del repositorio..."
+    echo "ERROR: no existe ot_mbedtls_config.h en la ruta esperada."
+    echo "Contenido del directorio:"
+    ls -la "$CONFIG_DIR" || true
+    echo "Buscando el archivo dentro del repositorio:"
     find "$PS3_ROOT" -type f -name "ot_mbedtls_config.h" -print
     exit 1
 fi
@@ -98,7 +104,7 @@ ACTUAL_TAG="$(git -C "$MBED_DIR" describe --tags --exact-match 2>/dev/null || tr
 if [ "$ACTUAL_TAG" != "$EXPECTED_TAG" ]; then
     echo "ERROR: version incorrecta de mbedTLS."
     echo "Esperada: $EXPECTED_TAG"
-    echo "Actual:   ${ACTUAL_TAG:-sin etiqueta}"
+    echo "Actual: ${ACTUAL_TAG:-sin etiqueta}"
     exit 1
 fi
 
@@ -131,7 +137,7 @@ mkdir -p "$INSPECT_DIR"
 echo
 echo "4. Configurando compilacion cruzada..."
 
-C_FLAGS="-O2 -ffunction-sections -fdata-sections -I$PS3_ROOT/third_party -DMBEDTLS_CONFIG_FILE=\"ot_mbedtls_config.h\""
+C_FLAGS="-O2 -ffunction-sections -fdata-sections -I$CONFIG_DIR -DMBEDTLS_CONFIG_FILE=\"ot_mbedtls_config.h\""
 
 cmake \
     -S "$MBED_DIR" \
@@ -166,12 +172,6 @@ echo "[OK] Wrapper registrado."
 echo
 echo "Comprobando configuracion personalizada..."
 
-if ! grep -Fq "ot_mbedtls_config.h" "$BUILD_DIR/CMakeCache.txt" &&
-   ! grep -Fq "ot_mbedtls_config.h" "$BUILD_DIR/compile_commands.json"; then
-    echo "ERROR: la configuracion personalizada no aparece en CMake."
-    exit 1
-fi
-
 if [ ! -s "$BUILD_DIR/compile_commands.json" ]; then
     echo "ERROR: no se genero compile_commands.json."
     exit 1
@@ -179,6 +179,11 @@ fi
 
 if ! grep -Fq "ot_mbedtls_config.h" "$BUILD_DIR/compile_commands.json"; then
     echo "ERROR: la configuracion personalizada no aparece en los comandos de compilacion."
+    exit 1
+fi
+
+if ! grep -Fq "$CONFIG_DIR" "$BUILD_DIR/compile_commands.json"; then
+    echo "ERROR: el directorio de configuracion no aparece en los comandos de compilacion."
     exit 1
 fi
 
