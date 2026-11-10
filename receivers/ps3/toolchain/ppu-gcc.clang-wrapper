@@ -1,6 +1,6 @@
 
-#!/usr/bin/env bash
-set -Eeuo pipefail
+#!/bin/sh
+set -eu
 
 P="${PS3DEV:?ERROR: PS3DEV no está definido}"
 N="$P/ppu/powerpc64-ps3-elf"
@@ -10,45 +10,46 @@ if [ ! -d "$N/include" ]; then
     exit 1
 fi
 
-BASE=(
-    --target=powerpc64-unknown-elf
-    -mcpu=cell
-    -mbig-endian
-    -ffreestanding
-    -nostdlibinc
-    -isystem "$N/include"
-    -fno-pic
-    -fno-pie
-    -fno-stack-protector
-)
-
-args=()
-compile=0
-
-for a in "$@"; do
-    case "$a" in
-        -c|-S|-E|-M|-MM|-fsyntax-only)
-            compile=1
-            args+=("$a")
-            ;;
-        -mcpu=cell|-Wa,-mcell)
-            ;;
-        *)
-            args+=("$a")
-            ;;
-    esac
-done
-
 if [ "$#" -eq 1 ]; then
     case "$1" in
         --version|-version|-v|-dumpmachine|-dumpversion|-print-search-dirs|-print-resource-dir)
-            exec clang "${BASE[@]}" "$1"
+            exec clang \
+                --target=powerpc64-unknown-elf \
+                -mcpu=cell \
+                -mbig-endian \
+                -ffreestanding \
+                -nostdlibinc \
+                -isystem "$N/include" \
+                -fno-pic \
+                -fno-pie \
+                -fno-stack-protector \
+                "$1"
             ;;
     esac
 fi
 
-if [ "$compile" -eq 1 ]; then
-    exec clang "${BASE[@]}" "${args[@]}"
+COMPILE=0
+
+for ARG in "$@"; do
+    case "$ARG" in
+        -c|-S|-E|-M|-MM|-fsyntax-only)
+            COMPILE=1
+            ;;
+    esac
+done
+
+if [ "$COMPILE" -eq 1 ]; then
+    exec clang \
+        --target=powerpc64-unknown-elf \
+        -mcpu=cell \
+        -mbig-endian \
+        -ffreestanding \
+        -nostdlibinc \
+        -isystem "$N/include" \
+        -fno-pic \
+        -fno-pie \
+        -fno-stack-protector \
+        "$@"
 fi
 
 echo "ERROR: enlazado PS3 todavía no habilitado." >&2
