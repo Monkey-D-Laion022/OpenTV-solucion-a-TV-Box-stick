@@ -120,5 +120,5 @@ Los paquetes de las fases siguientes (`apps`, `connect`, `player`, `files`, `rem
 - `FLAG_KEEP_SCREEN_ON` mantiene la pantalla encendida mientras OpenTV está abierta (consumo de
   batería: usar el teléfono enchufado).
 
-  .
+  ..
 .
