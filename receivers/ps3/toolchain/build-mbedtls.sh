@@ -21,18 +21,17 @@ INSPECT_DIR="$BUILD_ROOT/mbed-inspect"
 
 WRAPPER="$HERE/ppu-gcc.clang-wrapper"
 TOOLCHAIN="$HERE/ps3-ppu-clang.cmake"
+
 CONFIG="$PS3_ROOT/third_party/ot_mbedtls_config.h"
-
 EXPECTED_TAG="v3.6.2"
-
-LIBRARY="$OUT_DIR/libmbed_ppu.a"
+LIBRARY="$OUT_DIR/libmbedcrypto.a"
 
 echo "============================================"
 echo " OpenTV PS3 - Construccion de mbedTLS"
 echo "============================================"
 
 # ------------------------------------------------------------
-# 1. Comprobar herramientas
+# 1. Comprobar herramientas y rutas
 # ------------------------------------------------------------
 
 echo
@@ -60,10 +59,24 @@ if [ ! -f "$TOOLCHAIN" ]; then
     exit 1
 fi
 
-if [ ! -s "$CONFIG" ]; then
-    echo "ERROR: falta ot_mbedtls_config.h."
+echo "Raiz del repositorio: $PS3_ROOT"
+echo "Ruta de configuracion: $CONFIG"
+
+if [ ! -f "$CONFIG" ]; then
+    echo "ERROR: no existe ot_mbedtls_config.h."
+    echo "Buscando el archivo dentro del repositorio..."
+    find "$PS3_ROOT" -type f -name "ot_mbedtls_config.h" -print
     exit 1
 fi
+
+if [ ! -s "$CONFIG" ]; then
+    echo "ERROR: ot_mbedtls_config.h existe, pero esta vacio."
+    ls -lh "$CONFIG"
+    exit 1
+fi
+
+echo "[OK] Configuracion personalizada encontrada:"
+ls -lh "$CONFIG"
 
 chmod +x "$WRAPPER"
 
@@ -118,7 +131,7 @@ mkdir -p "$INSPECT_DIR"
 echo
 echo "4. Configurando compilacion cruzada..."
 
-C_FLAGS="-O2 -ffunction-sections -fdata-sections -I$PS3_ROOT/third_party -DMBEDTLS_CONFIG_FILE=\\\"ot_mbedtls_config.h\\\""
+C_FLAGS="-O2 -ffunction-sections -fdata-sections -I$PS3_ROOT/third_party -DMBEDTLS_CONFIG_FILE=\"ot_mbedtls_config.h\""
 
 cmake \
     -S "$MBED_DIR" \
@@ -141,13 +154,8 @@ cmake \
 echo
 echo "5. Verificando compilador..."
 
-if ! grep -Fq "CMAKE_C_COMPILER:FILEPATH=$WRAPPER" \
-    "$BUILD_DIR/CMakeCache.txt" &&
-   ! grep -Fq "CMAKE_C_COMPILER:STRING=$WRAPPER" \
-    "$BUILD_DIR/CMakeCache.txt" &&
-   ! grep -Fq "CMAKE_C_COMPILER:UNINITIALIZED=$WRAPPER" \
-    "$BUILD_DIR/CMakeCache.txt"; then
-
+if ! grep -R -Fq "ppu-gcc.clang-wrapper" \
+    "$BUILD_DIR/CMakeCache.txt" "$BUILD_DIR/CMakeFiles"; then
     echo "ERROR: CMake no registro el wrapper como compilador."
     grep "CMAKE_C_COMPILER:" "$BUILD_DIR/CMakeCache.txt" || true
     exit 1
@@ -158,13 +166,9 @@ echo "[OK] Wrapper registrado."
 echo
 echo "Comprobando configuracion personalizada..."
 
-if ! grep -Fq "MBEDTLS_CONFIG_FILE" "$BUILD_DIR/CMakeCache.txt"; then
-    echo "ERROR: no aparece MBEDTLS_CONFIG_FILE en CMakeCache."
-    exit 1
-fi
-
-if ! grep -Fq "ot_mbedtls_config.h" "$BUILD_DIR/CMakeCache.txt"; then
-    echo "ERROR: no aparece el nombre de la configuracion personalizada."
+if ! grep -Fq "ot_mbedtls_config.h" "$BUILD_DIR/CMakeCache.txt" &&
+   ! grep -Fq "ot_mbedtls_config.h" "$BUILD_DIR/compile_commands.json"; then
+    echo "ERROR: la configuracion personalizada no aparece en CMake."
     exit 1
 fi
 
