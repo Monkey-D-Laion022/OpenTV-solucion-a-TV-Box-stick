@@ -1,17 +1,19 @@
-name: Build
+Name: Build
 on:
   push:
   pull_request:
   workflow_dispatch:
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
+
+Jobs:
+  # 1. Compilación de la aplicación Android (APK)
+  Build-android:
+    Runs-on: ubuntu-latest
+    Steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: "17"
+          Distribution: temurin
+          Java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
       - name: Dar permiso a gradlew
         run: chmod +x gradlew
@@ -20,15 +22,42 @@ jobs:
       - name: Pruebas unitarias y APK de depuración
         run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
       - name: Guardar APK
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: OpenTV-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+        If: success()
+        Uses: actions/upload-artifact@v4
+        With:
+          Name: OpenTV-debug-apk
+          Path: app/build/outputs/apk/debug/app-debug.apk
       - name: Guardar informes de pruebas
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: reportes-de-pruebas
-          path: app/build/reports/tests/
-          if-no-files-found: ignore
+        If: always()
+        Uses: actions/upload-artifact@v4
+        With:
+          Name: reportes-de-pruebas
+          Path: app/build/reports/tests/
+          If-no-files-found: ignore
+
+  # 2. Compilación del receptor de PS3 (PKG)
+  Build-ps3:
+    Runs-on: ubuntu-latest
+    Steps:
+      - uses: actions/checkout@v4
+      - name: Instalar dependencias del sistema para PS3
+        Run: |
+          Sudo apt-get update
+          Sudo apt-get install -y build-essential autoconf automake libtool zlib1g-dev wget python3
+      - name: Configurar toolchain y compilar receptor PS3
+        Run: |
+          # Si tu código usa un Makefile en la raíz o en la carpeta ps3/, ajusta la ruta aquí:
+          Make -C ps3/ clean || make clean
+          Make -C ps3/ || make
+        # Nota: Asegúrate de que tu script o makefile genere el archivo .pkg al finalizar.
+      - name: Guardar PKG de PS3
+        If: success()
+        Uses: actions/upload-artifact@v4
+        With:
+          Name: opentv-ps3-pkg
+          Path: |
+            *.pkg
+            ps3/*.pkg
+            build/*.pkg
+          If-no-files-found: warn
+          
