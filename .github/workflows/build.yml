@@ -9,6 +9,7 @@ on:
 jobs:
   build-android:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -45,25 +46,61 @@ jobs:
 
   diagnose-ps3:
     runs-on: ubuntu-latest
+
+    env:
+      PS3_BUILD_ROOT: ${{ runner.temp }}/ps3build
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Preparar toolchain PS3
+      - name: Preparar y construir dependencias PS3
+        shell: bash
         run: |
-          chmod +x receivers/ps3/toolchain/bootstrap.sh
-          bash receivers/ps3/toolchain/bootstrap.sh
+          set -Eeuo pipefail
 
-      - name: Diagnosticar SDK y compilador PPU
-        run: |
-          chmod +x receivers/ps3/toolchain/build-deps.sh
-          bash receivers/ps3/toolchain/build-deps.sh
+          TOOLCHAIN="receivers/ps3/toolchain"
 
-      - name: Guardar diagnostico
+          chmod +x "$TOOLCHAIN"/*.sh
+
+          echo "============================================"
+          echo " FASE 1: PREPARAR SDK"
+          echo "============================================"
+
+          source "$TOOLCHAIN/bootstrap.sh"
+
+          echo "============================================"
+          echo " FASE 2: DESCARGAR DEPENDENCIAS"
+          echo "============================================"
+
+          bash "$TOOLCHAIN/fetch-deps.sh"
+
+          echo "============================================"
+          echo " FASE 3: COMPILAR FAAD2"
+          echo "============================================"
+
+          bash "$TOOLCHAIN/build-faad2.sh"
+
+          echo "============================================"
+          echo " FASE 4: COMPILAR MBEDTLS"
+          echo "============================================"
+
+          bash "$TOOLCHAIN/build-mbedtls.sh"
+
+          echo "============================================"
+          echo " FASE 5: DIAGNOSTICO FINAL"
+          echo "============================================"
+
+          bash "$TOOLCHAIN/build-deps.sh"
+
+          echo "============================================"
+          echo " PROCESO PS3 FINALIZADO"
+          echo "============================================"
+
+      - name: Guardar diagnosticos PS3
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: OpenTV-PS3-diagnostico
-          path: |
-            ${{ runner.temp }}/ps3build/diagnostic/
+          path: ${{ runner.temp }}/ps3build/
           if-no-files-found: ignore
           
