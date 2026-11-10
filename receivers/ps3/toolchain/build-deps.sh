@@ -12,8 +12,8 @@ PS3_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 BUILD_ROOT="${PS3_BUILD_ROOT:?ERROR: PS3_BUILD_ROOT no esta definido}"
 PS3DEV="${PS3DEV:?ERROR: PS3DEV no esta definido}"
-WRAPPER="$HERE/ppu-gcc.clang-wrapper"
 
+WRAPPER="$HERE/ppu-gcc.clang-wrapper"
 DIAG="$BUILD_ROOT/diagnostic"
 ERRORS=0
 WARNINGS=0
@@ -54,12 +54,15 @@ else
     fail "No se encontro la raiz del repositorio."
 fi
 
-CONFIG="$PS3_ROOT/third_party/ot_mbedtls_config.h"
+# La configuracion real esta en receivers/ps3/third_party.
+CONFIG="$PS3_ROOT/receivers/ps3/third_party/ot_mbedtls_config.h"
+
+echo "Ruta de configuracion: $CONFIG"
 
 if [ -s "$CONFIG" ]; then
     ok "Configuracion mbedTLS encontrada."
 else
-    fail "No se encontro third_party/ot_mbedtls_config.h."
+    fail "No se encontro receivers/ps3/third_party/ot_mbedtls_config.h."
 fi
 
 if [ -n "${NEWLIB_SRC:-}" ] && [ -d "$NEWLIB_SRC" ]; then
@@ -310,7 +313,9 @@ check_archive() {
 }
 
 FAAD_LIB="$BUILD_ROOT/faad-out/libfaad.a"
-MBED_LIB="$BUILD_ROOT/mbed-out/libmbed_ppu.a"
+
+# La Fase 4 genera libmbedcrypto.a, no libmbed_ppu.a.
+MBED_LIB="$BUILD_ROOT/mbed-out/libmbedcrypto.a"
 
 : > "$DIAG/faad-elf-headers.txt"
 : > "$DIAG/mbed-elf-headers.txt"
