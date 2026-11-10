@@ -15,7 +15,7 @@ if [ "$#" -eq 1 ]; then
         --version|-version|-v|-dumpmachine|-dumpversion|-print-search-dirs|-print-resource-dir)
             exec clang \
                 --target=powerpc64-unknown-elf \
-                -mcpu=cell \
+                -mcpu=ppc-cell-be \
                 -mbig-endian \
                 -ffreestanding \
                 -nostdlibinc \
