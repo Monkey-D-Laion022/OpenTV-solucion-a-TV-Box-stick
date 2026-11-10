@@ -36,7 +36,7 @@ interface PipelineSink {
 class CapturePipeline(
     context: Context,
     private val request: MirrorRequest,
-    val preset: IptvPreset,
+    initialPreset: IptvPreset,
     private val captureAudio: Boolean,
     private val sink: PipelineSink,
     private val onProjectionStopped: () -> Unit,
@@ -44,8 +44,17 @@ class CapturePipeline(
     private val usePump: Boolean = true,
     /** Fin inesperado de una parte de la tubería (codificador, etc.), con el motivo. */
     private val onEnded: (StopReason, String) -> Unit = { _, _ -> },
+    /** H.264 Baseline aunque el perfil no lo pida (Miracast lo exige: CBP). */
+    private val forceBaseline: Boolean = false,
 ) {
     private val appContext = context.applicationContext
+    /** Perfil en uso; cambia con [switchPreset]. */
+    @Volatile var preset: IptvPreset = initialPreset
+        private set
+    private var muxer: TsMuxer? = null
+    private var mp4: Fmp4Muxer? = null
+    private var originUs = 0L
+    private val encodeLatency = IntervalWindow(240)
     private val mainHandler = Handler(Looper.getMainLooper())
     private var encoder: ScreenEncoder? = null
     private var silent: SilentAudioEncoder? = null
@@ -131,33 +140,34 @@ class CapturePipeline(
         }
     }
 
-    private fun doStart() {
-        val level = AvcLevels.forStream(preset.width, preset.height, preset.fps)
-        val originUs = System.nanoTime() / 1000
-        val muxer = TsMuxer(hasAudioTrack)
-        val mp4 = Fmp4Muxer(preset.width, preset.height, hasAudioTrack, { sink.onMp4Init(it) }, { sink.onMp4Fragment(it) })
-        val profile = if (preset.height >= 1080) StreamProfile.AVC_TS else StreamProfile.HD720
+    /** Crea codificador y (si se puede) bomba de cuadros para [p]; devuelve la superficie donde debe dibujar la captura. */
+    private fun buildVideo(p: IptvPreset): Pair<android.view.Surface, String?> {
+        val level = AvcLevels.forStream(p.width, p.height, p.fps)
+        val ts = muxer!!
+        val mp4m = mp4!!
+        val profile = if (p.height >= 1080) StreamProfile.AVC_TS else StreamProfile.HD720
         val enc = ScreenEncoder(
-            profile, muxer, originUs, fps = preset.fps, bitrate = preset.bitrateBps, iFrameSeconds = 1, avcLevel = level,
-            width = preset.width, height = preset.height,
-            codecName = EncoderProbe.pick(preset.width, preset.height, preset.fps),
-            onConfig = { cfg -> synchronized(mp4) { mp4.setConfig(cfg) } },
-            onFrame = { frame, ptsUs, key -> synchronized(mp4) { mp4.addVideo(frame, ptsUs, key) } },
-            baseline = preset.baselineProfile,
+            profile, ts, originUs, fps = p.fps, bitrate = p.bitrateBps, iFrameSeconds = 1, avcLevel = level,
+            width = p.width, height = p.height,
+            codecName = EncoderProbe.pick(p.width, p.height, p.fps),
+            onConfig = { cfg -> synchronized(mp4m) { mp4m.setConfig(cfg) } },
+            onFrame = { frame, ptsUs, key -> synchronized(mp4m) { mp4m.addVideo(frame, ptsUs, key) } },
+            baseline = p.baselineProfile || forceBaseline,
             onEnded = { why -> mainHandler.post { onEnded(StopReason.ENCODER_STOPPED, why) } },
+            onEncodeLatency = { encodeLatency.add(it) },
         ) { chunk, key ->
             produced.addAndGet(chunk.size.toLong())
             sink.onTsKind(chunk, key, true)
         }
         encoder = enc
-        val encoderSurface = enc.start()
-        this.encoderSurface = encoderSurface
+        val surface = enc.start()
+        this.encoderSurface = surface
         codecName = enc.usedCodec
-        var captureSurface = encoderSurface
+        var captureSurface = surface
         var pumpNote: String? = null
         if (usePump) {
             try {
-                val fp = FramePump(encoderSurface, preset.width, preset.height, preset.fps)
+                val fp = FramePump(surface, p.width, p.height, p.fps)
                 captureSurface = fp.start()
                 pump = fp
             } catch (e: RuntimeException) {
@@ -165,12 +175,65 @@ class CapturePipeline(
                 pumpNote = "No se pudo iniciar el ritmo fijo de cuadros (${e.message ?: e.javaClass.simpleName}); se usa la captura directa."
             }
         }
+        return captureSurface to pumpNote
+    }
+
+    /** Estadística del tiempo entre dibujar un cuadro y recibirlo codificado (ms). */
+    fun encodeLatencyStats(): IntervalStats = encodeLatency.snapshot()
+
+    /** Cuadros dibujados que el codificador todavía no devolvió (cola del codificador); 0 si no hay bomba que los cuente. */
+    val backlog: Long get() { val r = renderedFrames ?: return 0L; return (r - encodedFrames).coerceAtLeast(0L) }
+
+    /**
+     * Cambia resolución/FPS/bitrate en marcha SIN pedir otra captura: se reemplazan codificador y bomba y se redimensiona la
+     * pantalla virtual existente (Android 14 no deja crear otra con la misma proyección). El audio y los contadores del
+     * empaquetador siguen. NO verificado en hardware. Devuelve `false` y conserva todo si no se pudo. Hilo principal.
+     */
+    fun switchPreset(next: IptvPreset): Boolean {
+        val d = display ?: return false
+        if (next == preset) return true
+        val old = preset
+        val oldEnc = encoder; val oldPump = pump
+        return try {
+            runCatching { oldPump?.stop() }
+            runCatching { oldEnc?.stop() }
+            pump = null; encoder = null
+            preset = next
+            synchronized(this) { mp4 = Fmp4Muxer(next.width, next.height, hasAudioTrack, { sink.onMp4Init(it) }, { sink.onMp4Fragment(it) }) }
+            encodeLatency.clear()
+            val (surface, pumpNote) = buildVideo(next)
+            d.resize(next.width, next.height, appContext.resources.displayMetrics.densityDpi)
+            d.surface = surface
+            note = listOfNotNull(note, pumpNote).joinToString(" ").ifBlank { null }
+            true
+        } catch (e: RuntimeException) {
+            // No se pudo armar el nuevo perfil: se intenta volver al anterior para no dejar la emisión muerta.
+            runCatching { pump?.stop() }; runCatching { encoder?.stop() }
+            preset = old
+            val back = runCatching {
+                mp4 = Fmp4Muxer(old.width, old.height, hasAudioTrack, { sink.onMp4Init(it) }, { sink.onMp4Fragment(it) })
+                val (surface, _) = buildVideo(old)
+                d.resize(old.width, old.height, appContext.resources.displayMetrics.densityDpi); d.surface = surface
+            }.isSuccess
+            note = listOfNotNull(note, "No se pudo cambiar a ${next.shortLabel} (${e.javaClass.simpleName}); ${if (back) "se mantiene ${old.shortLabel}" else "la emisión quedó detenida"}.").joinToString(" ")
+            if (!back) mainHandler.post { onEnded(StopReason.ENCODER_STOPPED, "Falló el cambio de perfil y no se pudo volver al anterior.") }
+            false
+        }
+    }
+
+    private fun doStart() {
+        originUs = System.nanoTime() / 1000
+        muxer = TsMuxer(hasAudioTrack)
+        mp4 = Fmp4Muxer(preset.width, preset.height, hasAudioTrack, { sink.onMp4Init(it) }, { sink.onMp4Fragment(it) })
+        val (initialSurface, pumpNote) = buildVideo(preset)
+        val muxer = this.muxer!!
+        val captureSurface = initialSurface
 
         val onAudio: (ByteArray, Long) -> Unit = { adts, pts ->
             val ts = muxer.muxAudio(adts, pts)
             produced.addAndGet(ts.size.toLong())
             sink.onTsKind(ts, false, false)
-            synchronized(mp4) { mp4.addAudio(adts, pts) }
+            this.mp4?.let { m -> synchronized(m) { m.addAudio(adts, pts) } }
         }
 
         val manager = appContext.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager

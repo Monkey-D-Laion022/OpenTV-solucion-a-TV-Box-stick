@@ -30,6 +30,11 @@ enum class WfdPhase(val label: String) {
     M1("M1 OPTIONS (OpenTV → TV)"),
     M2("M2 OPTIONS (TV → OpenTV)"),
     M3("M3 GET_PARAMETER (capacidades)"),
+    M4("M4 SET_PARAMETER (formato elegido por OpenTV)"),
+    M5("M5 trigger SETUP"),
+    SETUP("SETUP (TV → OpenTV)"),
+    PLAY("PLAY (TV → OpenTV)"),
+    STREAM("Transmisión RTP/MPEG-TS"),
     CLEANUP("Cierre y limpieza"),
 }
 

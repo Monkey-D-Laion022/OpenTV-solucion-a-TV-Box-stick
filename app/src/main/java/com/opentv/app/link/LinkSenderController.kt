@@ -262,9 +262,17 @@ class LinkSenderController private constructor(context: Context) {
             val accept = OtAccept.decode(answer.payload)
             if (!accept.accepted) throw IOException("El receptor no aceptó el formato")
             socket.soTimeout = 15_000 // el receptor informa cada segundo: si calla 15 s, se da por perdido
-            val a = Active(socket, LinkOutQueue(), s.peer.name, OtBitrateController(preset.bitrateBps.toLong()))
+            // El receptor puede pedir MENOS de lo ofrecido (p. ej. una PS3 pide 30 fps por encima de 720p y un tope de bitrate): se respeta.
+            val offeredBps = preset.bitrateBps.toLong()
+            val caps = com.opentv.app.proto.OtAcceptCaps.resolve(offeredBps, preset.fps, accept)
+            val cappedBps = caps.bitrateBps
+            val fpsCap = caps.fps
+            receiverFpsCap = fpsCap
+            val a = Active(socket, LinkOutQueue(), s.peer.name, OtBitrateController(cappedBps))
             active = a
             outcome = Outcome.STREAMED
+            if (cappedBps < offeredBps) pipe.setBitrate(cappedBps.toInt())
+            if (fpsCap > 0) mainHandler.post { pipe.setPumpFps(fpsCap) }
             pipe.requestKeyFrame()
             Thread({ readLoop(s, a, pipe) }, "opentv-link-read").apply { isDaemon = true; start() }
             writeLoop(s, a)
@@ -287,6 +295,8 @@ class LinkSenderController private constructor(context: Context) {
 
     private fun noteFailure(text: String) { lastIssue = text }
     @Volatile private var lastIssue: String? = null
+    /** Tope de fps que pidió el receptor en ACCEPT (0 = sin tope). Lo lee el gobernador de fps de [startStats]. */
+    @Volatile private var receiverFpsCap = 0
 
     private fun askCode(code: String): Boolean {
         val future = CompletableFuture<Boolean>()
@@ -343,7 +353,8 @@ class LinkSenderController private constructor(context: Context) {
 
     private fun startStats(pipe: CapturePipeline, preset: IptvPreset) {
         val encRate = RateMeter(); val sentRate = RateMeter(); val renRate = RateMeter()
-        val governor = FpsGovernor(preset.fps)
+        var governor = FpsGovernor(preset.fps)
+        var governorCap = 0
         var governorNote: String? = null
         val aspect = app.resources.displayMetrics.let { it.widthPixels.toDouble() / it.heightPixels.coerceAtLeast(1) }
         val t = java.util.Timer("opentv-link-stats", true)
@@ -356,6 +367,7 @@ class LinkSenderController private constructor(context: Context) {
                 solo.onSecond(pipe.capturesSystemAudio, pipe.takeAudioPeakDb())
                 val a = active
                 val renFps = pipe.renderedFrames?.let { renRate.sample(it, now) }
+                if (receiverFpsCap != governorCap) { governorCap = receiverFpsCap; governor = FpsGovernor(if (governorCap > 0) governorCap else preset.fps) }
                 if (pipe.pumpActive && a != null && !a.closed) {
                     val d = governor.onSecond(FpsGovernor.Sample(enc, renFps, kbps, kbps, 1, false))
                     if (d.changed) {

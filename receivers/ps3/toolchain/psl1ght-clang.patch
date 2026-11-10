@@ -1,0 +1,55 @@
+--- ppu/crt/crt0.S	2026-11-10 09:37:37.631320878 +0000
++++ /home/claude/ps3build/PSL1GHT/ppu/crt/crt0.S	2026-11-09 02:16:53.306522090 +0000
+@@ -37,6 +37,7 @@
+ 	.quad 0,0
+ 	
+ 	.section ".opd","aw"
++	.globl __start
+ __start:
+ 	.quad ._start
+ 	.quad .TOC.@tocbase
+--- ppu/crt/lv2.ld	2026-11-10 09:37:37.631320878 +0000
++++ /home/claude/ps3build/PSL1GHT/ppu/crt/lv2.ld	2026-11-09 02:16:53.308657874 +0000
+@@ -1,7 +1,7 @@
+ OUTPUT_FORMAT("elf64-powerpc", "elf64-powerpc", "elf64-powerpc")
+ OUTPUT_ARCH(powerpc:common64)
+ 
+-ENTRY(_start)
++ENTRY(__start)
+ 
+ PHDRS
+ {
+--- ppu/include/ppu-types.h	2026-11-10 09:37:37.632172366 +0000
++++ /home/claude/ps3build/PSL1GHT/ppu/include/ppu-types.h	2026-11-09 02:15:40.422935891 +0000
+@@ -121,7 +121,12 @@
+ #define SPU_ALIGNMENT				128
+ #define SPU_ALIGNSIZE(x)			(((x) + 127)&~127)
+ 
++#ifdef __clang__
++/* clang no tiene mode(SI) para punteros: se vuelve vacío (los campos puntero de estas estructuras serán de 64 bits; ver docs/PS3-TOOLCHAIN-CLANG.md) */
++#define ATTRIBUTE_PRXPTR
++#else
+ #define ATTRIBUTE_PRXPTR			__attribute__((mode(SI)))
++#endif
+ 
+ // courtesy of Marcan
+ #define STACK_ALIGN(type, name, cnt, alignment)		u8 _al__##name[((sizeof(type)*(cnt)) + (alignment) + (((sizeof(type)*(cnt))%(alignment)) > 0 ? ((alignment) - ((sizeof(type)*(cnt))%(alignment))) : 0))]; \
+--- ppu/sprx/common/libexport.c	2026-11-10 09:37:37.635226086 +0000
++++ /home/claude/ps3build/PSL1GHT/ppu/sprx/common/libexport.c	2026-11-09 02:17:25.966833973 +0000
+@@ -17,12 +17,12 @@
+ } __attribute__((__packed__)) prx_header;
+ 
+ extern uint32_t LIBRARY_SYMBOL __attribute__((section(".rodata.sceFNID")));
+-static const void* scefstub[0] __attribute__((section(".data.sceFStub." LIBRARY_NAME)));
++static const void* scefstub[0] __attribute__((used, section(".data.sceFStub." LIBRARY_NAME)));
+ 
+-static const uint32_t version __attribute__((section(".rodata.sceResident"))) = 0;
+-static const const char name[] __attribute__((section(".rodata.sceResident"))) = LIBRARY_NAME;
++static const uint32_t version __attribute__((used, section(".rodata.sceResident"))) = 0;
++static const char name[] __attribute__((used, section(".rodata.sceResident"))) = LIBRARY_NAME;
+ 
+-static prx_header header __attribute__((section(".lib.stub"))) = {
++static prx_header header __attribute__((used, section(".lib.stub"))) = {
+ 	LIBRARY_HEADER_1,
+ 	LIBRARY_HEADER_2,
+ 	0,

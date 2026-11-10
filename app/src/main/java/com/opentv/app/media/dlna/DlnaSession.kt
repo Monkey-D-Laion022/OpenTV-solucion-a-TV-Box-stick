@@ -60,9 +60,11 @@ class DlnaSession(
                 DlnaAction.None -> {
                     delay(pollMs)
                     val info = withContext(Dispatchers.IO) { client.transport(renderer) }
-                    val state = info?.state ?: TransportState.UNKNOWN
-                    action = sup.onTransport(state, System.currentTimeMillis())
+                    val now = System.currentTimeMillis()
+                    action = if (info == null) sup.onPollFailed(now) else sup.onTransport(info.state, now)
                     if (sup.phase == DlnaPhase.PLAYING && _status.value.phase != DlnaPhase.PLAYING) log(DlnaPhase.PLAYING, "El televisor está reproduciendo.")
+                    if (sup.phase == DlnaPhase.PLAYING && sup.unstable(now) && _status.value.log.lastOrNull()?.startsWith("Inestable") != true)
+                        log(DlnaPhase.PLAYING, "Inestable: ${sup.recoveries} recuperaciones en pocos minutos (última causa: ${sup.lastReason}). Reproduce, pero la sesión no es fiable.")
                 }
             }
         }
@@ -73,7 +75,7 @@ class DlnaSession(
         log(DlnaPhase.SENDING, "Enviando ${offer.label} ($why). ${offer.note}.", offer.label)
         onOffer(offer)
         val res = withContext(Dispatchers.IO) { client.setAndPlay(renderer, urlFor(offer), "OpenTV", offer.protocolInfo) }
-        if (!res.ok) return sup.onCommandFailed(res.failure ?: "sin detalle")
+        if (!res.ok) return sup.onCommandFailed(res.failure ?: "sin detalle", System.currentTimeMillis())
         sup.onSent(System.currentTimeMillis())
         return DlnaAction.None
     }

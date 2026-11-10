@@ -1,0 +1,8 @@
+# Copiar como opentv.cfg en /dev_hdd0/game/OPENTV001/USRDIR/ (opcional)
+name=PS3 sala
+# Respaldo sin cifrado (triangulo): canal IPTV del telefono en http://host:port/live.ts
+host=192.168.1.20
+port=8080
+# fps maximos que se piden al telefono cuando emite mas de 720p (1080p60 en PS3 NO esta demostrado)
+fps1080=30
+maxkbps=12000

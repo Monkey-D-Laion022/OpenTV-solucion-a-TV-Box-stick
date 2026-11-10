@@ -433,9 +433,7 @@ Alcance: SOLO descubrir dispositivos Wi-Fi Direct con la API pública y mostrar 
 - Espejo por navegador: `MjpegAdaptive` baja o sube la calidad JPEG según lo producido contra lo enviado (pantalla quieta ≠ congestión). Muestra cuadros producidos y calidad.
 - NO hecho (ver informe): DLNA (está en `connect/`, protegido), mejoras de Miracast nativo, audio en navegador, transporte propio sobre Wi‑Fi Direct, compilación Android real.
 
-## Fase 6.7
-- Instrumentación de microcortes (intervalos, cuadros tardíos, entrega por segmento, marcas GL, gobernador conmutable): implementada, probada en JVM la parte pura; **efecto sobre los cortes no verificado**.
-- MJPEG: contador de repetidos vs nuevos. Wi-Fi Direct: estado previo a `connect()` registrado.
-- DLNA independiente (`media/dlna/`): ver `docs/DLNA-INDEPENDIENTE.md`. UI en la pantalla IPTV.
-- Receptor PS3: núcleo C probado en PC; capa PS3 sin compilar ni probar (`docs/PS3-RECEPTOR.md`).
-- No hecho: mejoras de OpenTV Link para receptores no-Android (capacidades en HELLO, código en pantalla, reanudación), alternativas de navegador para LG NetCast, cifrado en el receptor PS3.
+## Fase 6.7 (iteración integral)
+- **Hecho (sin hardware)**: motor de calidad adaptativa (`QualityAdapter`, 505 tests JVM), cambio de perfil en vivo, instrumentación ampliada, DLNA independiente con supervisor, flujo fuente de Miracast (M4→PLAY + TS/RTP), Link acepta topes del receptor, **receptor PS3 completo** (Link cifrado, mDNS, vdec, AAC, audio, pantalla) compilado y empaquetado en PKG.
+- **Verificado automáticamente**: ver `docs/NOTA-PRUEBAS-6.7.md`. **Nada probado en hardware real.**
+- **Pendiente**: APK (GitHub Actions), pruebas en Redmi/LG/PS3, F5 control remoto, alternativa de navegador NetCast, métricas CPU/GPU. Detalle y motivos en `docs/INFORME-6.7-INTEGRAL.md`.

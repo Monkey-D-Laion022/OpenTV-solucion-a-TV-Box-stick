@@ -142,6 +142,11 @@ class IptvController private constructor(context: Context) {
         session?.pipeline?.setMarks(on)
     }
 
+    @Volatile private var pendingPreset: IptvPreset? = null
+
+    /** Pide cambiar el perfil de la emisión en marcha (p. ej. DLNA al probar un formato de respaldo). Se aplica en el siguiente segundo. */
+    fun requestPreset(name: String) { IptvPreset.values().firstOrNull { it.name == name }?.let { pendingPreset = it } }
+
     private val _preset = MutableStateFlow(IptvPreset.BALANCED)
     val preset: StateFlow<IptvPreset> = _preset.asStateFlow()
 
@@ -285,7 +290,8 @@ class IptvController private constructor(context: Context) {
             var lastProgressMs = startedAt
             var fallbackDone = false
             var lastDeliveryMs = startedAt
-            val governor = FpsGovernor(preset.fps)
+            val adapter = QualityAdapter(preset, maxHeight = 1080)
+            var adaptNotes = ArrayDeque<String>()
             var governorNote: String? = null
             var thermal: String? = null
             var tick = 0
@@ -320,33 +326,54 @@ class IptvController private constructor(context: Context) {
                     solo.onSecond(pipe.capturesSystemAudio, pipe.takeAudioPeakDb())
                     pipe.setMarks(_marks.value)
                     if (tick++ % 5 == 0) thermal = com.opentv.app.bench.ThermalProbe.read(appContext).androidStatus
-                    if (pipe.pumpActive && _governor.value) {
-                        val d = governor.onSecond(
-                            FpsGovernor.Sample(encFps, renFps, producedKbps, deliveredKbps, srv.activeClients, FpsGovernor.thermalLimited(thermal)),
-                        )
-                        if (d.changed) {
-                            governorNote = d.note
-                            val bps = (preset.bitrateBps.toLong() * d.targetFps / preset.fps).toInt().coerceAtLeast(preset.bitrateBps / 3)
-                            mainHandler.post { pipe.setPumpFps(d.targetFps); pipe.setBitrate(bps) }
-                        } else if (d.note != null) governorNote = d.note
+                    pendingPreset?.let { want ->
+                        pendingPreset = null
+                        if (want != pipe.preset) {
+                            adapter.retarget(want)
+                            mainHandler.post { if (pipe.switchPreset(want)) pipe.setPumpFps(want.fps) }
+                            adaptNotes.addLast("Pedido externo (DLNA): ${want.shortLabel}."); while (adaptNotes.size > 4) adaptNotes.removeFirst()
+                        }
                     }
+                    val lat = pipe.encodeLatencyStats()
+                    if (pipe.pumpActive && _governor.value) {
+                        val a = adapter.onSecond(
+                            QualityAdapter.Sample(
+                                encFps, renFps, producedKbps, deliveredKbps, srv.activeClients, FpsGovernor.thermalLimited(thermal),
+                                backlog = pipe.backlog, encodeLatencyP95Ms = lat.p95,
+                            ),
+                        )
+                        if (a.changed) {
+                            governorNote = a.note
+                            a.note?.let { adaptNotes.addLast(it); while (adaptNotes.size > 4) adaptNotes.removeFirst() }
+                            mainHandler.post {
+                                if (a.kind == QualityAdapter.Kind.RESOLUTION) {
+                                    if (pipe.switchPreset(a.preset)) { pipe.setPumpFps(a.fps) }
+                                } else {
+                                    pipe.setPumpFps(a.fps); pipe.setBitrate(a.bitrateBps)
+                                }
+                            }
+                        } else if (a.note != null) governorNote = a.note
+                    }
+                    val cur = pipe.preset
                     val live = IptvState.Live(
                         hlsUrl = "$base/index.m3u8", m3uUrl = "$base/channel.m3u", compatM3uUrl = "$base/compat.m3u",
                         tsUrl = "$base/live.ts", clients = srv.activeClients, segments = segmenter.publishedSegments,
-                        kbPerSecond = producedKbps / 8, requests = srv.history, preset = preset, withAudio = pipe.hasAudioTrack,
+                        kbPerSecond = producedKbps / 8, requests = srv.history, preset = cur, withAudio = pipe.hasAudioTrack,
                         audio = audio, note = note,
                         externalRequests = srv.externalRequests, externalClients = srv.externalClientIps.size, lastExternal = srv.lastExternal,
                         encodedFps = encFps, producedKbps = producedKbps, deliveredKbps = deliveredKbps, diag = diagLog.toList(),
-                        fpsWarning = FpsVerdict.describe(governor.targetFps, encFps, (now - startedAt) / 1000),
+                        fpsWarning = FpsVerdict.describe(adapter.targetFps, encFps, (now - startedAt) / 1000),
                         codec = pipe.codecName, mp4Url = "$base/live.mp4", pageUrl = pageUrl,
                         capturedFps = capFps, renderedFps = renFps, pumpActive = pipe.pumpActive, msSinceFrame = sinceFrame,
-                        health = verdict.text, healthy = verdict.healthy, profileApplied = pipe.profileApplied, requestedLabel = preset.label,
-                        targetFps = governor.targetFps, bottleneck = governor.lastCause.label, governorNote = governorNote, thermal = thermal,
-                        timing = "Intervalo entre cuadros: ${pipe.frameIntervals().describe()} · tics atrasados: ${pipe.lateTicks}\n${srv.deliveries.summary().describe()}",
+                        health = verdict.text, healthy = verdict.healthy, profileApplied = pipe.profileApplied, requestedLabel = cur.label,
+                        targetFps = adapter.targetFps, bottleneck = adapter.lastCause.label, governorNote = governorNote, thermal = thermal,
+                        timing = "Intervalo entre cuadros: ${pipe.frameIntervals().describe()} · tics atrasados: ${pipe.lateTicks}\n" +
+                            "Codificador: tiempo por cuadro ${lat.describe()} · cola ${pipe.backlog} cuadro(s) · bajadas de resolución ${adapter.resolutionDrops}, subidas probadas ${adapter.resolutionProbes}\n" +
+                            "${srv.deliveries.summary().describe()}" + (if (adaptNotes.isEmpty()) "" else "\nAdaptación: " + adaptNotes.joinToString(" · ")),
                     )
                     if (session != null) _state.value = live
                     TransmissionRegistry.publish(
-                        TransmissionInfo(ID, "IPTV", preset.width, preset.height, preset.fps, encFps, producedKbps, audio.label, aspect),
+                        TransmissionInfo(ID, "IPTV", cur.width, cur.height, cur.fps, encFps, producedKbps, audio.label, aspect),
                     ) { mainHandler.post { stop(StopReason.NOTIFICATION) } }
                 }
             }, 1_000, 1_000)

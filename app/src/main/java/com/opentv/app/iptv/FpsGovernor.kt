@@ -9,7 +9,7 @@ package com.opentv.app.iptv
  * (60 → 30 → 24 → 15) y vuelve a probar el escalón superior con prudencia. Nunca sube por encima de lo pedido y nunca actúa
  * por una pantalla quieta (la bomba la cubre repitiendo cuadros, así que `rendered` mide la capacidad real de dibujar).
  */
-class FpsGovernor(private val requestedFps: Int) {
+class FpsGovernor(private val requestedFps: Int, private val floorFps: Int = 15) {
     enum class Bottleneck(val label: String) {
         NONE("sin cuello de botella visible"),
         DRAW("el dibujado (GPU o bomba de cuadros) no llega al ritmo pedido"),
@@ -23,7 +23,8 @@ class FpsGovernor(private val requestedFps: Int) {
         val clients: Int, val thermalLimited: Boolean,
     )
 
-    data class Decision(val targetFps: Int, val changed: Boolean, val bottleneck: Bottleneck, val note: String?)
+    /** [exhausted] = ya está en el piso de FPS y sigue fallando: lo siguiente es bajar de resolución (decide [QualityAdapter]). */
+    data class Decision(val targetFps: Int, val changed: Boolean, val bottleneck: Bottleneck, val note: String?, val exhausted: Boolean = false)
 
     var targetFps: Int = requestedFps
         private set
@@ -64,7 +65,7 @@ class FpsGovernor(private val requestedFps: Int) {
                 val was = targetFps; targetFps = lower
                 return Decision(lower, true, bottleneck, "No se sostienen $was fps: ${bottleneck.label}. Se baja a $lower fps para que sea estable.")
             }
-            return Decision(targetFps, false, bottleneck, "Ya está en el mínimo de ${targetFps} fps y sigue fallando: ${bottleneck.label}.")
+            return Decision(targetFps, false, bottleneck, "Ya está en el mínimo de ${targetFps} fps y sigue fallando: ${bottleneck.label}.", exhausted = true)
         }
         if (goodStreak >= UP_AFTER_S && targetFps < requestedFps && bottleneck == Bottleneck.NONE && !s.thermalLimited) {
             val higher = higherStep(targetFps)
@@ -82,7 +83,7 @@ class FpsGovernor(private val requestedFps: Int) {
 
     private fun networkStarved(s: Sample): Boolean = s.producedKbps > 500 && s.deliveredKbps < s.producedKbps * 0.5
 
-    private fun lowerStep(from: Int): Int? = STEPS.filter { it < from }.maxOrNull()
+    private fun lowerStep(from: Int): Int? = STEPS.filter { it < from && it >= floorFps }.maxOrNull()
     private fun higherStep(from: Int): Int? = STEPS.filter { it > from && it <= requestedFps }.minOrNull()
 
     companion object {

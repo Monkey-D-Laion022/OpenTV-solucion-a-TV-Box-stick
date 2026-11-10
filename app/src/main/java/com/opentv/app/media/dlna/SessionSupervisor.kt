@@ -33,11 +33,29 @@ class SessionSupervisor(
     var lastReason: String = ""; private set
     var playedMs: Long = 0; private set
     private var sentAt = 0L
+    private var unreachable = 0
+    private val recoveryTimes = ArrayDeque<Long>()
+    /** Recuperaciones totales de la sesión (cada vez que hubo que reintentar o cambiar de formato). */
+    var recoveries: Int = 0; private set
     private var playingSince = -1L
 
     init { require(attemptCount >= 1) { "Hace falta al menos un intento" } }
 
     fun onCapabilitiesRead(): DlnaAction { phase = DlnaPhase.SENDING; return DlnaAction.Send(attemptIndex, "capacidades leídas") }
+
+    /**
+     * `true` si hubo [UNSTABLE_RECOVERIES] o más recuperaciones en los últimos [UNSTABLE_WINDOW_MS]: que ahora reproduzca no
+     * significa que la sesión sea estable. La pantalla debe mostrarlo aunque el estado sea PLAYING.
+     */
+    fun unstable(nowMs: Long): Boolean = recoveryTimes.count { nowMs - it <= UNSTABLE_WINDOW_MS } >= UNSTABLE_RECOVERIES
+
+    /** El televisor no respondió a la consulta de estado (tiempo agotado, red caída). Varios seguidos durante la reproducción = corte. */
+    fun onPollFailed(nowMs: Long): DlnaAction {
+        unreachable++
+        if (phase == DlnaPhase.PLAYING && unreachable >= UNREACHABLE_LIMIT) { phase = DlnaPhase.STALLED; return failAttempt("el televisor dejó de responder ($unreachable consultas seguidas sin respuesta)", nowMs) }
+        if (phase == DlnaPhase.WAITING_PLAY && nowMs - sentAt >= playTimeoutMs) return failAttempt("el televisor no responde y no llegó a reproducir", nowMs)
+        return DlnaAction.None
+    }
 
     fun begin() { phase = DlnaPhase.READING_CAPS }
 
@@ -45,19 +63,20 @@ class SessionSupervisor(
     fun onSent(nowMs: Long) { phase = DlnaPhase.WAITING_PLAY; sentAt = nowMs; playingSince = -1L }
 
     /** Una orden SOAP fue rechazada o no llegó. */
-    fun onCommandFailed(detail: String): DlnaAction = failAttempt("el televisor rechazó la orden: $detail")
+    fun onCommandFailed(detail: String, nowMs: Long = sentAt): DlnaAction = failAttempt("el televisor rechazó la orden: $detail", nowMs)
 
     fun onTransport(state: TransportState, nowMs: Long): DlnaAction {
+        unreachable = 0
         when (phase) {
             DlnaPhase.WAITING_PLAY, DlnaPhase.STALLED -> when (state) {
                 TransportState.PLAYING -> { phase = DlnaPhase.PLAYING; playingSince = nowMs; retries = 0; return DlnaAction.None }
                 TransportState.TRANSITIONING -> { sentAt = maxOf(sentAt, nowMs - playTimeoutMs / 2); return DlnaAction.None }
-                TransportState.ERROR -> return failAttempt("el televisor informó ERROR")
-                else -> if (nowMs - sentAt >= playTimeoutMs) return failAttempt("no llegó a reproducir en ${playTimeoutMs / 1000} s (estado ${state.name})")
+                TransportState.ERROR -> return failAttempt("el televisor informó ERROR", nowMs)
+                else -> if (nowMs - sentAt >= playTimeoutMs) return failAttempt("no llegó a reproducir en ${playTimeoutMs / 1000} s (estado ${state.name})", nowMs)
             }
             DlnaPhase.PLAYING -> when (state) {
                 TransportState.PLAYING, TransportState.TRANSITIONING, TransportState.PAUSED -> if (playingSince >= 0) playedMs = nowMs - playingSince
-                TransportState.STOPPED, TransportState.NO_MEDIA, TransportState.ERROR -> { phase = DlnaPhase.STALLED; return failAttempt("la reproducción se cortó (estado ${state.name})") }
+                TransportState.STOPPED, TransportState.NO_MEDIA, TransportState.ERROR -> { phase = DlnaPhase.STALLED; return failAttempt("la reproducción se cortó (estado ${state.name})", nowMs) }
                 TransportState.UNKNOWN -> {}
             }
             else -> {}
@@ -65,8 +84,10 @@ class SessionSupervisor(
         return DlnaAction.None
     }
 
-    private fun failAttempt(reason: String): DlnaAction {
+    private fun failAttempt(reason: String, nowMs: Long): DlnaAction {
         lastReason = reason
+        recoveries++; recoveryTimes.addLast(nowMs); while (recoveryTimes.size > 12) recoveryTimes.removeFirst()
+        unreachable = 0
         if (retries < maxRetries) {
             val wait = backoffMs.getOrElse(retries) { backoffMs.last() }
             retries++
@@ -83,4 +104,10 @@ class SessionSupervisor(
     }
 
     fun onStopped() { phase = DlnaPhase.STOPPED }
+
+    companion object {
+        const val UNSTABLE_RECOVERIES = 3
+        const val UNSTABLE_WINDOW_MS = 5 * 60_000L
+        const val UNREACHABLE_LIMIT = 3
+    }
 }

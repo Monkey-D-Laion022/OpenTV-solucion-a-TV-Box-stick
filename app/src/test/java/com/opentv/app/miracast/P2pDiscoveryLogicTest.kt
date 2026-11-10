@@ -121,7 +121,8 @@ class P2pDiscoveryLogicTest {
     fun onlyTheSessionFileOpensSockets() {
         val sockets = Regex("""ServerSocket|java\.net\.Socket|Socket\(""")
         val offenders = productionFiles().filter { sockets.containsMatchIn(strip(it.readText())) }.map { it.name }
-        assertEquals(listOf("WfdDiagnosticSession.kt").filter { it in offenders }, offenders)
+        // El emisor RTP (6.7) es el único otro archivo autorizado a abrir un socket (UDP hacia el televisor).
+        assertEquals(listOf("WfdDiagnosticSession.kt", "WfdSourceStreamer.kt").filter { it in offenders }, offenders)
     }
 
     @Test

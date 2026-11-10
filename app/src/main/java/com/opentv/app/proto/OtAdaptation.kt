@@ -59,3 +59,13 @@ class OtSendGate(private val maxQueuedBytes: Int) {
 
     val isSkipping: Boolean get() = skipping
 }
+
+/** Topes que el receptor pide en ACCEPT (puede pedir MENOS de lo ofrecido, nunca más). 0 = sin tope. */
+data class OtAcceptCaps(val bitrateBps: Long, val fps: Int) {
+    companion object {
+        fun resolve(offeredBps: Long, offeredFps: Int, accept: OtAccept): OtAcceptCaps = OtAcceptCaps(
+            bitrateBps = if (accept.bitrateBps in 200_000 until offeredBps) accept.bitrateBps else offeredBps,
+            fps = if (accept.fps in 1 until offeredFps) accept.fps else 0,
+        )
+    }
+}

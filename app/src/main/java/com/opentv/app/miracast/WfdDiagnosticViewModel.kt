@@ -19,9 +19,9 @@ class WfdDiagnosticViewModel(application: Application) : AndroidViewModel(applic
     fun stopDiscovery() = discovery.stop()
 
     /** Solo se llama después de que el usuario confirmó el dispositivo en el diálogo. */
-    fun startTest(peer: P2pPeer) {
+    fun startTest(peer: P2pPeer, request: com.opentv.app.stream.MirrorRequest? = null, captureAudio: Boolean = false) {
         discovery.stop()
-        session.start(peer)
+        session.start(peer, request, captureAudio)
     }
 
     fun cancelTest() = session.cancel()

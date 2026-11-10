@@ -37,6 +37,8 @@ class ScreenEncoder(
     private val baseline: Boolean = false,
     /** Se llama (desde el hilo del codificador) si el codificador termina por sí solo, sin que se haya pedido [stop]. */
     private val onEnded: ((String) -> Unit)? = null,
+    /** Tiempo entre que se dibujó el cuadro y salió codificado (ms): mide cuánto se atrasa el codificador. */
+    private val onEncodeLatency: ((Double) -> Unit)? = null,
     private val onChunk: (chunk: ByteArray, keyStart: Boolean) -> Unit,
 ) {
     private var codec: MediaCodec? = null
@@ -177,6 +179,8 @@ class ScreenEncoder(
                         var pts = if (abs(raw - now) < 5_000_000L) raw else now
                         if (pts < lastPts) pts = lastPts
                         lastPts = pts
+                        val latUs = System.nanoTime() / 1000 - info.presentationTimeUs
+                        if (latUs in 0..5_000_000L) onEncodeLatency?.invoke(latUs / 1000.0)
                         val key = info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0
                         onFrame?.invoke(data, pts, key)
                         onChunk(muxer.mux(data, pts, key), key)

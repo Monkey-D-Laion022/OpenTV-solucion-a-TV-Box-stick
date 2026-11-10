@@ -66,6 +66,10 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
     private var clientSocket: Socket? = null
 
     @Volatile private var cancelRequested = false
+    /** Si hay captura concedida, tras M3 se continúa el protocolo y se transmite (Miracast completo). */
+    @Volatile private var streamRequest: com.opentv.app.stream.MirrorRequest? = null
+    @Volatile private var streamAudio = false
+    private var streamer: WfdSourceStreamer? = null
     @Volatile private var groupHandled = false
     private var ended = true
     private var ownsGroup = false
@@ -82,7 +86,8 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
             ContextCompat.checkSelfPermission(app, P2pPolicy.NEARBY_PERMISSION) == PackageManager.PERMISSION_GRANTED
 
     /** Inicia la prueba con [peer]. Solo se llama después de la confirmación explícita del usuario. */
-    fun start(peer: P2pPeer) {
+    fun start(peer: P2pPeer, request: com.opentv.app.stream.MirrorRequest? = null, captureAudio: Boolean = false) {
+        streamRequest = request; streamAudio = captureAudio
         if (_ui.value.running) return
         startedAt = SystemClock.elapsedRealtime()
         cancelRequested = false
@@ -479,6 +484,10 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
         var m3Sent = false
         var m3Done = false
         var closedByTv = false
+        var flow: WfdSourceFlow? = null
+        var flowEnded = false
+        var streaming = false
+        var lastRtpLog = 0L
 
         try {
             client.soTimeout = 1000
@@ -494,8 +503,40 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
             m1Cseq = nextCseq++
             send(WfdRtsp.m1(m1Cseq))
 
+            fun runFlow(f: WfdSourceFlow, msg: RtspMessage?, params: Map<String, String>?) {
+                val before = f.state
+                val (n, acts) = if (msg == null) f.start(params ?: emptyMap(), nextCseq) else f.onMessage(msg, nextCseq)
+                nextCseq = n
+                for (a in acts) when (a) {
+                    is WfdAction.Send -> send(a.text)
+                    is WfdAction.Log -> log(a.text)
+                    is WfdAction.KeyFrame -> streamer?.requestKeyFrame()
+                    is WfdAction.StartStream -> {
+                        val req = streamRequest
+                        val remote = client.inetAddress
+                        if (req != null && remote != null) {
+                            val st = WfdSourceStreamer(app, req, streamAudio) { why -> log(why); step(WfdPhase.STREAM, StepOutcome.FAILED, why) }
+                            streamer = st
+                            st.start(remote, a.clientPort, a.choice)
+                            streaming = true
+                            step(WfdPhase.STREAM, StepOutcome.OK, "Transmitiendo ${a.choice.mode.label} a ${remote.hostAddress}:${a.clientPort} por RTP/MPEG-TS (audio: ${a.choice.audio.label}). Falta confirmar en el televisor que haya imagen y sonido.")
+                        }
+                    }
+                    is WfdAction.StopStream -> { streamer?.stop(); streaming = false }
+                    is WfdAction.Fail -> { flowEnded = true; step(phaseOf(before), StepOutcome.FAILED, a.reason) }
+                    is WfdAction.Done -> { flowEnded = true; log("El televisor cerró la sesión (TEARDOWN).") }
+                }
+                val after = f.state
+                if (before == WfdSourceFlow.State.WAIT_M4 && after == WfdSourceFlow.State.WAIT_M5) step(WfdPhase.M4, StepOutcome.OK, "El televisor aceptó el formato ${f.choice?.mode?.label}.")
+                if (before == WfdSourceFlow.State.WAIT_M5 && after == WfdSourceFlow.State.WAIT_SETUP) step(WfdPhase.M5, StepOutcome.OK, "El televisor aceptó el trigger SETUP.")
+                if (after == WfdSourceFlow.State.WAIT_PLAY && before != after) step(WfdPhase.SETUP, StepOutcome.OK, "SETUP recibido y respondido.")
+                if (after == WfdSourceFlow.State.STREAMING && before != after) step(WfdPhase.PLAY, StepOutcome.OK, "PLAY recibido y respondido.")
+            }
+
             fun handle(msg: RtspMessage) {
                 log("Recibido: ${msg.summary}" + if (msg.body.isNotBlank()) " · ${msg.body.trim().take(300)}" else "")
+                val active = flow
+                if (active != null && m3Done) { runFlow(active, msg, null); return }
                 if (!msg.isRequest) {
                     when (msg.cseq) {
                         m1Cseq -> {
@@ -511,6 +552,11 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
                                 WfdPhase.M3, if (msg.statusCode == 200) StepOutcome.OK else StepOutcome.FAILED,
                                 "Respuesta RTSP ${msg.statusCode} con ${params.size} parámetro(s).",
                             )
+                            if (streamRequest != null && msg.statusCode == 200) {
+                                val f = WfdSourceFlow(client.localAddress?.hostAddress ?: "0.0.0.0")
+                                flow = f
+                                runFlow(f, null, params)
+                            }
                         }
                         else -> log("Respuesta con CSeq inesperado (${msg.cseq}): se ignora.")
                     }
@@ -537,7 +583,9 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
                 }
             }
 
-            while (!cancelRequested && !m3Done && SystemClock.elapsedRealtime() < deadline) {
+            while (!cancelRequested && (!m3Done || (flow != null && !flowEnded)) && (streaming || SystemClock.elapsedRealtime() < deadline)) {
+                val st = streamer
+                if (streaming && st != null && SystemClock.elapsedRealtime() - lastRtpLog > 5000) { lastRtpLog = SystemClock.elapsedRealtime(); log(st.summary()) }
                 val n = try {
                     input.read(buffer)
                 } catch (e: SocketTimeoutException) {
@@ -562,6 +610,7 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
             closedByTv = true
         }
 
+        streamer?.stop(); streamer = null
         if (cancelRequested) return
         // Fases que no llegaron a completarse: se registra por qué.
         val reason = if (closedByTv) StepOutcome.FAILED else StepOutcome.TIMEOUT
@@ -574,9 +623,18 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
     // ---- Cierre ----
 
     @Synchronized
+    private fun phaseOf(s: WfdSourceFlow.State): WfdPhase = when (s) {
+        WfdSourceFlow.State.WAIT_M4 -> WfdPhase.M4
+        WfdSourceFlow.State.WAIT_M5 -> WfdPhase.M5
+        WfdSourceFlow.State.WAIT_SETUP -> WfdPhase.SETUP
+        WfdSourceFlow.State.WAIT_PLAY -> WfdPhase.PLAY
+        else -> WfdPhase.STREAM
+    }
+
     private fun finishRun() {
         if (ended) return
         ended = true
+        streamer?.stop(); streamer = null
         groupTimeout?.cancel()
         groupTimeout = null
         runCatching { clientSocket?.close() }

@@ -1,6 +1,13 @@
 package com.opentv.app.miracast
 
+import android.Manifest
+import android.app.Activity
+import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
 import android.os.Build
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import com.opentv.app.stream.MirrorRequest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -45,6 +52,19 @@ fun WfdDiagnosticScreen(
     val discovery by viewModel.discoveryUi.collectAsStateWithLifecycle()
     val session by viewModel.sessionUi.collectAsStateWithLifecycle()
     var toConfirm by remember { mutableStateOf<P2pPeer?>(null) }
+    var transmit by remember { mutableStateOf(false) }
+    var pendingPeer by remember { mutableStateOf<P2pPeer?>(null) }
+    val context = LocalContext.current
+    val captureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val peer = pendingPeer; pendingPeer = null
+        val data = result.data
+        if (peer != null) {
+            if (result.resultCode == Activity.RESULT_OK && data != null) {
+                val audio = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                viewModel.startTest(peer, MirrorRequest(result.resultCode, data), audio)
+            } else viewModel.startTest(peer) // sin captura concedida: solo diagnóstico
+        }
+    }
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) viewModel.startDiscovery() else viewModel.permissionDenied()
@@ -66,7 +86,10 @@ fun WfdDiagnosticScreen(
             peer = peer,
             onConfirm = {
                 toConfirm = null
-                viewModel.startTest(peer)
+                if (transmit) {
+                    pendingPeer = peer
+                    captureLauncher.launch(context.getSystemService(MediaProjectionManager::class.java).createScreenCaptureIntent())
+                } else viewModel.startTest(peer)
             },
             onDismiss = { toConfirm = null },
         )
@@ -116,6 +139,16 @@ fun WfdDiagnosticScreen(
                     }
                 }
             }
+
+            TvButton(
+                if (transmit) "Modo: completar Miracast y TRANSMITIR la pantalla (activado)" else "Modo: solo diagnóstico, sin transmitir (activado)",
+                { transmit = !transmit }, horizontalPadding = 20.dp,
+            )
+            Text(
+                if (transmit) "Tras leer las capacidades, OpenTV elige formato (M4), pide SETUP (M5), atiende SETUP/PLAY y envía imagen por RTP/MPEG-TS. Pedirá permiso de captura. Sin verificar en el LG: anotá si el televisor muestra imagen y sonido."
+                else "Solo lee las capacidades (M1–M3) y se detiene: el televisor puede quedarse en «Obteniendo señal de Miracast» porque OpenTV no continúa el protocolo.",
+                style = MaterialTheme.typography.bodySmall, color = OpenTvColors.Muted,
+            )
 
             // ---- 2. Prueba ----
             if (session.started || session.running) {

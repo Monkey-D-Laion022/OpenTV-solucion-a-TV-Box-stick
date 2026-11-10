@@ -1,0 +1,26 @@
+chunk 100000 OK
+chunk 188 OK
+chunk 7 OK
+OK   la respuesta se construye y cabe en un datagrama
+OK   cabecera: respuesta autoritativa, 1 respuesta y 3 adicionales
+OK   contiene el nombre _opentv._tcp.local
+OK   TXT con id
+OK   SRV con puerto 8766 (0x223e)
+OK   registro A con 192.168.1.50
+OK   consulta PTR por nuestro servicio: se responde
+OK   consulta por otro servicio: se ignora
+OK   una respuesta no se toma como consulta
+OK   puntero de compresión circular/ inválido no cuelga ni lee fuera
+OK   emparejamiento: mismo código en ambos lados (913277)
+OK   emparejamiento: RESULT rc=1 (BYE)
+OK   emparejamiento: el TS recibido es idéntico al enviado
+OK   ACCEPT limita a 30 fps y 8 Mbps
+OK   STATS llegan al emisor
+OK   PONG responde al PING
+OK   reconexión con secreto guardado: rc=1
+OK   reconexión: TS idéntico
+OK   trama alterada: el receptor corta (rc=-3)
+OK   secreto equivocado: autenticación rechazada (rc=-3) y sin datos
+OK   emisor no emparejado: rc=-7
+
+TODAS LAS PRUEBAS DE LINK PASARON

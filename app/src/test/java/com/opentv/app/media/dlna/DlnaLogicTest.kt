@@ -121,4 +121,32 @@ class DlnaLogicTest {
         val b = s.onCommandFailed("x") as DlnaAction.Retry
         assertTrue(b.afterMs > a.afterMs)
     }
+
+    @Test fun variasConsultasSinRespuestaDuranteLaReproduccionSonUnCorte() {
+        val s = SessionSupervisor(1, maxRetries = 1)
+        s.begin(); s.onCapabilitiesRead(); s.onSent(0); s.onTransport(TransportState.PLAYING, 1_000)
+        assertEquals(DlnaAction.None, s.onPollFailed(3_000)); assertEquals(DlnaAction.None, s.onPollFailed(5_000))
+        val a = s.onPollFailed(7_000)
+        assertTrue(a is DlnaAction.Retry); assertTrue((a as DlnaAction.Retry).reason.contains("dejó de responder"))
+    }
+    @Test fun unaConsultaConRespuestaReiniciaLaCuenta() {
+        val s = SessionSupervisor(1)
+        s.begin(); s.onCapabilitiesRead(); s.onSent(0); s.onTransport(TransportState.PLAYING, 1_000)
+        s.onPollFailed(3_000); s.onPollFailed(5_000); s.onTransport(TransportState.PLAYING, 7_000)
+        assertEquals(DlnaAction.None, s.onPollFailed(9_000))
+    }
+    @Test fun unaRecuperacionExitosaNoOcultaUnaSesionInestable() {
+        val s = SessionSupervisor(1, maxRetries = 5)
+        s.begin(); s.onCapabilitiesRead()
+        var t = 0L
+        repeat(3) { s.onSent(t); s.onTransport(TransportState.PLAYING, t + 1_000); s.onTransport(TransportState.STOPPED, t + 5_000); t += 20_000 }
+        s.onSent(t); s.onTransport(TransportState.PLAYING, t + 1_000)
+        assertEquals(DlnaPhase.PLAYING, s.phase); assertTrue(s.unstable(t + 2_000)); assertEquals(3, s.recoveries)
+        assertFalse(s.unstable(t + 10 * 60_000))
+    }
+    @Test fun unaSolaRecuperacionNoEsInestable() {
+        val s = SessionSupervisor(1, maxRetries = 5)
+        s.begin(); s.onCapabilitiesRead(); s.onSent(0); s.onTransport(TransportState.PLAYING, 1_000); s.onTransport(TransportState.STOPPED, 5_000)
+        assertFalse(s.unstable(6_000))
+    }
 }
