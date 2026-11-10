@@ -1,3 +1,4 @@
+
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
@@ -29,7 +30,7 @@ echo "============================================"
 # 1. Comprobar herramientas
 # ------------------------------------------------------------
 
-for tool in cmake clang ar ranlib; do
+for tool in cmake clang ar ranlib file; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "ERROR: falta herramienta: $tool"
         exit 1
@@ -94,12 +95,10 @@ echo "[OK] Fuentes FAAD2 verificadas."
 echo
 echo "2. Preparando directorios..."
 
-rm -rf "$BUILD_DIR"
-rm -rf "$OUT_DIR"
+rm -rf "$BUILD_DIR" "$OUT_DIR"
 
 mkdir -p "$BUILD_DIR"
 mkdir -p "$OUT_DIR/include"
-mkdir -p "$OUT_DIR/lib"
 
 # ------------------------------------------------------------
 # 4. Configurar CMake
@@ -113,7 +112,6 @@ cmake \
     -B "$BUILD_DIR" \
     -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_SYSTEM_NAME=Generic \
     -DBUILD_SHARED_LIBS=OFF \
     -DFAAD_BUILD_CLI=OFF \
     -DFAAD_BUNDLED_MODE=OFF \
@@ -128,16 +126,16 @@ cmake \
 echo
 echo "4. Comprobando compilador..."
 
-if ! grep -q "CMAKE_C_COMPILER:FILEPATH=$WRAPPER" \
+if ! grep -Fq "CMAKE_C_COMPILER:FILEPATH=$WRAPPER" \
+    "$BUILD_DIR/CMakeCache.txt" &&
+   ! grep -Fq "CMAKE_C_COMPILER:STRING=$WRAPPER" \
+    "$BUILD_DIR/CMakeCache.txt" &&
+   ! grep -Fq "CMAKE_C_COMPILER:UNINITIALIZED=$WRAPPER" \
     "$BUILD_DIR/CMakeCache.txt"; then
 
-    if ! grep -q "CMAKE_C_COMPILER:STRING=$WRAPPER" \
-        "$BUILD_DIR/CMakeCache.txt"; then
-
-        echo "ERROR: CMake no registro el wrapper como compilador."
-        grep "CMAKE_C_COMPILER:" "$BUILD_DIR/CMakeCache.txt" || true
-        exit 1
-    fi
+    echo "ERROR: CMake no registro el wrapper como compilador."
+    grep "CMAKE_C_COMPILER:" "$BUILD_DIR/CMakeCache.txt" || true
+    exit 1
 fi
 
 echo "[OK] CMake registro el wrapper."
@@ -157,7 +155,7 @@ cmake \
     --parallel "$JOBS"
 
 # ------------------------------------------------------------
-# 7. Verificar biblioteca
+# 7. Localizar y verificar biblioteca
 # ------------------------------------------------------------
 
 echo
@@ -166,7 +164,9 @@ echo "6. Verificando biblioteca..."
 LIBRARY="$BUILD_DIR/libfaad.a"
 
 if [ ! -s "$LIBRARY" ]; then
-    echo "ERROR: no se genero libfaad.a."
+    echo "ERROR: no se genero libfaad.a en la ruta esperada."
+    echo "Buscando posibles ubicaciones..."
+    find "$BUILD_DIR" -name "libfaad.a" -type f -print
     exit 1
 fi
 
@@ -181,18 +181,51 @@ if [ ! -s "$BUILD_ROOT/faad-archive-members.txt" ]; then
 fi
 
 # ------------------------------------------------------------
-# 8. Instalar manualmente biblioteca y headers
+# 8. Verificar headers
 # ------------------------------------------------------------
 
 echo
-echo "7. Preparando salida..."
+echo "7. Comprobando headers..."
 
-cp "$LIBRARY" "$OUT_DIR/lib/libfaad.a"
-cp "$FAAD_DIR/include/neaacdec.h" "$OUT_DIR/include/neaacdec.h"
-cp "$BUILD_DIR/include/faad.h" "$OUT_DIR/include/faad.h"
+if [ ! -s "$FAAD_DIR/include/neaacdec.h" ]; then
+    echo "ERROR: falta neaacdec.h."
+    exit 1
+fi
 
-if [ ! -s "$OUT_DIR/lib/libfaad.a" ]; then
+if [ ! -s "$BUILD_DIR/include/faad.h" ]; then
+    echo "ERROR: falta faad.h en el directorio de compilacion."
+    echo "No se puede completar la instalacion de headers."
+    exit 1
+fi
+
+# ------------------------------------------------------------
+# 9. Instalar biblioteca y headers
+# ------------------------------------------------------------
+
+echo
+echo "8. Instalando salida..."
+
+install -m 0644 "$LIBRARY" "$OUT_DIR/libfaad.a"
+install -m 0644 "$FAAD_DIR/include/neaacdec.h" "$OUT_DIR/include/neaacdec.h"
+install -m 0644 "$BUILD_DIR/include/faad.h" "$OUT_DIR/include/faad.h"
+
+# ------------------------------------------------------------
+# 10. Verificacion final
+# ------------------------------------------------------------
+
+if [ ! -s "$OUT_DIR/libfaad.a" ]; then
     echo "ERROR: biblioteca final vacia."
+    exit 1
+fi
+
+if [ ! -s "$OUT_DIR/include/neaacdec.h" ] ||
+   [ ! -s "$OUT_DIR/include/faad.h" ]; then
+    echo "ERROR: faltan headers en la salida final."
+    exit 1
+fi
+
+if ! ar t "$OUT_DIR/libfaad.a" >/dev/null; then
+    echo "ERROR: biblioteca instalada invalida."
     exit 1
 fi
 
@@ -202,7 +235,7 @@ echo " FAAD2 COMPILADA"
 echo "============================================"
 
 echo "Biblioteca:"
-ls -lh "$OUT_DIR/lib/libfaad.a"
+ls -lh "$OUT_DIR/libfaad.a"
 
 echo
 echo "Headers:"
@@ -213,6 +246,14 @@ echo "Objetos incluidos:"
 wc -l "$BUILD_ROOT/faad-archive-members.txt"
 
 echo
+echo "Arquitectura de los objetos:"
+FIRST_OBJECT="$(head -n 1 "$BUILD_ROOT/faad-archive-members.txt")"
+
+if [ -n "$FIRST_OBJECT" ]; then
+    echo "Los objetos se verificaran posteriormente."
+fi
+
+echo
 echo "IMPORTANTE:"
-echo "La existencia del archivo no demuestra compatibilidad ABI PS3."
+echo "La compilacion y el formato AR no demuestran compatibilidad ABI PS3."
 echo "El enlazado final se verificara posteriormente."
