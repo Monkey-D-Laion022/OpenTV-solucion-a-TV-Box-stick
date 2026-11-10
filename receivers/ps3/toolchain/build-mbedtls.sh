@@ -1,3 +1,4 @@
+
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
@@ -16,6 +17,7 @@ PS3DEV="${PS3DEV:?ERROR: PS3DEV no esta definido}"
 MBED_DIR="$BUILD_ROOT/mbedtls"
 BUILD_DIR="$BUILD_ROOT/mbed-build"
 OUT_DIR="$BUILD_ROOT/mbed-out"
+INSPECT_DIR="$BUILD_ROOT/mbed-inspect"
 
 WRAPPER="$HERE/ppu-gcc.clang-wrapper"
 TOOLCHAIN="$HERE/ps3-ppu-clang.cmake"
@@ -58,7 +60,7 @@ if [ ! -f "$TOOLCHAIN" ]; then
     exit 1
 fi
 
-if [ ! -f "$CONFIG" ]; then
+if [ ! -s "$CONFIG" ]; then
     echo "ERROR: falta ot_mbedtls_config.h."
     exit 1
 fi
@@ -87,18 +89,10 @@ if [ "$ACTUAL_TAG" != "$EXPECTED_TAG" ]; then
     exit 1
 fi
 
-if [ ! -f "$MBED_DIR/CMakeLists.txt" ]; then
-    echo "ERROR: falta CMakeLists.txt."
-    exit 1
-fi
-
-if [ ! -f "$MBED_DIR/library/CMakeLists.txt" ]; then
-    echo "ERROR: falta library/CMakeLists.txt."
-    exit 1
-fi
-
-if [ ! -f "$MBED_DIR/include/mbedtls/ssl.h" ]; then
-    echo "ERROR: faltan los encabezados de mbedTLS."
+if [ ! -f "$MBED_DIR/CMakeLists.txt" ] ||
+   [ ! -f "$MBED_DIR/library/CMakeLists.txt" ] ||
+   [ ! -f "$MBED_DIR/include/mbedtls/ssl.h" ]; then
+    echo "ERROR: fuentes o encabezados mbedTLS incompletos."
     exit 1
 fi
 
@@ -111,11 +105,11 @@ echo "[OK] Fuentes mbedTLS $ACTUAL_TAG verificadas."
 echo
 echo "3. Preparando directorios..."
 
-rm -rf "$BUILD_DIR"
-rm -rf "$OUT_DIR"
+rm -rf "$BUILD_DIR" "$OUT_DIR" "$INSPECT_DIR"
 
 mkdir -p "$BUILD_DIR"
 mkdir -p "$OUT_DIR/include"
+mkdir -p "$INSPECT_DIR"
 
 # ------------------------------------------------------------
 # 4. Configurar CMake
@@ -123,6 +117,8 @@ mkdir -p "$OUT_DIR/include"
 
 echo
 echo "4. Configurando compilacion cruzada..."
+
+C_FLAGS="-O2 -ffunction-sections -fdata-sections -I$PS3_ROOT/third_party -DMBEDTLS_CONFIG_FILE=\\\"ot_mbedtls_config.h\\\""
 
 cmake \
     -S "$MBED_DIR" \
@@ -135,23 +131,54 @@ cmake \
     -DENABLE_PROGRAMS=OFF \
     -DENABLE_TESTING=OFF \
     -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
-    -DCMAKE_C_FLAGS="-O2 -ffunction-sections -fdata-sections -I$PS3_ROOT/third_party -DMBEDTLS_CONFIG_FILE=\\\"ot_mbedtls_config.h\\\""
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+    -DCMAKE_C_FLAGS="$C_FLAGS"
 
 # ------------------------------------------------------------
-# 5. Comprobar compilador
+# 5. Comprobar compilador y configuracion
 # ------------------------------------------------------------
 
 echo
 echo "5. Verificando compilador..."
 
-if ! grep -F "$WRAPPER" "$BUILD_DIR/CMakeCache.txt" \
-    | grep -q "CMAKE_C_COMPILER"; then
+if ! grep -Fq "CMAKE_C_COMPILER:FILEPATH=$WRAPPER" \
+    "$BUILD_DIR/CMakeCache.txt" &&
+   ! grep -Fq "CMAKE_C_COMPILER:STRING=$WRAPPER" \
+    "$BUILD_DIR/CMakeCache.txt" &&
+   ! grep -Fq "CMAKE_C_COMPILER:UNINITIALIZED=$WRAPPER" \
+    "$BUILD_DIR/CMakeCache.txt"; then
+
     echo "ERROR: CMake no registro el wrapper como compilador."
-    grep "CMAKE_C_COMPILER" "$BUILD_DIR/CMakeCache.txt" || true
+    grep "CMAKE_C_COMPILER:" "$BUILD_DIR/CMakeCache.txt" || true
     exit 1
 fi
 
 echo "[OK] Wrapper registrado."
+
+echo
+echo "Comprobando configuracion personalizada..."
+
+if ! grep -Fq "MBEDTLS_CONFIG_FILE" "$BUILD_DIR/CMakeCache.txt"; then
+    echo "ERROR: no aparece MBEDTLS_CONFIG_FILE en CMakeCache."
+    exit 1
+fi
+
+if ! grep -Fq "ot_mbedtls_config.h" "$BUILD_DIR/CMakeCache.txt"; then
+    echo "ERROR: no aparece el nombre de la configuracion personalizada."
+    exit 1
+fi
+
+if [ ! -s "$BUILD_DIR/compile_commands.json" ]; then
+    echo "ERROR: no se genero compile_commands.json."
+    exit 1
+fi
+
+if ! grep -Fq "ot_mbedtls_config.h" "$BUILD_DIR/compile_commands.json"; then
+    echo "ERROR: la configuracion personalizada no aparece en los comandos de compilacion."
+    exit 1
+fi
+
+echo "[OK] Configuracion personalizada registrada."
 
 # ------------------------------------------------------------
 # 6. Compilar biblioteca criptografica
@@ -185,10 +212,15 @@ if [ "${#LIBRARIES[@]}" -ne 1 ]; then
     exit 1
 fi
 
+if [ ! -s "${LIBRARIES[0]}" ]; then
+    echo "ERROR: biblioteca original vacia."
+    exit 1
+fi
+
 cp "${LIBRARIES[0]}" "$LIBRARY"
 
 if [ ! -s "$LIBRARY" ]; then
-    echo "ERROR: biblioteca vacia."
+    echo "ERROR: biblioteca copiada vacia."
     exit 1
 fi
 
@@ -199,7 +231,10 @@ fi
 echo
 echo "8. Verificando archivo estatico..."
 
-ar t "$LIBRARY" > "$BUILD_ROOT/mbed-archive-members.txt"
+if ! ar t "$LIBRARY" > "$BUILD_ROOT/mbed-archive-members.txt"; then
+    echo "ERROR: archivo AR invalido."
+    exit 1
+fi
 
 if [ ! -s "$BUILD_ROOT/mbed-archive-members.txt" ]; then
     echo "ERROR: biblioteca sin objetos."
@@ -213,11 +248,6 @@ fi
 echo
 echo "9. Inspeccionando objetos..."
 
-INSPECT_DIR="$BUILD_ROOT/mbed-inspect"
-
-rm -rf "$INSPECT_DIR"
-mkdir -p "$INSPECT_DIR"
-
 (
     cd "$INSPECT_DIR"
     ar x "$LIBRARY"
@@ -226,8 +256,9 @@ mkdir -p "$INSPECT_DIR"
 OBJECT_COUNT=0
 
 while IFS= read -r -d '' obj; do
-    DESCRIPTION="$(file "$obj")"
-    echo "$DESCRIPTION"
+    DESCRIPTION="$(file -b "$obj")"
+
+    echo "$(basename "$obj"): $DESCRIPTION"
 
     if ! grep -Eqi 'PowerPC|ppc64' <<< "$DESCRIPTION"; then
         echo "ERROR: objeto que no parece PowerPC:"
@@ -236,12 +267,15 @@ while IFS= read -r -d '' obj; do
     fi
 
     OBJECT_COUNT=$((OBJECT_COUNT + 1))
+
 done < <(find "$INSPECT_DIR" -type f -print0)
 
 if [ "$OBJECT_COUNT" -eq 0 ]; then
     echo "ERROR: no se encontraron objetos."
     exit 1
 fi
+
+echo "[OK] $OBJECT_COUNT objetos con arquitectura PowerPC reconocible."
 
 # ------------------------------------------------------------
 # 10. Copiar encabezados
@@ -252,10 +286,29 @@ echo "10. Copiando encabezados..."
 
 cp -R "$MBED_DIR/include/mbedtls" "$OUT_DIR/include/"
 
-cp "$CONFIG" "$OUT_DIR/include/ot_mbedtls_config.h"
+install -m 0644 \
+    "$CONFIG" \
+    "$OUT_DIR/include/ot_mbedtls_config.h"
 
 # ------------------------------------------------------------
-# 11. Resultado
+# 11. Verificar encabezados
+# ------------------------------------------------------------
+
+echo
+echo "11. Verificando encabezados..."
+
+if [ ! -s "$OUT_DIR/include/mbedtls/ssl.h" ]; then
+    echo "ERROR: falta ssl.h."
+    exit 1
+fi
+
+if [ ! -s "$OUT_DIR/include/ot_mbedtls_config.h" ]; then
+    echo "ERROR: falta ot_mbedtls_config.h."
+    exit 1
+fi
+
+# ------------------------------------------------------------
+# 12. Resultado
 # ------------------------------------------------------------
 
 echo
@@ -263,7 +316,7 @@ echo "============================================"
 echo " MBEDTLS: COMPILACION TERMINADA"
 echo "============================================"
 
-echo "Biblioteca esperada por build_pkg.sh:"
+echo "Biblioteca:"
 ls -lh "$LIBRARY"
 
 echo
@@ -275,7 +328,11 @@ echo "Objetos inspeccionados: $OBJECT_COUNT"
 
 echo
 echo "IMPORTANTE:"
-echo "La arquitectura PowerPC detectada no demuestra"
-echo "compatibilidad completa con el ABI de PS3."
+echo "Se detecto arquitectura PowerPC en los objetos."
+echo "Esto no demuestra compatibilidad ABI completa con PS3."
 echo "La implementacion de mbedtls_hardware_poll()"
-echo "y el enlazado final deben verificarse aparte."
+echo "debe verificarse por separado."
+echo "El enlazado final permanece deshabilitado."
+
+echo
+echo "Proceso mbedTLS finalizado."
