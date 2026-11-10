@@ -33,7 +33,7 @@ Firmware personalizado (CFW) o PS3HEN activo: el PKG es de tipo «debug/homebrew
 El secreto de reconexión se guarda **sin cifrar** en `peers.dat` (la PS3 no ofrece un almacén de claves accesible); quien tenga acceso al disco de la consola podría hacerse pasar por ella ante ese teléfono. Es una limitación asumida. El protocolo no fue auditado por terceros (ver `docs/PROTOCOLO-OPENTV.md`).
 
 ## Compilar de nuevo
-`sh receivers/ps3/build_pkg.sh` (ver variables al inicio del script y `docs/PS3-TOOLCHAIN-CLANG.md`).
+`make -C receivers/ps3 ci PS3DEV=<raíz del SDK>` (ver `docs/PS3-BUILD-CI.md`; reemplaza al antiguo `build_pkg.sh`).
 
 ## Pruebas en PC
 `sh receivers/ps3/run_host_tests.sh` (gcc, ffmpeg) y `sh receivers/ps3/test/run_link_tests.sh RUTA_LINK_HOST CLIP.ts` (requiere compilar `test/link_host.c` con mbedTLS; ver el script). Resultados en `docs/NOTA-PRUEBAS-6.7.md`.

@@ -34,14 +34,14 @@ static int read_name(const uint8_t *pkt, size_t n, size_t *pp, char *out, size_t
     for (;;) { if (p >= n) return -1; uint8_t l = pkt[p];
         if (l == 0) { p++; break; }
         if ((l & 0xC0) == 0xC0) { if (p + 1 >= n || ++hops > 8) return -1; size_t ptr = (size_t)((l & 0x3F) << 8) | pkt[p + 1]; if (!jumped) endp = p + 2; jumped = 1; p = ptr; continue; }
-        if (l > 63 || p + 1 + l > n || o + l + 2 > cap) return -1; if (o) out[o++] = '.'; for (int k = 0; k < l; k++) out[o++] = (char)tolower(pkt[p + 1 + k]); p += 1 + (size_t)l; }
+        if (l > 63 || p + 1 + l > n || o + l + 2 > cap) return -1; if (o) out[o++] = '.'; for (int k = 0; k < l; k++) out[o++] = (char)tolower((unsigned char)pkt[p + 1 + k]); p += 1 + (size_t)l; }
     out[o] = 0; *pp = jumped ? endp : p; return 0;
 }
 int ot_mdns_query_matches(const uint8_t *pkt, size_t n, const ot_mdns_info *i) {
     if (n < 12 || (pkt[2] & 0x80)) return 0;                          /* solo consultas */
     unsigned qd = (unsigned)(pkt[4] << 8) | pkt[5]; size_t p = 12; char name[256], inst[128], host[64];
     snprintf(inst, sizeof inst, "%s._opentv._tcp.local", i->instance); snprintf(host, sizeof host, "%s.local", i->host);
-    for (char *s = inst; *s; s++) *s = (char)tolower(*s); for (char *s = host; *s; s++) *s = (char)tolower(*s);
+    for (char *s = inst; *s; s++) *s = (char)tolower((unsigned char)*s); for (char *s = host; *s; s++) *s = (char)tolower((unsigned char)*s);
     for (unsigned k = 0; k < qd && k < 16; k++) { if (read_name(pkt, n, &p, name, sizeof name) || p + 4 > n) return 0; p += 4;
         if (!strcmp(name, "_opentv._tcp.local") || !strcmp(name, inst) || !strcmp(name, host)) return 1; }
     return 0;
