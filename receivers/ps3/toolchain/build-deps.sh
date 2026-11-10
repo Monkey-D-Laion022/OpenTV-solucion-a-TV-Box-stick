@@ -3,17 +3,16 @@
 set -Eeuo pipefail
 
 # ============================================================
-# OpenTV PS3 - Diagnostico de SDK y compilador PPU con Clang
-# Esta fase NO compila ni instala dependencias.
+# OpenTV PS3 - Diagnostico de SDK, Clang y dependencias PPU
+# No compila ni instala dependencias.
 # ============================================================
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PS3_ROOT="$(cd "$HERE/.." && pwd)"
 WRAPPER="$HERE/ppu-gcc.clang-wrapper"
 
-echo "============================================"
-echo " OpenTV PS3 - Verificacion de toolchain"
-echo "============================================"
+BUILD_ROOT="${PS3_BUILD_ROOT:?ERROR: PS3_BUILD_ROOT no esta definido}"
+PS3DEV="${PS3DEV:?ERROR: PS3DEV no esta definido}"
 
 ERRORS=0
 WARNINGS=0
@@ -32,6 +31,12 @@ fail() {
     ERRORS=$((ERRORS + 1))
 }
 
+echo "============================================"
+echo " OpenTV PS3 - Diagnostico de toolchain"
+echo "============================================"
+
+mkdir -p "$BUILD_ROOT/diagnostic"
+
 # ------------------------------------------------------------
 # 1. Variables de entorno
 # ------------------------------------------------------------
@@ -39,40 +44,32 @@ fail() {
 echo
 echo "1. Variables de entorno"
 
-if [ -z "${PS3DEV:-}" ]; then
-    fail "PS3DEV no esta definido."
-    exit 1
-fi
-
-if [ -z "${PS3_BUILD_ROOT:-}" ]; then
-    fail "PS3_BUILD_ROOT no esta definido."
-    exit 1
-fi
-
 if [ ! -d "$PS3DEV" ]; then
-    fail "No existe el directorio PS3DEV: $PS3DEV"
-    exit 1
+    fail "No existe PS3DEV: $PS3DEV"
+else
+    ok "PS3DEV=$PS3DEV"
 fi
 
-ok "PS3DEV=$PS3DEV"
-ok "PS3_BUILD_ROOT=$PS3_BUILD_ROOT"
+if [ ! -d "$BUILD_ROOT" ]; then
+    fail "No existe PS3_BUILD_ROOT: $BUILD_ROOT"
+else
+    ok "PS3_BUILD_ROOT=$BUILD_ROOT"
+fi
 
 if [ -n "${NEWLIB_SRC:-}" ] && [ -d "$NEWLIB_SRC" ]; then
-    ok "Newlib fuente encontrada: $NEWLIB_SRC"
+    ok "Newlib fuente: $NEWLIB_SRC"
 else
-    warn "No se encontro NEWLIB_SRC."
+    warn "NEWLIB_SRC no esta disponible."
 fi
 
-mkdir -p "$PS3_BUILD_ROOT/diagnostic"
-
 # ------------------------------------------------------------
-# 2. Herramientas del sistema
+# 2. Herramientas host
 # ------------------------------------------------------------
 
 echo
 echo "2. Herramientas host"
 
-for tool in clang ld.lld make cmake git python3; do
+for tool in clang ld.lld make cmake git python3 ar ranlib file; do
     if command -v "$tool" >/dev/null 2>&1; then
         ok "$tool: $(command -v "$tool")"
     else
@@ -100,7 +97,7 @@ for tool in ppu-gcc ppu-strip sprxlinker fself sfo pkg; do
 done
 
 # ------------------------------------------------------------
-# 4. Estructura del SDK
+# 4. Estructura SDK
 # ------------------------------------------------------------
 
 echo
@@ -110,6 +107,7 @@ for path in \
     "$PS3DEV/ppu" \
     "$PS3DEV/ppu/bin" \
     "$PS3DEV/ppu/lib" \
+    "$PS3DEV/ppu/powerpc64-ps3-elf/include" \
     "$PS3DEV/bin"
 do
     if [ -d "$path" ]; then
@@ -128,7 +126,7 @@ find "$PS3DEV/ppu" \
     -print 2>/dev/null | head -30 || true
 
 echo
-echo "Buscando bibliotecas del sistema..."
+echo "Buscando bibliotecas del SDK..."
 
 find "$PS3DEV/ppu" \
     -type f \
@@ -136,7 +134,7 @@ find "$PS3DEV/ppu" \
     -print 2>/dev/null | head -60 || true
 
 echo
-echo "Buscando archivos de arranque y linker..."
+echo "Buscando archivos CRT y linker..."
 
 find "$PS3DEV/ppu" \
     -type f \
@@ -144,59 +142,99 @@ find "$PS3DEV/ppu" \
     -print 2>/dev/null | head -30 || true
 
 # ------------------------------------------------------------
-# 5. Archivos del proyecto
+# 5. Archivos OpenTV
 # ------------------------------------------------------------
 
 echo
-echo "5. Archivos de OpenTV"
+echo "5. Archivos del proyecto"
 
-if [ -f "$WRAPPER" ]; then
-    ok "Wrapper encontrado: $WRAPPER"
-else
-    fail "No existe el wrapper: $WRAPPER"
-fi
-
-if [ -f "$HERE/ppc-asm.h" ]; then
-    ok "ppc-asm.h encontrado"
-else
-    warn "No se encontro ppc-asm.h"
-fi
-
-if [ -f "$PS3_ROOT/third_party/ot_mbedtls_config.h" ]; then
-    ok "Configuracion mbedTLS encontrada"
-else
-    warn "No se encontro ot_mbedtls_config.h"
-fi
-
-# ------------------------------------------------------------
-# 6. Dependencias compiladas
-# ------------------------------------------------------------
-
-echo
-echo "6. Dependencias"
-
-for lib in \
-    "$PS3_BUILD_ROOT/mbed-out/libmbed_ppu.a" \
-    "$PS3_BUILD_ROOT/faad-out/libfaad.a"
+for f in \
+    "$WRAPPER" \
+    "$HERE/ps3-ppu-clang.cmake" \
+    "$HERE/ppc-asm.h" \
+    "$PS3_ROOT/third_party/ot_mbedtls_config.h"
 do
-    if [ -f "$lib" ]; then
-        ok "Biblioteca encontrada: $lib"
+    if [ -f "$f" ]; then
+        ok "Encontrado: $f"
     else
-        warn "Biblioteca pendiente: $lib"
+        fail "Falta archivo: $f"
     fi
 done
 
 # ------------------------------------------------------------
-# 7. Prueba real de compilacion PPU con Clang
+# 6. Fuentes descargadas
 # ------------------------------------------------------------
 
 echo
-echo "7. Prueba de compilacion PPU"
+echo "6. Fuentes de dependencias"
 
-if [ ! -f "$WRAPPER" ]; then
-    fail "No se puede probar: falta el wrapper."
+if [ -f "$BUILD_ROOT/faad2/CMakeLists.txt" ]; then
+    ok "Fuentes FAAD2 encontradas."
 else
-    PROBE_DIR="$PS3_BUILD_ROOT/diagnostic"
+    warn "Fuentes FAAD2 pendientes."
+fi
+
+if [ -f "$BUILD_ROOT/mbedtls/CMakeLists.txt" ]; then
+    ok "Fuentes mbedTLS encontradas."
+else
+    warn "Fuentes mbedTLS pendientes."
+fi
+
+# ------------------------------------------------------------
+# 7. Bibliotecas compiladas
+# ------------------------------------------------------------
+
+echo
+echo "7. Bibliotecas compiladas"
+
+FAAD_LIB="$BUILD_ROOT/faad-out/libfaad.a"
+MBED_LIB="$BUILD_ROOT/mbed-out/libmbed_ppu.a"
+
+for lib in "$FAAD_LIB" "$MBED_LIB"; do
+    if [ -s "$lib" ]; then
+        ok "Biblioteca encontrada: $lib"
+
+        if ar t "$lib" \
+            > "$BUILD_ROOT/diagnostic/$(basename "$lib").members"; then
+            ok "Archivo AR legible: $lib"
+        else
+            fail "Archivo AR invalido: $lib"
+        fi
+    else
+        warn "Biblioteca pendiente o vacia: $lib"
+    fi
+done
+
+# ------------------------------------------------------------
+# 8. Encabezados de dependencias
+# ------------------------------------------------------------
+
+echo
+echo "8. Encabezados"
+
+for header in \
+    "$BUILD_ROOT/faad-out/include/neaacdec.h" \
+    "$BUILD_ROOT/mbed-out/include/mbedtls/ssl.h" \
+    "$BUILD_ROOT/mbed-out/include/ot_mbedtls_config.h"
+do
+    if [ -s "$header" ]; then
+        ok "Encabezado encontrado: $header"
+    else
+        warn "Encabezado pendiente: $header"
+    fi
+done
+
+# ------------------------------------------------------------
+# 9. Prueba de compilacion PPU
+# ------------------------------------------------------------
+
+echo
+echo "9. Prueba de compilacion PPU"
+
+if [ -f "$WRAPPER" ]; then
+    chmod +x "$WRAPPER"
+
+    PROBE_DIR="$BUILD_ROOT/diagnostic"
     PROBE_C="$PROBE_DIR/ppu_probe.c"
     PROBE_O="$PROBE_DIR/ppu_probe.o"
 
@@ -209,24 +247,30 @@ u32 opentv_ppu_probe(u32 value)
 }
 EOF
 
-    echo "Compilando archivo de prueba..."
-
-    if bash "$WRAPPER" \
-        -c "$PROBE_C" \
-        -o "$PROBE_O"
-    then
+    if "$WRAPPER" -c "$PROBE_C" -o "$PROBE_O"; then
         if [ -s "$PROBE_O" ]; then
-            ok "Clang genero el objeto PPU: $PROBE_O"
+            ok "Objeto de prueba generado."
+
+            DESCRIPTION="$(file "$PROBE_O")"
+            echo "$DESCRIPTION"
+
+            if grep -Eqi 'PowerPC|ppc64' <<< "$DESCRIPTION"; then
+                ok "Objeto identificado como PowerPC."
+            else
+                fail "El objeto no fue identificado como PowerPC."
+            fi
         else
-            fail "La compilacion termino sin generar un objeto valido."
+            fail "La compilacion no genero un objeto valido."
         fi
     else
-        fail "El wrapper Clang no pudo compilar el archivo de prueba."
+        fail "Clang no pudo compilar el archivo de prueba."
     fi
+else
+    fail "No se puede probar: falta el wrapper."
 fi
 
 # ------------------------------------------------------------
-# 8. Resultado
+# 10. Resultado
 # ------------------------------------------------------------
 
 echo
@@ -240,11 +284,11 @@ echo "Avisos:  $WARNINGS"
 if [ "$ERRORS" -gt 0 ]; then
     echo
     echo "DIAGNOSTICO FALLIDO."
-    echo "No continuar con la compilacion del receptor."
+    echo "No continuar con el receptor."
     exit 1
 fi
 
 echo
 echo "DIAGNOSTICO BASICO COMPLETADO."
-echo "Esto NO confirma que el enlazado o el paquete PKG funcionen."
-echo "Tampoco confirma que FAAD2 y mbedTLS esten compiladas."
+echo "Esto NO confirma el ABI PS3."
+echo "Tampoco confirma el enlazado ni el PKG."
