@@ -1,3 +1,4 @@
+
 name: Build
 
 on:
@@ -100,3 +101,41 @@ jobs:
           name: OpenTV-PS3-diagnostico
           path: ${{ runner.temp }}/ps3build/
           if-no-files-found: ignore
+
+      - name: PS3 - localizar el SDK GCC real
+        run: |
+          SDK="${PS3DEV:-$RUNNER_TEMP/ps3dev}"
+          if [ ! -x "$SDK/ppu/bin/ppu-gcc" ]; then
+            echo "No se encontró ppu-gcc en $SDK. Candidatos:"
+            find "$RUNNER_TEMP" -maxdepth 4 -name 'ppu-gcc*' 2>/dev/null
+            exit 1
+          fi
+          echo "PS3DEV=$SDK" >> "$GITHUB_ENV"
+          make -C receivers/ps3 tools PS3DEV="$SDK"
+
+      - name: PS3 - compilar y empaquetar el receptor
+        run: make -C receivers/ps3 ci PS3DEV="$PS3DEV"
+
+      - name: PS3 - comprobar que el PKG existe
+        run: |
+          test -s receivers/ps3/build/opentv-ps3.pkg
+          ls -la receivers/ps3/build/opentv-ps3.pkg
+          sha256sum receivers/ps3/build/opentv-ps3.pkg
+
+      - name: PS3 - subir el PKG como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: opentv-ps3-pkg
+          path: receivers/ps3/build/opentv-ps3.pkg
+          if-no-files-found: error
+
+      - name: PS3 - subir archivos de depuración
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opentv-ps3-debug
+          path: |
+            receivers/ps3/build/opentv-ps3.stripped.elf
+            receivers/ps3/build/pkg/
+          if-no-files-found: ignore
+          
