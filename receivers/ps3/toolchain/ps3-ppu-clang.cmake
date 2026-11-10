@@ -35,9 +35,17 @@ set(CMAKE_AR "${PS3_HOST_AR}")
 set(CMAKE_RANLIB "${PS3_HOST_RANLIB}")
 
 set(CMAKE_FIND_ROOT_PATH "${PS3_PPU_ROOT}")
+
+# Los programas de configuracion se ejecutan en Ubuntu.
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
-set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
-set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
-set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+
+# No asumir que todas las bibliotecas y dependencias del
+# destino ya estan disponibles en el SDK.
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY BOTH)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE BOTH)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
 
 set(CMAKE_C_FLAGS_INIT "-O2 -ffunction-sections -fdata-sections")
+
+# El enlazado cruzado permanece sin validar.
+# No habilitar ejecutables PS3 desde esta configuracion.
