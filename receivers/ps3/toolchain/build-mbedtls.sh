@@ -22,7 +22,6 @@ INSPECT_DIR="$BUILD_ROOT/mbed-inspect"
 WRAPPER="$HERE/ppu-gcc.clang-wrapper"
 TOOLCHAIN="$HERE/ps3-ppu-clang.cmake"
 
-# Ruta REAL del archivo dentro del repositorio.
 CONFIG_DIR="$PS3_ROOT/receivers/ps3/third_party"
 CONFIG="$CONFIG_DIR/ot_mbedtls_config.h"
 
@@ -67,21 +66,18 @@ echo "Directorio de configuracion: $CONFIG_DIR"
 echo "Ruta de configuracion: $CONFIG"
 
 if [ ! -f "$CONFIG" ]; then
-    echo "ERROR: no existe ot_mbedtls_config.h en la ruta esperada."
-    echo "Contenido del directorio:"
+    echo "ERROR: no existe ot_mbedtls_config.h."
     ls -la "$CONFIG_DIR" || true
-    echo "Buscando el archivo dentro del repositorio:"
     find "$PS3_ROOT" -type f -name "ot_mbedtls_config.h" -print
     exit 1
 fi
 
 if [ ! -s "$CONFIG" ]; then
     echo "ERROR: ot_mbedtls_config.h existe, pero esta vacio."
-    ls -lh "$CONFIG"
     exit 1
 fi
 
-echo "[OK] Configuracion personalizada encontrada:"
+echo "[OK] Configuracion personalizada encontrada."
 ls -lh "$CONFIG"
 
 chmod +x "$WRAPPER"
@@ -137,7 +133,10 @@ mkdir -p "$INSPECT_DIR"
 echo
 echo "4. Configurando compilacion cruzada..."
 
-C_FLAGS="-O2 -ffunction-sections -fdata-sections -I$CONFIG_DIR -DMBEDTLS_CONFIG_FILE=\"ot_mbedtls_config.h\""
+# IMPORTANTE:
+# Las comillas simples externas preservan las comillas dobles
+# como parte del valor de la definicion que recibe Clang.
+C_FLAGS="-O2 -ffunction-sections -fdata-sections -I$CONFIG_DIR -DMBEDTLS_CONFIG_FILE='\"ot_mbedtls_config.h\"'"
 
 cmake \
     -S "$MBED_DIR" \
@@ -169,25 +168,24 @@ fi
 
 echo "[OK] Wrapper registrado."
 
-echo
-echo "Comprobando configuracion personalizada..."
-
 if [ ! -s "$BUILD_DIR/compile_commands.json" ]; then
     echo "ERROR: no se genero compile_commands.json."
     exit 1
 fi
 
 if ! grep -Fq "ot_mbedtls_config.h" "$BUILD_DIR/compile_commands.json"; then
-    echo "ERROR: la configuracion personalizada no aparece en los comandos de compilacion."
+    echo "ERROR: falta la configuracion personalizada en los comandos."
     exit 1
 fi
 
 if ! grep -Fq "$CONFIG_DIR" "$BUILD_DIR/compile_commands.json"; then
-    echo "ERROR: el directorio de configuracion no aparece en los comandos de compilacion."
+    echo "ERROR: falta el directorio de configuracion en los comandos."
     exit 1
 fi
 
-echo "[OK] Configuracion personalizada registrada."
+echo "[OK] Comandos de compilacion generados."
+echo "Definicion de MBEDTLS_CONFIG_FILE:"
+grep -m 2 -F "MBEDTLS_CONFIG_FILE" "$BUILD_DIR/compile_commands.json" || true
 
 # ------------------------------------------------------------
 # 6. Compilar biblioteca criptografica
@@ -266,7 +264,6 @@ OBJECT_COUNT=0
 
 while IFS= read -r -d '' obj; do
     DESCRIPTION="$(file -b "$obj")"
-
     echo "$(basename "$obj"): $DESCRIPTION"
 
     if ! grep -Eqi 'PowerPC|ppc64' <<< "$DESCRIPTION"; then
@@ -276,7 +273,6 @@ while IFS= read -r -d '' obj; do
     fi
 
     OBJECT_COUNT=$((OBJECT_COUNT + 1))
-
 done < <(find "$INSPECT_DIR" -type f -print0)
 
 if [ "$OBJECT_COUNT" -eq 0 ]; then
@@ -337,8 +333,8 @@ echo "Objetos inspeccionados: $OBJECT_COUNT"
 
 echo
 echo "IMPORTANTE:"
-echo "Se detecto arquitectura PowerPC en los objetos."
-echo "Esto no demuestra compatibilidad ABI completa con PS3."
+echo "La arquitectura PowerPC reconocida no demuestra"
+echo "compatibilidad ABI completa con PS3."
 echo "La implementacion de mbedtls_hardware_poll()"
 echo "debe verificarse por separado."
 echo "El enlazado final permanece deshabilitado."
