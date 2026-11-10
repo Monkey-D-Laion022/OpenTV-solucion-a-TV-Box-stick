@@ -3,8 +3,6 @@
 set -Eeuo pipefail
 
 P="${PS3DEV:?ERROR: PS3DEV no está definido}"
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 N="$P/ppu/powerpc64-ps3-elf"
 
 if [ ! -d "$N/include" ]; then
@@ -15,7 +13,6 @@ fi
 BASE=(
     --target=powerpc64-unknown-elf
     -mcpu=cell
-    -mabi=elfv1
     -mbig-endian
     -ffreestanding
     -nostdlibinc
@@ -54,6 +51,6 @@ if [ "$compile" -eq 1 ]; then
     exec clang "${BASE[@]}" "${args[@]}"
 fi
 
-echo "ERROR: el enlazado final PS3 todavía no está habilitado." >&2
-echo "No se debe generar un ejecutable hasta validar CRT, linker y ABI." >&2
+echo "ERROR: enlazado PS3 todavía no habilitado." >&2
+echo "Primero debemos validar CRT, linker y ABI." >&2
 exit 1
