@@ -7,7 +7,6 @@ set -Eeuo pipefail
 # FAAD2 + mbedTLS 3.6.2
 # ============================================================
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_ROOT="${PS3_BUILD_ROOT:?ERROR: PS3_BUILD_ROOT no esta definido}"
 
 FAAD_DIR="$BUILD_ROOT/faad2"
@@ -23,12 +22,10 @@ echo "============================================"
 echo " OpenTV PS3 - Descarga de dependencias"
 echo "============================================"
 
-for tool in git; do
-    if ! command -v "$tool" >/dev/null 2>&1; then
-        echo "ERROR: falta la herramienta $tool"
-        exit 1
-    fi
-done
+if ! command -v git >/dev/null 2>&1; then
+    echo "ERROR: falta Git."
+    exit 1
+fi
 
 mkdir -p "$BUILD_ROOT"
 
@@ -37,22 +34,25 @@ mkdir -p "$BUILD_ROOT"
 # ------------------------------------------------------------
 
 echo
-echo "1. Descargando FAAD2..."
+echo "1. Preparando FAAD2..."
 
 if [ -d "$FAAD_DIR/.git" ]; then
     CURRENT="$(git -C "$FAAD_DIR" rev-parse HEAD)"
 
-    if [ "$CURRENT" = "$FAAD_COMMIT" ]; then
-        echo "[OK] FAAD2 ya esta en el commit esperado."
-    else
-        echo "La version existente no coincide. Se descargara nuevamente."
+    if [ "$CURRENT" != "$FAAD_COMMIT" ]; then
+        echo "El commit existente no coincide."
         rm -rf "$FAAD_DIR"
     fi
+elif [ -e "$FAAD_DIR" ]; then
+    echo "ERROR: existe FAAD2 pero no es un repositorio Git."
+    exit 1
 fi
 
 if [ ! -d "$FAAD_DIR/.git" ]; then
-    git clone "$FAAD_URL" "$FAAD_DIR"
-    git -C "$FAAD_DIR" checkout --detach "$FAAD_COMMIT"
+    git init "$FAAD_DIR"
+    git -C "$FAAD_DIR" remote add origin "$FAAD_URL"
+    git -C "$FAAD_DIR" fetch --depth 1 origin "$FAAD_COMMIT"
+    git -C "$FAAD_DIR" checkout --detach FETCH_HEAD
 fi
 
 ACTUAL_COMMIT="$(git -C "$FAAD_DIR" rev-parse HEAD)"
@@ -77,17 +77,18 @@ echo "[OK] FAAD2 verificada: $ACTUAL_COMMIT"
 # ------------------------------------------------------------
 
 echo
-echo "2. Descargando mbedTLS $MBED_TAG..."
+echo "2. Preparando mbedTLS $MBED_TAG..."
 
 if [ -d "$MBED_DIR/.git" ]; then
     CURRENT_TAG="$(git -C "$MBED_DIR" describe --tags --exact-match 2>/dev/null || true)"
 
-    if [ "$CURRENT_TAG" = "$MBED_TAG" ]; then
-        echo "[OK] mbedTLS ya esta en $MBED_TAG."
-    else
-        echo "La version existente no coincide. Se descargara nuevamente."
+    if [ "$CURRENT_TAG" != "$MBED_TAG" ]; then
+        echo "La version existente no coincide."
         rm -rf "$MBED_DIR"
     fi
+elif [ -e "$MBED_DIR" ]; then
+    echo "ERROR: existe mbedTLS pero no es un repositorio Git."
+    exit 1
 fi
 
 if [ ! -d "$MBED_DIR/.git" ]; then
@@ -109,7 +110,15 @@ if [ "$ACTUAL_TAG" != "$MBED_TAG" ]; then
     exit 1
 fi
 
+echo "Inicializando submodulos..."
+
 git -C "$MBED_DIR" submodule update --init --recursive
+
+if git -C "$MBED_DIR" submodule status --recursive | grep -qE '^[-+U]'; then
+    echo "ERROR: hay submodulos sin inicializar o con revision incorrecta."
+    git -C "$MBED_DIR" submodule status --recursive
+    exit 1
+fi
 
 if [ ! -f "$MBED_DIR/CMakeLists.txt" ] ||
    [ ! -f "$MBED_DIR/library/CMakeLists.txt" ] ||
