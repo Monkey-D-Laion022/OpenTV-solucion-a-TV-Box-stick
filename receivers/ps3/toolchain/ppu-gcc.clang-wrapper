@@ -41,7 +41,7 @@ done
 if [ "$COMPILE" -eq 1 ]; then
     exec clang \
         --target=powerpc64-unknown-elf \
-        -mcpu=cell \
+        -mcpu=ppc-cell-be \
         -mbig-endian \
         -ffreestanding \
         -nostdlibinc \
