@@ -43,40 +43,27 @@ jobs:
           path: app/build/reports/tests/
           if-no-files-found: ignore
 
-  build-ps3:
+  diagnose-ps3:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Instalar dependencias del sistema
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential autoconf automake libtool \
-            zlib1g-dev wget curl git python3 cmake \
-            clang lld pkg-config
-
       - name: Preparar toolchain PS3
         run: |
           chmod +x receivers/ps3/toolchain/bootstrap.sh
-          receivers/ps3/toolchain/bootstrap.sh
+          bash receivers/ps3/toolchain/bootstrap.sh
 
-      - name: Compilar receptor PS3
+      - name: Diagnosticar SDK y compilador PPU
         run: |
-          chmod +x receivers/ps3/build_pkg.sh
-          cd receivers/ps3
-          make clean || true
-          make
+          chmod +x receivers/ps3/toolchain/build-deps.sh
+          bash receivers/ps3/toolchain/build-deps.sh
 
-      - name: Verificar PKG
-        run: |
-          test -s receivers/ps3/build/opentv-ps3.pkg
-          ls -lh receivers/ps3/build/opentv-ps3.pkg
-
-      - name: Guardar PKG de PS3
-        if: success()
+      - name: Guardar diagnostico
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: OpenTV-PS3-PKG
-          path: receivers/ps3/build/opentv-ps3.pkg
+          name: OpenTV-PS3-diagnostico
+          path: |
+            ${{ runner.temp }}/ps3build/diagnostic/
+          if-no-files-found: ignore
           
