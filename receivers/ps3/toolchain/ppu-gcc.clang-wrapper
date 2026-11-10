@@ -9,37 +9,6 @@ N="$P/ppu/powerpc64-ps3-elf"
 L="$P/ppu/ppu/lib"
 ASM_HEADER="$HERE/ppc-asm.h"
 
-args=()
-asm=0
-compile=0
-
-for a in "$@"; do
-    case "$a" in
-        -D__ASSEMBLY__)
-            asm=1
-            args+=("$a")
-            ;;
-        -c|-S|-E|-M|-MM)
-            compile=1
-            args+=("$a")
-            ;;
-        -mcpu=cell|-Wa,-mcell|-mregnames|-mhard-float|-fmodulo-sched|-mminimal-toc|-Wl,-Map,*)
-            ;;
-        *)
-            args+=("$a")
-            ;;
-    esac
-done
-
-# ------------------------------------------------------------
-# Configuracion comun
-# ------------------------------------------------------------
-
-if [ ! -d "$N/include" ]; then
-    echo "ERROR: faltan los headers PPU: $N/include" >&2
-    exit 1
-fi
-
 BASE=(
     --target=powerpc64-unknown-elf
     -mcpu=970
@@ -53,7 +22,57 @@ BASE=(
 )
 
 # ------------------------------------------------------------
-# Compilacion: no necesita archivos CRT ni linker script
+# 1. Argumentos
+# ------------------------------------------------------------
+
+args=()
+asm=0
+compile=0
+
+for a in "$@"; do
+    case "$a" in
+        -D__ASSEMBLY__)
+            asm=1
+            args+=("$a")
+            ;;
+
+        -c|-S|-E|-M|-MM|-fsyntax-only)
+            compile=1
+            args+=("$a")
+            ;;
+
+        -mcpu=cell|-Wa,-mcell|-mregnames|-mhard-float|-fmodulo-sched|-mminimal-toc|-Wl,-Map,*)
+            ;;
+
+        *)
+            args+=("$a")
+            ;;
+    esac
+done
+
+# ------------------------------------------------------------
+# 2. Consultas informativas de Clang
+# ------------------------------------------------------------
+
+if [ "$#" -eq 1 ]; then
+    case "$1" in
+        --version|-version|-v|-dumpmachine|-dumpversion|-print-search-dirs|-print-resource-dir)
+            exec clang "${BASE[@]}" "$1"
+            ;;
+    esac
+fi
+
+# ------------------------------------------------------------
+# 3. Comprobar headers
+# ------------------------------------------------------------
+
+if [ ! -d "$N/include" ]; then
+    echo "ERROR: faltan los headers PPU: $N/include" >&2
+    exit 1
+fi
+
+# ------------------------------------------------------------
+# 4. Compilación sin enlazado
 # ------------------------------------------------------------
 
 if [ "$compile" = 1 ]; then
@@ -75,7 +94,7 @@ if [ "$compile" = 1 ]; then
 fi
 
 # ------------------------------------------------------------
-# Enlace: verificar archivos necesarios
+# 5. Comprobar archivos necesarios para enlazar
 # ------------------------------------------------------------
 
 for f in \
@@ -90,6 +109,10 @@ do
         exit 1
     fi
 done
+
+# ------------------------------------------------------------
+# 6. Enlazado experimental PS3
+# ------------------------------------------------------------
 
 exec clang \
     "${BASE[@]}" \
