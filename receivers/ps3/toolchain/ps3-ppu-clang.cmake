@@ -1,7 +1,14 @@
+
+# ============================================================
 # OpenTV PS3 - Toolchain experimental Clang para PPU
+# ============================================================
 
 set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_SYSTEM_PROCESSOR powerpc64)
+
+# ------------------------------------------------------------
+# 1. SDK
+# ------------------------------------------------------------
 
 if(NOT DEFINED ENV{PS3DEV})
     message(FATAL_ERROR "PS3DEV no esta definido")
@@ -9,52 +16,63 @@ endif()
 
 set(PS3DEV "$ENV{PS3DEV}")
 
+set(PS3_PPU_ROOT "${PS3DEV}/ppu")
+set(PS3_PPU_HEADERS
+    "${PS3_PPU_ROOT}/powerpc64-ps3-elf/include"
+)
+
+if(NOT IS_DIRECTORY "${PS3_PPU_HEADERS}")
+    message(FATAL_ERROR
+        "No se encontraron los headers PPU: ${PS3_PPU_HEADERS}"
+    )
+endif()
+
+# ------------------------------------------------------------
+# 2. Compilador Clang mediante wrapper
+# ------------------------------------------------------------
+
 set(PS3_WRAPPER
     "${CMAKE_CURRENT_LIST_DIR}/ppu-gcc.clang-wrapper"
 )
 
 if(NOT EXISTS "${PS3_WRAPPER}")
-    message(FATAL_ERROR "No existe ppu-gcc.clang-wrapper")
+    message(FATAL_ERROR
+        "No existe el wrapper: ${PS3_WRAPPER}"
+    )
 endif()
 
-# Usar Bash para ejecutar el wrapper, sin depender
-# del permiso de ejecucion del archivo.
-set(CMAKE_C_COMPILER "/usr/bin/bash")
-set(CMAKE_C_COMPILER_ARG1 "${PS3_WRAPPER}")
+if(NOT EXISTS "/usr/bin/clang")
+    message(FATAL_ERROR
+        "No se encontro Clang en /usr/bin/clang"
+    )
+endif()
 
-# Evitar que CMake intente enlazar un ejecutable Linux
-# durante la deteccion inicial del compilador.
+# El wrapper debe tener permiso de ejecucion.
+# CMake lo invoca directamente como compilador.
+set(CMAKE_C_COMPILER "${PS3_WRAPPER}")
+
+# Evitar enlaces de ejecutables Linux durante
+# la deteccion inicial del compilador.
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 
-# Herramientas de archivo PPU.
-find_program(PS3_PPU_AR
-    NAMES ppu-ar
-    HINTS
-        "${PS3DEV}/ppu/bin"
-        "${PS3DEV}/bin"
-)
+# ------------------------------------------------------------
+# 3. Herramientas de archivo
+# ------------------------------------------------------------
 
-find_program(PS3_PPU_RANLIB
-    NAMES ppu-ranlib
-    HINTS
-        "${PS3DEV}/ppu/bin"
-        "${PS3DEV}/bin"
-)
+# ar y ranlib crean archivos estaticos sin necesitar
+# conocer la arquitectura interna de los objetos.
+find_program(PS3_HOST_AR NAMES ar REQUIRED)
+find_program(PS3_HOST_RANLIB NAMES ranlib REQUIRED)
 
-if(NOT PS3_PPU_AR)
-    message(FATAL_ERROR "No se encontro ppu-ar en PS3DEV")
-endif()
+set(CMAKE_AR "${PS3_HOST_AR}")
+set(CMAKE_RANLIB "${PS3_HOST_RANLIB}")
 
-if(NOT PS3_PPU_RANLIB)
-    message(FATAL_ERROR "No se encontro ppu-ranlib en PS3DEV")
-endif()
+# ------------------------------------------------------------
+# 4. Busqueda dentro del SDK
+# ------------------------------------------------------------
 
-set(CMAKE_AR "${PS3_PPU_AR}")
-set(CMAKE_RANLIB "${PS3_PPU_RANLIB}")
-
-# Buscar headers y bibliotecas dentro del SDK.
 set(CMAKE_FIND_ROOT_PATH
-    "${PS3DEV}/ppu"
+    "${PS3_PPU_ROOT}"
 )
 
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
@@ -62,7 +80,14 @@ set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 
-# Compilacion estatica y optimizada.
+# ------------------------------------------------------------
+# 5. Flags de compilacion
+# ------------------------------------------------------------
+
 set(CMAKE_C_FLAGS_INIT
     "-O2 -ffunction-sections -fdata-sections"
 )
+
+# No se configura un linker PS3 aqui.
+# El enlazado final sigue siendo experimental y
+# se verificara por separado.
