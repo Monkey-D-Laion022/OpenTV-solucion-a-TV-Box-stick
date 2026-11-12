@@ -96,6 +96,12 @@ static int open_frame(cipher_t *c, const uint8_t h[6], const uint8_t *ct, size_t
     *outn = n - 16; return 0;
 }
 
+static const char *g_stage = "inicio"; static int g_merr = 0;
+#define STAGE(x) (g_stage = (x))
+const char *ot_link_last_stage(void) { return g_stage; }
+int ot_link_last_mbedtls(void) { return g_merr; }
+#define MB(call) (g_merr = (call))
+
 static int rng_seeded = 0; static mbedtls_entropy_context g_ent; static mbedtls_ctr_drbg_context g_drbg;
 static int rng_init(void) {
     if (rng_seeded) return 0;
@@ -126,42 +132,44 @@ int ot_link_run(const ot_link_cfg *cfg, const ot_io *io, const ot_link_cb *cb) {
     mbedtls_ecp_group_init(&grp); mbedtls_mpi_init(&d); mbedtls_mpi_init(&z); mbedtls_ecp_point_init(&Q); mbedtls_ecp_point_init(&Qp);
     mbedtls_gcm_init(&tx.g); mbedtls_gcm_init(&rxc.g);
     uint8_t raw_r[256], nonce_r[16], pub[65], ikm[32], okm[64], psk[32]; size_t rawr_n, publen = 0; hello_t hs; uint8_t raw_s_copy[256]; size_t raws_n = 0;
-    if (rng_init()) { rc = OT_LINK_ERR_CRYPTO; goto done; }
+    STAGE("rng"); if (rng_init()) { rc = OT_LINK_ERR_CRYPTO; goto done; }
     mbedtls_ctr_drbg_random(&g_drbg, nonce_r, 16);
     if (cfg->pair_mode) {
-        if (mbedtls_ecp_group_load(&grp, MBEDTLS_ECP_DP_SECP256R1)) { rc = OT_LINK_ERR_CRYPTO; goto done; }
-        if (mbedtls_ecdh_gen_public(&grp, &d, &Q, mbedtls_ctr_drbg_random, &g_drbg)) { rc = OT_LINK_ERR_CRYPTO; goto done; }
+        STAGE("ecp_load"); if (MB(mbedtls_ecp_group_load(&grp, MBEDTLS_ECP_DP_SECP256R1))) { rc = OT_LINK_ERR_CRYPTO; goto done; }
+        STAGE("ecdh_gen"); if (MB(mbedtls_ecdh_gen_public(&grp, &d, &Q, mbedtls_ctr_drbg_random, &g_drbg))) { rc = OT_LINK_ERR_CRYPTO; goto done; }
         if (mbedtls_ecp_point_write_binary(&grp, &Q, MBEDTLS_ECP_PF_UNCOMPRESSED, &publen, pub, sizeof pub) || publen != 65) { rc = OT_LINK_ERR_CRYPTO; goto done; }
     }
     rawr_n = encode_hello(raw_r, cfg, nonce_r, pub, publen);
-    if (write_plain(io, T_HELLO, 0, raw_r, rawr_n)) { rc = OT_LINK_ERR_IO; goto done; }
+    STAGE("enviar HELLO"); if (write_plain(io, T_HELLO, 0, raw_r, rawr_n)) { rc = OT_LINK_ERR_IO; goto done; }
+    STAGE("esperar HELLO del telefono");
     for (int tries = 0;; tries++) {                         /* esperar el HELLO del emisor (hasta ~15 s) */
         int r = read_frame(io, 1000, h, rx, &len);
         if (r == 0) break; if (r < 0) { rc = r == -2 ? OT_LINK_ERR_PROTO : OT_LINK_ERR_IO; goto done; }
         if (tries >= 15 || (cb->should_stop && cb->should_stop(cb->u))) { rc = OT_LINK_ERR_IO; goto done; }
     }
+    STAGE("leer HELLO del telefono");
     if (h[0] == T_ERROR) { rc = OT_LINK_ERR_PEER; if (cb->on_status) cb->on_status(cb->u, "El telefono rechazo la conexion"); goto done; }
     if (h[0] != T_HELLO || len > sizeof raw_s_copy || decode_hello(rx, len, &hs) || hs.role != 1 || hs.mode != (cfg->pair_mode ? 0 : 1)) { rc = OT_LINK_ERR_PROTO; goto done; }
     memcpy(raw_s_copy, rx, len); raws_n = len;
     if (cfg->pair_mode) {
-        if (hs.publen != 65 || mbedtls_ecp_point_read_binary(&grp, &Qp, hs.pub, hs.publen) || mbedtls_ecp_check_pubkey(&grp, &Qp)) { rc = OT_LINK_ERR_CRYPTO; goto done; }
-        if (mbedtls_ecdh_compute_shared(&grp, &z, &Qp, &d, mbedtls_ctr_drbg_random, &g_drbg) || mbedtls_mpi_write_binary(&z, ikm, 32)) { rc = OT_LINK_ERR_CRYPTO; goto done; }
+        STAGE("clave publica del telefono"); if (hs.publen != 65 || MB(mbedtls_ecp_point_read_binary(&grp, &Qp, hs.pub, hs.publen)) || MB(mbedtls_ecp_check_pubkey(&grp, &Qp))) { rc = OT_LINK_ERR_CRYPTO; goto done; }
+        STAGE("ECDH"); if (MB(mbedtls_ecdh_compute_shared(&grp, &z, &Qp, &d, mbedtls_ctr_drbg_random, &g_drbg)) || MB(mbedtls_mpi_write_binary(&z, ikm, 32))) { rc = OT_LINK_ERR_CRYPTO; goto done; }
     } else if (!cb->load_secret || cb->load_secret(cb->u, hs.id, ikm)) {
         if (cb->on_status) cb->on_status(cb->u, "Este telefono no esta emparejado");
         rc = OT_LINK_ERR_NOTPAIRED; goto done;
     }
     {   uint8_t salt[32]; memcpy(salt, hs.nonce, 16); memcpy(salt + 16, nonce_r, 16);
-        if (hkdf(salt, 32, ikm, 32, "OTV1 session", okm, 64)) { rc = OT_LINK_ERR_CRYPTO; goto done; } }
-    if (mbedtls_gcm_setkey(&tx.g, MBEDTLS_CIPHER_ID_AES, okm + 32, 256) || mbedtls_gcm_setkey(&rxc.g, MBEDTLS_CIPHER_ID_AES, okm, 256)) { rc = OT_LINK_ERR_CRYPTO; goto done; }
+        STAGE("HKDF"); if (MB(hkdf(salt, 32, ikm, 32, "OTV1 session", okm, 64))) { rc = OT_LINK_ERR_CRYPTO; goto done; } }
+    STAGE("AES-GCM clave"); if (MB(mbedtls_gcm_setkey(&tx.g, MBEDTLS_CIPHER_ID_AES, okm + 32, 256)) || MB(mbedtls_gcm_setkey(&rxc.g, MBEDTLS_CIPHER_ID_AES, okm, 256))) { rc = OT_LINK_ERR_CRYPTO; goto done; }
     tx.dir = 2; tx.ctr = 0; rxc.dir = 1; rxc.ctr = 0;
 
     if (cfg->pair_mode) {
-        char sas[7]; ot_link_sas(ikm, raw_s_copy, raws_n, raw_r, rawr_n, sas);
+        STAGE("mostrar codigo"); char sas[7]; ot_link_sas(ikm, raw_s_copy, raws_n, raw_r, rawr_n, sas);
         int ok = cb->confirm_code ? cb->confirm_code(cb->u, sas, hs.name) : 0; uint8_t b = ok ? 1 : 0;
-        if (write_enc(io, &tx, T_PAIR, 0, &b, 1)) { rc = OT_LINK_ERR_IO; goto done; }
-        int r; do { r = read_frame(io, 1000, h, rx, &len); } while (r == 1 && !(cb->should_stop && cb->should_stop(cb->u)));
+        STAGE("enviar PAIR_CONFIRM"); if (write_enc(io, &tx, T_PAIR, 0, &b, 1)) { rc = OT_LINK_ERR_IO; goto done; }
+        STAGE("esperar PAIR_CONFIRM"); int r; do { r = read_frame(io, 1000, h, rx, &len); } while (r == 1 && !(cb->should_stop && cb->should_stop(cb->u)));
         if (r) { rc = OT_LINK_ERR_IO; goto done; }
-        if (h[0] != T_PAIR || open_frame(&rxc, h, rx, len, pt, &len) || len != 1 || pt[0] != 1 || !ok) { rc = OT_LINK_ERR_REJECTED; goto done; }
+        STAGE("validar PAIR_CONFIRM"); if (h[0] != T_PAIR || open_frame(&rxc, h, rx, len, pt, &len) || len != 1 || pt[0] != 1 || !ok) { rc = OT_LINK_ERR_REJECTED; goto done; }
         uint8_t salt[32]; if (sha256(raw_s_copy, raws_n, raw_r, rawr_n, salt) || hkdf(salt, 32, ikm, 32, "OTV1 psk", psk, 32)) { rc = OT_LINK_ERR_CRYPTO; goto done; }
         if (cb->save_secret) cb->save_secret(cb->u, hs.id, psk);
         if (cb->on_status) cb->on_status(cb->u, "Emparejado");
@@ -180,6 +188,7 @@ int ot_link_run(const ot_link_cfg *cfg, const ot_io *io, const ot_link_cb *cb) {
     }
 
     /* Fase de datos */
+    STAGE("datos");
     {   uint64_t last_stats = cb->now_ms ? cb->now_ms(cb->u) : 0; int accepted = 0;
         for (;;) {
             if (cb->should_stop && cb->should_stop(cb->u)) { write_enc(io, &tx, T_BYE, 0, NULL, 0); rc = OT_LINK_STOPPED; goto done; }

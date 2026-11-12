@@ -14,6 +14,11 @@ ifeq ($(wildcard $(PS3DEV)/ppu/bin/ppu-gcc),)
   $(error PS3DEV=$(PS3DEV) no contiene ppu/bin/ppu-gcc. Defina PS3DEV con la raíz del SDK ps3dev)
 endif
 
+# ppu-gcc (specs del SDK) exige PSL1GHT y PS3DEV en el entorno; en el SDK ps3dev PSL1GHT es la propia raíz.
+export PS3DEV
+PSL1GHT   ?= $(PS3DEV)
+export PSL1GHT
+
 TARGET    := opentv-ps3
 APPID     := OPENTV001
 CONTENTID := UP0001-$(APPID)_00-0000000000000000
@@ -36,7 +41,7 @@ SELF_NPDRM := $(call find_tool,make_self_npdrm)
 SFO        := $(call find_tool,sfo)
 PKGTOOL    := $(call find_tool,pkg)
 
-SRC := src/main.c src/ps3_av.c core/ot_link.c core/ot_ts.c core/ot_http.c core/ot_mdns.c
+SRC := src/main.c src/ps3_av.c core/ot_link.c core/ot_selftest.c core/ot_ts.c core/ot_http.c core/ot_mdns.c
 OBJS := $(patsubst %.c,$(OBJ)/%.o,$(SRC))
 
 MBED_INC := $(DEPS)/mbed-out/include

@@ -68,15 +68,16 @@ static void read_cfg(cfg_t *c) {
     memset(c, 0, sizeof *c); c->port = 8080; strcpy(c->name, "PS3"); c->max_fps_1080 = 30; c->max_kbps = 12000;
     FILE *f = fopen(CFG, "r"); if (!f) return; char l[128];
     while (fgets(l, sizeof l, f)) { l[strcspn(l, "\r\n")] = 0;
-        if (!strncmp(l, "host=", 5)) strncpy(c->host, l + 5, sizeof c->host - 1);
+        if (!strncmp(l, "host=", 5)) snprintf(c->host, sizeof c->host, "%.63s", l + 5);
         else if (!strncmp(l, "port=", 5)) c->port = atoi(l + 5);
-        else if (!strncmp(l, "name=", 5)) strncpy(c->name, l + 5, sizeof c->name - 1);
+        else if (!strncmp(l, "name=", 5)) snprintf(c->name, sizeof c->name, "%.47s", l + 5);
         else if (!strncmp(l, "fps1080=", 8)) c->max_fps_1080 = atoi(l + 8);
         else if (!strncmp(l, "maxkbps=", 8)) c->max_kbps = atoi(l + 8); }
     fclose(f);
 }
 
 /* ───── video/audio ───── */
+static char g_crypto[128] = "";
 static ot_ts g_ts;
 static void on_unit(void *u, ot_stream_kind k, const uint8_t *d, size_t n, int64_t pts, int key) {
     (void)u; if (k == OT_STREAM_VIDEO_H264) ps3av_push_video(d, n, pts, key); else ps3av_push_audio(d, n, pts);
@@ -136,6 +137,7 @@ static void idle_screen(const cfg_t *c) {
     ps3av_text(2, g_pair_next ? "Modo: EMPAREJAR" : "Modo: reconectar");
     snprintf(l, sizeof l, "En el telefono: OpenTV > Enviar a TV.  X = emparejar%s", c->host[0] ? "   /\\ = HTTP" : "");
     ps3av_message(g_lan_ok ? l : "Sin red: conecta el cable o el Wi-Fi de la PS3");
+    if (g_crypto[0] && strcmp(g_crypto, "Cripto OK")) ps3av_text(2, g_crypto);
 }
 static int run_http(const cfg_t *c) {
     ps3av_text(0, ""); ps3av_text(1, ""); ps3av_text(2, "");
@@ -156,6 +158,8 @@ int main(void) {
     netInitialize();
     if (ps3av_init() != 0) { printf("[opentv] no se pudo iniciar video/audio\n"); return 1; }
     cfg_t cfg; read_cfg(&cfg); net_info();
+    { char why[96]; int st = ot_selftest(why, sizeof why); snprintf(g_crypto, sizeof g_crypto, st ? "CRIPTO FALLA: %s" : "Cripto OK", why);
+      printf("[opentv] autoprueba cripto: %s\n", g_crypto); }
     uint8_t id[8]; load_device_id(id);
     { FILE *f = fopen(PEERS, "r"); if (!f) g_pair_next = 1; else fclose(f); }       /* sin teléfonos guardados: se empareja directamente */
     ot_mdns_info mi; memset(&mi, 0, sizeof mi); hex(id, 8, mi.id_hex);
@@ -188,7 +192,7 @@ int main(void) {
             ot_ts_free(&g_ts); close(g_sock); g_sock = -1;
             if (rc == OT_LINK_ERR_NOTPAIRED) { g_pair_next = 1; ps3av_message("Telefono no emparejado: pulsa X para emparejar y reintenta"); g_pair_next = 0; }
             else if (rc == OT_LINK_BYE || rc == OT_LINK_STOPPED) { if (g_pair_next && rc == OT_LINK_BYE) g_pair_next = 0; }
-            else { char m[80]; snprintf(m, sizeof m, "Sesion terminada (codigo %d)", rc); ps3av_message(m); sleep(2); }
+            else { char m[160]; snprintf(m, sizeof m, "Sesion terminada: codigo %d en etapa '%s' (mbedtls %d)", rc, ot_link_last_stage(), ot_link_last_mbedtls()); ps3av_message(m); printf("[opentv] %s\n", m); sleep(6); }
             if (lc.pair_mode && rc != OT_LINK_ERR_REJECTED) g_pair_next = 0;
             idle_screen(&cfg);
         }

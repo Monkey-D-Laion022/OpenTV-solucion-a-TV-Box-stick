@@ -40,3 +40,8 @@ El secreto de reconexión se guarda **sin cifrar** en `peers.dat` (la PS3 no ofr
 
 ## PS3 de fábrica como renderizador DLNA
 La PS3 con firmware original **reproduce contenido de servidores DLNA**; que acepte un *push* (AVTransport) **no está comprobado**. En IPTV: «Buscar televisores DLNA»; si aparece, probar «Enviar a».
+
+## Diagnóstico en pantalla (Link)
+- Al arrancar, la PS3 ejecuta una **autoprueba criptográfica** (HMAC‑SHA256, HKDF, AES‑256‑GCM, ECDH P‑256 con vectores de RFC 4231/5869/NIST/RFC 5903). Si falla, la pantalla inicial muestra `CRIPTO FALLA: <primitiva>`; si pasa, la salida de depuración dice `Cripto OK`.
+- Si una sesión termina con error, el mensaje indica **código, etapa y código de mbedTLS**, por ejemplo `Sesion terminada: codigo -6 en etapa 'ECDH' (mbedtls -0x...)`. Etapas: rng, ecp_load, ecdh_gen, enviar HELLO, esperar/leer HELLO del telefono, clave publica del telefono, ECDH, HKDF, AES-GCM clave, mostrar codigo, enviar/esperar/validar PAIR_CONFIRM, datos.
+- Verificación del protocolo contra el emisor Android: `tools/sender-java/KotlinParitySender.java` replica 1:1 `OtHandshake.asSender` con las mismas primitivas JCA (`java KotlinParitySender.java HOST PUERTO pair ARCHIVO_PSK`). Prueba en PC: emparejamiento, SAS idéntico, ACCEPT, STATS y PONG OK. NO prueba la PS3 real.

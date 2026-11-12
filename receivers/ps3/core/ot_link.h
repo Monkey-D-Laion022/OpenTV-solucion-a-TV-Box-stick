@@ -42,6 +42,11 @@ enum { OT_LINK_OK = 0, OT_LINK_BYE = 1, OT_LINK_ERR_IO = -1, OT_LINK_ERR_PROTO =
 
 /* Ejecuta UNA sesión completa (saludo, emparejamiento/autenticación, oferta, datos) hasta BYE, error o parada. */
 int ot_link_run(const ot_link_cfg *cfg, const ot_io *io, const ot_link_cb *cb);
+/* Diagnóstico: última etapa alcanzada y último código de mbedTLS (para mostrarlos en pantalla si la sesión falla). */
+const char *ot_link_last_stage(void);
+int ot_link_last_mbedtls(void);
+/* Autoprueba de la criptografía con vectores publicados (RFC 4231, RFC 5869, NIST GCM, RFC 5903). 0 = todo bien; si no, escribe en why qué falló. */
+int ot_selftest(char *why, size_t n);
 /* Utilidades expuestas para pruebas. */
 void ot_link_sas(const uint8_t z[32], const uint8_t *hello_s, size_t ns, const uint8_t *hello_r, size_t nr, char out7[7]);
 #endif

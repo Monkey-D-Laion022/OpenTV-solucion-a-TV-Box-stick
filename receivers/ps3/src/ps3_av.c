@@ -1,12 +1,11 @@
 /*
  * OpenTV PS3 — capa de audio/video: pantalla (gcm/rsx), decodificación H.264 (cellVdec), AAC (faad2) y salida de audio (cellAudio).
  *
- * ESTADO HONESTO: compila y enlaza con la toolchain clang de este proyecto (docs/PS3-TOOLCHAIN-CLANG.md) pero NUNCA se ejecutó en una PS3
+ * ESTADO HONESTO: compila y enlaza con el GCC del SDK (ver docs/PS3-BUILD-CI.md) pero NUNCA se ejecutó en una PS3
  * ni en un emulador. Las llamadas a cellVdec/gcm/cellAudio siguen la documentación de PSL1GHT y sus ejemplos; el orden exacto y los
  * tiempos pueden requerir ajustes en consola real.
  *
- * Nota de ABI (clang): el SDK define los punteros del sistema como 32 bits con __attribute__((mode(SI))); clang no lo soporta, así que
- * el contexto gcm se maneja aquí como cuatro u32 (begin,end,current,callback) y NO se usan las macros de librsx que desreferencian el contexto.
+ * Compilado con el ppu-gcc real del SDK ps3dev (powerpc64-ps3-elf). La secuencia de pantalla sigue samples/network/ps3load/source/rsxutil.c de PSL1GHT.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,6 +20,7 @@
 #include <sysmodule/sysmodule.h>
 #include <sysutil/video.h>
 #include <rsx/gcm_sys.h>
+#include <rsx/rsx.h>
 #include <rsx/mm.h>
 #include <codec/vdec.h>
 #include <audio/audio.h>
@@ -28,8 +28,6 @@
 #include <neaacdec.h>
 #include "ps3_av.h"
 #include "ot_font.h"
-
-extern s32 gcmInitBodyEx(u32 *ctx, const u32 cmdSize, const u32 ioSize, const void *ioAddress);
 
 #define CB_SIZE        0x100000
 #define HOST_SIZE      (32 * 1024 * 1024)
@@ -43,42 +41,50 @@ extern s32 gcmInitBodyEx(u32 *ctx, const u32 cmdSize, const u32 ioSize, const vo
 static ps3av_stats g_st;
 static volatile int g_hud = 1;
 static char g_msg[160], g_big[3][64];
-static uint32_t g_ctx;                        /* dirección del gcmContextData (4×u32) */
+static gcmContextData *g_ctx;
 static u32 *g_fb[2]; static u32 g_fb_off[2]; static int g_fb_cur, g_first_flip = 1;
 static int g_dw, g_dh; static u32 g_pitch;
 static uint8_t *g_pic;                        /* salida ARGB32 del decodificador */
+#define GCM_LABEL_INDEX 255
+static u32 g_label = 1;
 
 /* ───────── pantalla ───────── */
-static void rsx_flush(void) {
-    u32 *c = (u32 *)(uintptr_t)g_ctx; u32 off = 0;
-    gcmAddressToOffset((void *)(uintptr_t)c[2], &off);
-    gcmGetControlRegister()->put = off;
+static void wait_finish(void) {
+    rsxSetWriteBackendLabel(g_ctx, GCM_LABEL_INDEX, g_label);
+    rsxFlushBuffer(g_ctx);
+    while (*(vu32 *)gcmGetLabelAddress(GCM_LABEL_INDEX) != g_label) usleep(30);
+    g_label++;
+}
+static void wait_rsx_idle(void) {
+    rsxSetWriteBackendLabel(g_ctx, GCM_LABEL_INDEX, g_label);
+    rsxSetWaitLabel(g_ctx, GCM_LABEL_INDEX, g_label);
+    g_label++; wait_finish();
 }
 static void flip(void) {
     if (!g_first_flip) { while (gcmGetFlipStatus() != 0) usleep(200); }
     gcmResetFlipStatus();
-    gcmSetFlip((gcmContextData *)(uintptr_t)g_ctx, (u8)g_fb_cur);
-    rsx_flush();
-    gcmSetWaitFlip((gcmContextData *)(uintptr_t)g_ctx);
+    gcmSetFlip(g_ctx, (u8)g_fb_cur);
+    rsxFlushBuffer(g_ctx);
+    gcmSetWaitFlip(g_ctx);
     g_fb_cur ^= 1; g_first_flip = 0;
 }
 static int display_init(void) {
     void *host = memalign(1024 * 1024, HOST_SIZE);
     if (!host) return -1;
-    if (gcmInitBodyEx(&g_ctx, CB_SIZE, HOST_SIZE, host) != 0) return -2;
-    rsxHeapInit();
+    if (rsxInit(&g_ctx, CB_SIZE, HOST_SIZE, host) != 0) return -2;      /* también inicializa el montón de memoria RSX */
     videoState vs; videoResolution res; videoConfiguration vc;
     if (videoGetState(0, 0, &vs) != 0) return -3;
     if (videoGetResolution(vs.displayMode.resolution, &res) != 0) return -4;
     memset(&vc, 0, sizeof vc);
     vc.resolution = vs.displayMode.resolution; vc.format = VIDEO_BUFFER_FORMAT_XRGB; vc.pitch = res.width * 4;
+    wait_rsx_idle();
     if (videoConfigure(0, &vc, NULL, 0) != 0) return -5;
     gcmSetFlipMode(GCM_FLIP_VSYNC);
     g_dw = res.width; g_dh = res.height; g_pitch = (u32)g_dw * 4;
     for (int i = 0; i < 2; i++) {
         g_fb[i] = (u32 *)rsxMemalign(64, (u32)g_dh * g_pitch);
         if (!g_fb[i]) return -6;
-        if (gcmAddressToOffset(g_fb[i], &g_fb_off[i]) != 0) return -7;
+        if (rsxAddressToOffset(g_fb[i], &g_fb_off[i]) != 0) return -7;  /* memoria RSX local: rsxAddressToOffset, no gcmAddressToOffset */
         if (gcmSetDisplayBuffer((u8)i, g_fb_off[i], g_pitch, (u32)g_dw, (u32)g_dh) != 0) return -8;
         memset(g_fb[i], 0, (size_t)g_dh * g_pitch);
     }
@@ -135,7 +141,7 @@ static void present(int have_pic) {
 /* ───────── video (cellVdec) ───────── */
 static u32 g_vdec; static int g_vdec_open;
 static void *g_vmem; static uint8_t *g_au_buf[AU_SLOTS];
-static volatile int g_pic_ready, g_au_done; static volatile int g_seq_started;
+static volatile int g_pic_ready, g_au_done, g_seq_done; static volatile int g_seq_started;
 static int g_au_head, g_au_tail, g_au_inuse;  /* anillo de buffers de unidades de acceso */
 static int g_have_key, g_have_shown;
 static int64_t g_last_vpts = -1, g_last_apts = -1;
@@ -146,6 +152,7 @@ static u32 vdec_cb(u32 handle, u32 msg, u32 data, u32 arg) {
     switch (msg) {
         case VDEC_CALLBACK_AUDONE: g_au_done++; break;
         case VDEC_CALLBACK_PICOUT: g_pic_ready++; break;
+        case VDEC_CALLBACK_SEQDONE: g_seq_done = 1; break;
         case VDEC_CALLBACK_ERROR:  g_st.decode_errors++; break;
         default: break;
     }
@@ -165,7 +172,9 @@ static int vdec_open(void) {
 }
 static void vdec_close(void) {
     if (!g_vdec_open) return;
-    vdecEndSequence(g_vdec); usleep(50000); vdecClose(g_vdec); g_vdec_open = 0;
+    g_seq_done = 0;
+    if (g_seq_started && vdecEndSequence(g_vdec) == 0) for (int i = 0; i < 200 && !g_seq_done; i++) usleep(10000);   /* hasta 2 s por SEQDONE */
+    vdecClose(g_vdec); g_vdec_open = 0; g_seq_started = 0;
     free(g_vmem); g_vmem = NULL; g_pic_ready = g_au_done = 0; g_au_head = g_au_tail = g_au_inuse = 0;
 }
 static void release_done_aus(void) {
@@ -224,18 +233,20 @@ static sys_ppu_thread_t g_athread; static volatile int g_arun; static u32 g_port
 static audioPortConfig g_acfg;
 
 static void audio_thread(void *arg) {
-    (void)arg;
+    (void)arg; u32 wi = 1;                       /* como samples/audio/audiotest: se escribe por delante de readIndex */
     while (g_arun) {
         sys_event_t ev;
-        if (sysEventQueueReceive(g_aq, &ev, 20 * 1000) != 0) continue;
-        u64 cur = *(volatile u64 *)(uintptr_t)g_acfg.readIndex;
-        u32 idx = (u32)((cur + 1) % g_acfg.numBlocks);
-        float *dst = (float *)(uintptr_t)g_acfg.audioDataStart + (size_t)2 * AUDIO_BLOCK_SAMPLES * idx;
-        uint32_t avail = g_rw - g_rr;
-        if (avail >= AUDIO_BLOCK_SAMPLES) {
-            for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) { uint32_t p = (g_rr + i) % AUDIO_RING; dst[2 * i] = g_ring[2 * p]; dst[2 * i + 1] = g_ring[2 * p + 1]; }
-            __asm__ volatile("lwsync" ::: "memory"); g_rr += AUDIO_BLOCK_SAMPLES;
-        } else { memset(dst, 0, sizeof(float) * 2 * AUDIO_BLOCK_SAMPLES); if (g_aac_ready) g_st.audio_underruns++; }
+        sysEventQueueReceive(g_aq, &ev, 20 * 1000);          /* el evento solo despierta; tiempo agotado también es válido */
+        u32 cur = (u32)*(volatile u64 *)(uintptr_t)g_acfg.readIndex;
+        while (wi != cur) {
+            float *dst = (float *)(uintptr_t)g_acfg.audioDataStart + (size_t)2 * AUDIO_BLOCK_SAMPLES * wi;
+            uint32_t avail = g_rw - g_rr;
+            if (avail >= AUDIO_BLOCK_SAMPLES) {
+                for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) { uint32_t p = (g_rr + i) % AUDIO_RING; dst[2 * i] = g_ring[2 * p]; dst[2 * i + 1] = g_ring[2 * p + 1]; }
+                __asm__ volatile("lwsync" ::: "memory"); g_rr += AUDIO_BLOCK_SAMPLES;
+            } else { memset(dst, 0, sizeof(float) * 2 * AUDIO_BLOCK_SAMPLES); if (g_aac_ready) g_st.audio_underruns++; }
+            wi = (wi + 1) % g_acfg.numBlocks;
+        }
     }
     sysThreadExit(0);
 }

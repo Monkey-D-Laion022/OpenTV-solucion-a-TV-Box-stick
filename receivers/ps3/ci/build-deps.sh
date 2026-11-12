@@ -5,7 +5,7 @@
 # Versiones fijadas: faad2 a335040022e14ff9b6c54bbd459590d4c7edffe8 · mbedTLS v3.6.2. Si $DEPS/src/{faad2,mbedtls} ya existen se reutilizan (fetch-deps.sh).
 set -eu
 HERE=$(cd "$(dirname "$0")/.." && pwd)
-: "${PS3DEV:?definir PS3DEV}"; DEPS=${DEPS:-$HERE/build/deps}
+: "${PS3DEV:?definir PS3DEV}"; export PS3DEV; PSL1GHT=${PSL1GHT:-$PS3DEV}; export PSL1GHT; DEPS=${DEPS:-$HERE/build/deps}
 CC=${CC:-$PS3DEV/ppu/bin/ppu-gcc}; AR=${AR:-$PS3DEV/ppu/bin/ppu-ar}
 FAAD_COMMIT=a335040022e14ff9b6c54bbd459590d4c7edffe8; MBED_TAG=v3.6.2
 MACHDEP="-mcpu=cell -mhard-float -fmodulo-sched -ffunction-sections -fdata-sections"
