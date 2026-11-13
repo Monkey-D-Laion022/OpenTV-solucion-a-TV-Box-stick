@@ -10,6 +10,12 @@
 #include "mbedtls/gcm.h"
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/entropy.h"
+#include "mbedtls/version.h"
+
+/* Las cabeceras DEBEN ser las de la biblioteca enlazada (3.6.x). Con mbedTLS 2.x de portlibs el enum de hashes difiere y todo HMAC falla (-0x5100). */
+#if MBEDTLS_VERSION_NUMBER < 0x03060000
+#error "mbedTLS incorrecto: se esperaba 3.6.x (revisar el orden de -I; portlibs/ppu/include no debe estar)"
+#endif
 
 static int hexv(const char *h, uint8_t *o, size_t n) {
     for (size_t i = 0; i < n; i++) { unsigned v; if (sscanf(h + 2 * i, "%2x", &v) != 1) return -1; o[i] = (uint8_t)v; } return 0;
@@ -18,6 +24,8 @@ static void fail(char *why, size_t n, const char *what, int code) { snprintf(why
 
 int ot_selftest(char *why, size_t wn) {
     uint8_t a[64], b[64], c[64]; int r;
+    /* 0) SHA-256 disponible y con el mismo identificador en cabecera y biblioteca */
+    if (!mbedtls_md_info_from_type(MBEDTLS_MD_SHA256)) { snprintf(why, wn, "SHA-256 no disponible en MD (md_info NULL)"); return 8; }
     /* 1) HMAC-SHA256, RFC 4231 caso 2 */
     r = mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), (const uint8_t *)"Jefe", 4, (const uint8_t *)"what do ya want for nothing?", 28, a);
     hexv("5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843", b, 32);

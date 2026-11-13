@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import com.opentv.app.iptv.CapturePipeline
+import com.opentv.app.iptv.IptvService
 import com.opentv.app.iptv.PipelineSink
 import com.opentv.app.iptv.StopReason
 import com.opentv.app.stream.MirrorRequest
@@ -30,6 +31,7 @@ class WfdSourceStreamer(
     @Volatile var bytes = 0L; private set
     @Volatile var sendErrors = 0L; private set
     @Volatile var running = false; private set
+    @Volatile private var stopped = false
 
     fun start(remote: InetAddress, port: Int, choice: WfdChoice) {
         val sock = DatagramSocket()
@@ -50,7 +52,25 @@ class WfdSourceStreamer(
                 }
             }
         }
+        // Android 14+ exige un servicio en primer plano de tipo mediaProjection YA iniciado antes de getMediaProjection(). El camino Miracast
+        // no lo arrancaba (IPTV, DLNA y OpenTV Link sí): el televisor completaba M1–M5 pero Android rechazaba la captura y salían 0 paquetes RTP.
+        // Se arranca IptvService (declarado mediaPlayback|mediaProjection) y se espera a que esté en primer plano; no se bloquea el hilo RTSP.
+        IptvService.start(appContext)
+        Thread({
+            var waited = 0
+            while (!IptvService.ready && waited < 3_000 && !stopped) { try { Thread.sleep(50) } catch (e: InterruptedException) { return@Thread }; waited += 50 }
+            if (stopped) return@Thread
+            if (!IptvService.ready) {
+                onProblem("Android no dejó iniciar el servicio en primer plano necesario para capturar la pantalla; no se transmite.")
+                stop(); return@Thread
+            }
+            startCapture(choice, sink)
+        }, "opentv-wfd-start").apply { isDaemon = true; start() }
+    }
+
+    private fun startCapture(choice: WfdChoice, sink: PipelineSink) {
         main.post {
+            if (stopped) return@post
             try {
                 val p = CapturePipeline(
                     appContext, request, choice.preset, captureAudio && choice.audio == WfdAudioChoice.AAC, sink,
@@ -72,9 +92,11 @@ class WfdSourceStreamer(
     fun requestKeyFrame() { main.post { pipe?.requestKeyFrame() } }
 
     fun stop() {
+        stopped = true
         running = false
         main.post { runCatching { pipe?.stop() }; pipe = null }
         runCatching { socket?.close() }; socket = null
+        main.post { IptvService.stopIfIdle(appContext) } // el servicio solo se apaga si ninguna otra transmisión sigue registrada
     }
 
     fun summary(): String = "RTP enviados: $packets paquetes, ${bytes / 1024} KB, errores de envío: $sendErrors"

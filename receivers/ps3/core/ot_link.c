@@ -148,7 +148,10 @@ int ot_link_run(const ot_link_cfg *cfg, const ot_io *io, const ot_link_cb *cb) {
         if (tries >= 15 || (cb->should_stop && cb->should_stop(cb->u))) { rc = OT_LINK_ERR_IO; goto done; }
     }
     STAGE("leer HELLO del telefono");
-    if (h[0] == T_ERROR) { rc = OT_LINK_ERR_PEER; if (cb->on_status) cb->on_status(cb->u, "El telefono rechazo la conexion"); goto done; }
+    if (h[0] == T_ERROR) {   /* OtError: code u16 + texto. code 1 = NOT_PAIRED: el telefono no conoce a esta PS3 (hay que emparejar) */
+        if (len >= 2 && rd16(rx) == 1) { rc = OT_LINK_ERR_NOTPAIRED; if (cb->on_status) cb->on_status(cb->u, "Este telefono no esta emparejado"); }
+        else { rc = OT_LINK_ERR_PEER; if (cb->on_status) cb->on_status(cb->u, "El telefono rechazo la conexion"); }
+        goto done; }
     if (h[0] != T_HELLO || len > sizeof raw_s_copy || decode_hello(rx, len, &hs) || hs.role != 1 || hs.mode != (cfg->pair_mode ? 0 : 1)) { rc = OT_LINK_ERR_PROTO; goto done; }
     memcpy(raw_s_copy, rx, len); raws_n = len;
     if (cfg->pair_mode) {

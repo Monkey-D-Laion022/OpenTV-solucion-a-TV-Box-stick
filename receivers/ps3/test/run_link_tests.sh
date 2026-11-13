@@ -25,5 +25,17 @@ run badpsk resume --ts $CLIP --badpsk
 chk "secreto equivocado: autenticación rechazada (rc=-3) y sin datos" "grep -q 'RESULT rc=-3 ts_bytes=0' $D/badpsk.rx"
 rm -f $D/secrets; run unknown resume --ts $CLIP
 chk "emisor no emparejado: rc=-7" "grep -q 'RESULT rc=-7' $D/unknown.rx"
+# Réplica del emisor Android (Java/JCA) y lecturas TCP parciales (opcional: requiere java)
+if command -v java >/dev/null 2>&1; then
+  J="$(dirname "$0")/../tools/sender-java"
+  runj() { name=$1; mode=$2; shift 2; port=$((9600 + RANDOM % 300)); rm -f $D/j.secrets
+    $H $port $D/j.secrets $mode $D/$name.ts > $D/$name.rx 2>&1 & sleep 0.5; (cd $J && "$@" java KotlinParitySender.java 127.0.0.1 $port ${ARGS} > $D/$name.tx 2>&1); wait; }
+  ARGS="pair $D/j.psk" runj kt pair env
+  chk "réplica Android: emparejamiento, ACCEPT, STATS y PONG" "grep -q PAIRED $D/kt.tx && grep -q 'DONE pong=true stats=true' $D/kt.tx && grep -q 'RESULT rc=1' $D/kt.rx"
+  ARGS="pair $D/j.psk" DRIBBLE=1 runj kt1 pair env DRIBBLE=1
+  chk "réplica Android enviando 1 byte por vez (lecturas parciales): rc=1" "grep -q 'RESULT rc=1' $D/kt1.rx"
+  ARGS="unknown" runj ktu resume env
+  chk "teléfono que no conoce a la PS3 (ERROR NOT_PAIRED): rc=-7 y no -5" "grep -q 'RESULT rc=-7' $D/ktu.rx"
+fi
 echo; [ $fail = 0 ] && echo "TODAS LAS PRUEBAS DE LINK PASARON" || { echo "HAY FALLAS"; for f in $D/*.rx $D/*.tx; do echo "--- $f"; cat $f; done; }
 rm -rf $D; exit $fail

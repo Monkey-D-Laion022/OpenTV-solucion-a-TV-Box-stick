@@ -519,7 +519,7 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
                             streamer = st
                             st.start(remote, a.clientPort, a.choice)
                             streaming = true
-                            step(WfdPhase.STREAM, StepOutcome.OK, "Transmitiendo ${a.choice.mode.label} a ${remote.hostAddress}:${a.clientPort} por RTP/MPEG-TS (audio: ${a.choice.audio.label}). Falta confirmar en el televisor que haya imagen y sonido.")
+                            step(WfdPhase.STREAM, StepOutcome.OK, "Iniciando captura y envío de ${a.choice.mode.label} a ${remote.hostAddress}:${a.clientPort} por RTP/MPEG-TS (audio: ${a.choice.audio.label}). Esto NO prueba que haya transmisión: verificá que los paquetes RTP sean mayores que cero y que el televisor muestre imagen y sonido.")
                         }
                     }
                     is WfdAction.StopStream -> { streamer?.stop(); streaming = false }

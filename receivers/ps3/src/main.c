@@ -40,7 +40,7 @@ int mbedtls_hardware_poll(void *d, unsigned char *out, size_t len, size_t *olen)
     *olen = len; return 0;
 }
 
-static int g_pair_next, g_lan_ok; static char g_ip[32] = "?"; static uint8_t g_ipb[4];
+static int g_pair_next, g_lan_ok, g_saved_now; static char g_ip[32] = "?"; static uint8_t g_ipb[4];
 static int64_t now_ms64(void) { return (int64_t)(sysGetSystemTime() / 1000); }
 static uint64_t cb_now(void *u) { (void)u; return (uint64_t)now_ms64(); }
 
@@ -57,7 +57,7 @@ static void save_secret(void *u, const uint8_t id[8], const uint8_t psk[32]) {  
     if (f) { while (nk < 15 && fgets(line, sizeof line, f)) if (strncmp(line, want, 16)) strcpy(keep[nk++], line); fclose(f); }
     f = fopen(PEERS, "w"); if (!f) return;
     for (int i = 0; i < nk; i++) fputs(keep[i], f);
-    char h[65]; hex(psk, 32, h); fprintf(f, "%s %s\n", want, h); fclose(f);
+    char h[65]; hex(psk, 32, h); fprintf(f, "%s %s\n", want, h); fclose(f); g_saved_now = 1;
 }
 static void load_device_id(uint8_t id[8]) {
     FILE *f = fopen(DEVID, "rb"); if (f && fread(id, 1, 8, f) == 8) { fclose(f); return; } if (f) fclose(f);
@@ -190,10 +190,12 @@ int main(void) {
             ps3av_reset_stream(); ot_ts_init(&g_ts, on_unit, NULL);
             int rc = ot_link_run(&lc, &io, &cb);
             ot_ts_free(&g_ts); close(g_sock); g_sock = -1;
-            if (rc == OT_LINK_ERR_NOTPAIRED) { g_pair_next = 1; ps3av_message("Telefono no emparejado: pulsa X para emparejar y reintenta"); g_pair_next = 0; }
-            else if (rc == OT_LINK_BYE || rc == OT_LINK_STOPPED) { if (g_pair_next && rc == OT_LINK_BYE) g_pair_next = 0; }
+            /* El modo EMPAREJAR solo se apaga si el emparejamiento realmente se guardó. Antes se apagaba tras CUALQUIER intento: un fallo dejaba la PS3 en
+             * «reconectar», el teléfono (sin secreto) respondía ERROR «no emparejado» y la PS3 mostraba -5 en la lectura de HELLO. */
+            if (g_saved_now) { g_pair_next = 0; g_saved_now = 0; }
+            if (rc == OT_LINK_ERR_NOTPAIRED) { g_pair_next = 1; ps3av_message("Telefono no emparejado: la PS3 pasa a EMPAREJAR; reintenta desde el telefono"); sleep(4); }
+            else if (rc == OT_LINK_BYE || rc == OT_LINK_STOPPED) { /* fin normal */ }
             else { char m[160]; snprintf(m, sizeof m, "Sesion terminada: codigo %d en etapa '%s' (mbedtls %d)", rc, ot_link_last_stage(), ot_link_last_mbedtls()); ps3av_message(m); printf("[opentv] %s\n", m); sleep(6); }
-            if (lc.pair_mode && rc != OT_LINK_ERR_REJECTED) g_pair_next = 0;
             idle_screen(&cfg);
         }
     }

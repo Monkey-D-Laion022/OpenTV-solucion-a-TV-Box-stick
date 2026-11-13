@@ -47,13 +47,15 @@ OBJS := $(patsubst %.c,$(OBJ)/%.o,$(SRC))
 MBED_INC := $(DEPS)/mbed-out/include
 FAAD_INC := $(DEPS)/faad-out/include
 MACHDEP  := -mcpu=cell -mhard-float -fmodulo-sched -ffunction-sections -fdata-sections
-CFLAGS   := -O2 -std=gnu99 -Wall -Wno-unused-function $(MACHDEP) -I$(PS3DEV)/ppu/include -I$(PS3DEV)/portlibs/ppu/include \
-            -I$(HERE)/core -I$(HERE)/src -I$(HERE)/third_party -I$(MBED_INC) -I$(FAAD_INC) -DMBEDTLS_CONFIG_FILE='"ot_mbedtls_config.h"' -D__PS3__
+CFLAGS   := -O2 -std=gnu99 -Wall -Wno-unused-function $(MACHDEP) -I$(MBED_INC) -I$(FAAD_INC) -I$(HERE)/third_party \
+            -I$(HERE)/core -I$(HERE)/src -I$(PS3DEV)/ppu/include -DMBEDTLS_CONFIG_FILE='"ot_mbedtls_config.h"' -D__PS3__
+# IMPORTANTE: NO añadir $(PS3DEV)/portlibs/ppu/include. Esa carpeta trae mbedTLS 2.28 y faad antiguos: sus cabeceras tapaban a las 3.6.2/faad2 compiladas
+# aquí (el enum de hashes cambia entre 2.x y 3.x -> mbedtls_md_info_from_type(SHA256) daba NULL = -0x5100 en la PS3). 'check-includes' lo vigila.
 # Orden de enlace: las bibliotecas del sistema de PSL1GHT (stubs que sprxlinker completa) y después las dependencias propias.
 LDFLAGS  := -L$(PS3DEV)/ppu/lib
 LIBS     := $(FAAD_A) $(MBED_A) -lnet -lnetctl -lsysutil -lsysmodule -lvdec -laudio -lrsx -lgcm_sys -lio -lrt -llv2 -lm
 
-.PHONY: all deps pkg verify ci clean tools
+.PHONY: all deps pkg verify ci clean tools check-includes
 all: ci
 
 tools:
@@ -65,9 +67,12 @@ tools:
 deps:
 	PS3DEV="$(PS3DEV)" DEPS="$(DEPS)" sh $(HERE)/ci/build-deps.sh
 
-$(OBJ)/%.o: %.c
+$(OBJ)/%.o: %.c | check-includes
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+check-includes:
+	@for f in core/ot_selftest.c core/ot_link.c src/ps3_av.c; do $(CC) $(CFLAGS) -M $$f 2>/dev/null | tr -s ' \\\n' '\n' | grep -E 'portlibs/.*(mbedtls|neaacdec|faad)' && { echo "ERROR: $$f incluye cabeceras de portlibs (mezcla de versiones)"; exit 1; } || true; done; echo "check-includes OK: mbedTLS/faad vienen de $(DEPS)"
 
 $(BUILD)/$(TARGET).elf: $(OBJS) $(FAAD_A) $(MBED_A)
 	$(CC) -o $@ $(OBJS) $(LDFLAGS) $(LIBS)

@@ -18,7 +18,11 @@ public class KotlinParitySender {
         byte[] nonce() { byte[] n = new byte[12]; n[0] = (byte) dir; long c = ctr++; for (int i = 11; i >= 4; i--) { n[i] = (byte) (c & 0xFF); c >>>= 8; } return n; } }
     static byte[] header(int type, int flags, int len) { return ByteBuffer.allocate(6).put((byte) type).put((byte) flags).putInt(len).array(); }
     static DataInputStream in; static OutputStream out;
-    static void writeFrame(int type, int flags, byte[] payload) throws Exception { out.write(cat(header(type, flags, payload.length), payload)); out.flush(); }
+    static final boolean DRIBBLE = System.getenv("DRIBBLE") != null; // 1 byte por envío: prueba lecturas TCP parciales en el receptor
+    static void writeFrame(int type, int flags, byte[] payload) throws Exception {
+        byte[] all = cat(header(type, flags, payload.length), payload);
+        if (DRIBBLE) { for (byte b : all) { out.write(b); out.flush(); Thread.sleep(1); } } else { out.write(all); out.flush(); }
+    }
     static byte[][] readFrame() throws Exception { byte[] h = new byte[6]; in.readFully(h); ByteBuffer bb = ByteBuffer.wrap(h); int type = bb.get() & 0xFF; int flags = bb.get() & 0xFF; int len = bb.getInt(); byte[] p = new byte[len]; in.readFully(p); return new byte[][]{{(byte) type}, {(byte) flags}, p}; }
     static void seal(Cipher2 c, int type, int flags, byte[] payload) throws Exception {
         javax.crypto.Cipher ci = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding"); ci.init(javax.crypto.Cipher.ENCRYPT_MODE, c.k, new GCMParameterSpec(128, c.nonce()));
@@ -29,7 +33,7 @@ public class KotlinParitySender {
         ci.updateAAD(header(f[0][0] & 0xFF, f[1][0] & 0xFF, f[2].length)); f[2] = ci.doFinal(f[2]); return f;
     }
     public static void main(String[] a) throws Exception {
-        String host = a[0]; int port = Integer.parseInt(a[1]); boolean pairMode = a.length < 3 || a[2].equals("pair");
+        String host = a[0]; int port = Integer.parseInt(a[1]); boolean pairMode = a.length < 3 || a[2].equals("pair") || a[2].equals("unknown");
         Socket s = new Socket(); s.connect(new InetSocketAddress(host, port), 5000); s.setSoTimeout(20000); s.setTcpNoDelay(true);
         in = new DataInputStream(s.getInputStream()); out = s.getOutputStream();
         byte[][] fr = readFrame(); if ((fr[0][0] & 0xFF) != 1) throw new RuntimeException("se esperaba HELLO, llegó tipo " + (fr[0][0] & 0xFF));
@@ -38,6 +42,8 @@ public class KotlinParitySender {
         byte[] nonceR = new byte[16]; r.get(nonceR); int mode = r.get() & 0xFF; byte[] pubR = new byte[r.get() & 0xFF]; r.get(pubR);
         System.out.println("HELLO_R ver=" + ver + " role=" + role + " name=" + new String(nm) + " caps=" + caps + " mode=" + mode + " publen=" + pubR.length);
         if (ver != 1 || role != 2) throw new RuntimeException("HELLO del receptor inválido");
+        if (a.length > 2 && a[2].equals("unknown") && mode == 1) { // el receptor reconecta pero este teléfono no lo conoce: igual que OtHandshake.asSender (ERROR NOT_PAIRED)
+            writeFrame(4, 0, cat(new byte[]{0, 1}, "Este equipo no está emparejado".getBytes("UTF-8"))); System.out.println("SENT_NOT_PAIRED"); s.close(); return; }
         boolean pair = mode == 0; if (pair != pairMode) throw new RuntimeException("modo del receptor distinto del pedido");
         KeyPair kp = null; if (pair) { KeyPairGenerator g = KeyPairGenerator.getInstance("EC"); g.initialize(new ECGenParameterSpec("secp256r1"), rnd); kp = g.generateKeyPair(); }
         byte[] myId = new byte[8]; rnd.nextBytes(myId); byte[] nonceS = new byte[16]; rnd.nextBytes(nonceS); byte[] name = "Redmi 14C".getBytes("UTF-8");
