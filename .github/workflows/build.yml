@@ -1,4 +1,3 @@
-
 name: Build
 
 on:
@@ -50,70 +49,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Preparar y construir dependencias PS3
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          export PS3_BUILD_ROOT="$RUNNER_TEMP/ps3build"
+      # Se usa SOLO el ppu-gcc real del SDK ps3dev (con sus headers Newlib). El flujo experimental con Clang
+      # (receivers/ps3/toolchain/*.sh) quedó obsoleto: su wrapper usaba rutas fijas y fallaba con «stdio.h file not found».
+      - name: PS3 - instalar y comprobar el SDK real
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash receivers/ps3/ci/setup-sdk.sh
 
-          TOOLCHAIN="receivers/ps3/toolchain"
+      - name: PS3 - herramientas del SDK
+        run: make -C receivers/ps3 tools PS3DEV="$PS3DEV"
 
-          chmod +x "$TOOLCHAIN"/*.sh
-
-          echo "============================================"
-          echo " FASE 1: PREPARAR SDK"
-          echo "============================================"
-
-          source "$TOOLCHAIN/bootstrap.sh"
-
-          echo "============================================"
-          echo " FASE 2: DESCARGAR DEPENDENCIAS"
-          echo "============================================"
-
-          bash "$TOOLCHAIN/fetch-deps.sh"
-
-          echo "============================================"
-          echo " FASE 3: COMPILAR FAAD2"
-          echo "============================================"
-
-          bash "$TOOLCHAIN/build-faad2.sh"
-
-          echo "============================================"
-          echo " FASE 4: COMPILAR MBEDTLS"
-          echo "============================================"
-
-          bash "$TOOLCHAIN/build-mbedtls.sh"
-
-          echo "============================================"
-          echo " FASE 5: DIAGNOSTICO FINAL"
-          echo "============================================"
-
-          bash "$TOOLCHAIN/build-deps.sh"
-
-          echo "============================================"
-          echo " PROCESO PS3 FINALIZADO"
-          echo "============================================"
-
-      - name: Guardar diagnosticos PS3
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: OpenTV-PS3-diagnostico
-          path: ${{ runner.temp }}/ps3build/
-          if-no-files-found: ignore
-
-      - name: PS3 - localizar el SDK GCC real
-        run: |
-          SDK="${PS3DEV:-$RUNNER_TEMP/ps3dev}"
-          if [ ! -x "$SDK/ppu/bin/ppu-gcc" ]; then
-            echo "No se encontró ppu-gcc en $SDK. Candidatos:"
-            find "$RUNNER_TEMP" -maxdepth 4 -name 'ppu-gcc*' 2>/dev/null
-            exit 1
-          fi
-          echo "PS3DEV=$SDK" >> "$GITHUB_ENV"
-          make -C receivers/ps3 tools PS3DEV="$SDK"
-
-      - name: PS3 - compilar y empaquetar el receptor
+      - name: PS3 - compilar dependencias (FAAD2 y mbedTLS), receptor y PKG
         run: make -C receivers/ps3 ci PS3DEV="$PS3DEV"
 
       - name: PS3 - comprobar que el PKG existe
@@ -129,7 +75,7 @@ jobs:
           path: receivers/ps3/build/opentv-ps3.pkg
           if-no-files-found: error
 
-      - name: PS3 - subir archivos de depuración
+      - name: PS3 - subir archivos de depuracion
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -137,5 +83,5 @@ jobs:
           path: |
             receivers/ps3/build/opentv-ps3.stripped.elf
             receivers/ps3/build/pkg/
+            receivers/ps3/build/deps/faad-build/
           if-no-files-found: ignore
-          
