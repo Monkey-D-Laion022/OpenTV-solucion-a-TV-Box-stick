@@ -30,6 +30,8 @@ class QualityAdapter(
     data class Sample(
         val encodedFps: Double, val renderedFps: Double?, val producedKbps: Int, val deliveredKbps: Int,
         val clients: Int, val thermalLimited: Boolean, val backlog: Long = 0, val encodeLatencyP95Ms: Double = 0.0,
+        /** Video descartado por clientes lentos en el último segundo (kbit/s): pérdida real de transporte, más directa que comparar bytes. */
+        val lostKbps: Int = 0,
     )
 
     private var ladder: List<IptvPreset> = buildLadder(requested, maxHeight)
@@ -45,6 +47,8 @@ class QualityAdapter(
     private var bitrateScale = 1.0
     private var netBad = 0
     private var netGood = 0
+    private val lossHistory = ArrayDeque<Pair<Int, Int>>() // (perdido, producido) en kbit/s, uno por segundo
+    private var recoverAfterS = NET_UP_S
     private var backlogBad = 0
     private var stableSeconds = 0
     private var upBackoffS = UP_RES_AFTER_S
@@ -59,6 +63,7 @@ class QualityAdapter(
         ladder = l; index = 0; current = l[0]
         governor = FpsGovernor(current.fps, floorFor(current)); bitrateScale = 1.0
         failedIndex = null; failedTtl = 0; stableSeconds = 0; upBackoffS = UP_RES_AFTER_S; cooldown = 0
+        lossHistory.clear(); recoverAfterS = NET_UP_S
     }
 
     fun onSecond(s: Sample): Action {
@@ -95,15 +100,32 @@ class QualityAdapter(
         }
 
         // Red: solo se toca el bitrate (cambiar resolución no arregla una red que no entrega).
-        val starved = s.clients > 0 && s.producedKbps > 500 && s.deliveredKbps < s.producedKbps * 0.5
+        // Dos señales: entrega < 50 % de lo producido durante NET_DOWN_S s seguidos (la original) o pérdida real (descartes por cola llena):
+        // ≥ 2 % de lo producido en los últimos 30 s Y en al menos 2 episodios distintos (un corte aislado no cambia nada). Los descartes llegan a
+        // ráfagas (la cola se vacía de golpe), por eso se mide en ventana y no segundo a segundo. Detecta enlaces «justos» que entregan ~70-90 %
+        // y se ven entrecortados sin llegar nunca al 50 %.
+        val lossy = s.clients > 0 && s.producedKbps > 500 && s.lostKbps > 0
+        lossHistory.addLast(if (s.clients > 0 && s.producedKbps > 500) s.lostKbps to s.producedKbps else 0 to 0)
+        while (lossHistory.size > LOSS_WINDOW_S) lossHistory.removeFirst()
+        val lossTrigger = lossHistory.count { it.first > 0 } >= LOSS_HITS &&
+            lossHistory.sumOf { it.first.toLong() } >= lossHistory.sumOf { it.second.toLong() } * LOSS_FRACTION
+        val starved = (s.clients > 0 && s.producedKbps > 500 && s.deliveredKbps < s.producedKbps * 0.5) || lossy
         if (starved) { netBad++; netGood = 0 } else { netGood++; netBad = 0 }
+        if (lossTrigger && bitrateScale > MIN_SCALE) {
+            lossHistory.clear(); netBad = 0; netGood = 0
+            bitrateScale = (bitrateScale * 0.75).coerceAtLeast(MIN_SCALE)
+            recoverAfterS = (recoverAfterS * 2).coerceAtMost(MAX_RECOVER_S) // cada corte por pérdida hace más prudente la recuperación
+            return Action(Kind.BITRATE, current, governor.targetFps, bitrateFor(governor.targetFps), FpsGovernor.Bottleneck.NETWORK,
+                "El enlace descarta video: se baja el bitrate al ${(bitrateScale * 100).toInt()} % manteniendo ${current.shortLabel} (no se toca resolución ni FPS).")
+        }
         if (netBad >= NET_DOWN_S && bitrateScale > MIN_SCALE) {
             bitrateScale = (bitrateScale * 0.75).coerceAtLeast(MIN_SCALE); netBad = 0
             return Action(Kind.BITRATE, current, governor.targetFps, bitrateFor(governor.targetFps), FpsGovernor.Bottleneck.NETWORK,
                 "La red entrega menos de lo que se produce: se baja el bitrate al ${(bitrateScale * 100).toInt()} % (no se toca la resolución).")
         }
-        if (netGood >= NET_UP_S && bitrateScale < 1.0 && !starved) {
+        if (netGood >= recoverAfterS && bitrateScale < 1.0 && !starved) {
             bitrateScale = (bitrateScale + 0.1).coerceAtMost(1.0); netGood = 0
+            if (bitrateScale >= 1.0) recoverAfterS = NET_UP_S
             return Action(Kind.BITRATE, current, governor.targetFps, bitrateFor(governor.targetFps), FpsGovernor.Bottleneck.NONE,
                 "Red estable: se recupera el bitrate (${(bitrateScale * 100).toInt()} %).")
         }
@@ -135,6 +157,10 @@ class QualityAdapter(
         const val MAX_BACKOFF_S = 900
         const val NET_DOWN_S = 5
         const val NET_UP_S = 20
+        const val MAX_RECOVER_S = 120
+        const val LOSS_FRACTION = 0.02
+        const val LOSS_WINDOW_S = 30
+        const val LOSS_HITS = 2
         const val MIN_SCALE = 0.4
         const val BACKLOG_LIMIT = 6L
         const val BACKLOG_STREAK_S = 4

@@ -19,6 +19,8 @@ class StreamHub(
         internal val queue = LinkedBlockingQueue<ByteArray>(capacity)
         internal val queuedBytes = java.util.concurrent.atomic.AtomicInteger(0)
         @Volatile internal var active = false
+        /** `true` desde que a este cliente se le descartó video por atraso hasta que retoma en un fotograma clave (esos bytes son pérdida real). */
+        @Volatile internal var resyncing = false
         @Volatile var closed = false
             internal set
 
@@ -31,6 +33,9 @@ class StreamHub(
 
     /** Bytes publicados en total (video, audio y relleno); lo usa el relleno de caudal. */
     val publishedBytes = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** Bytes de video descartados por clientes lentos (cola llena + lo omitido hasta el siguiente fotograma clave). Señal directa de enlace insuficiente. */
+    val droppedBytes = java.util.concurrent.atomic.AtomicLong(0)
 
     /** Se invoca al conectarse un cliente: sirve para pedir al codificador un fotograma clave ya mismo. */
     @Volatile var onSubscribe: (() -> Unit)? = null
@@ -52,19 +57,20 @@ class StreamHub(
         publishedBytes.addAndGet(chunk.size.toLong())
         for (sub in subscribers) {
             if (!sub.active) {
-                if (!keyStart) continue
-                sub.active = true
+                if (!keyStart) { if (sub.resyncing) droppedBytes.addAndGet(chunk.size.toLong()); continue }
+                sub.active = true; sub.resyncing = false
             }
             // Si el TV se atrasa (cola llena por cantidad o por bytes) se tira lo viejo y se retoma en el próximo
             // fotograma clave: la imagen salta pero el retraso no crece.
             if (sub.queuedBytes.get() + chunk.size > maxQueuedBytes || !sub.queue.offer(chunk)) {
+                droppedBytes.addAndGet(sub.queuedBytes.get().toLong())
                 sub.queue.clear()
                 sub.queuedBytes.set(0)
-                sub.active = false
+                sub.active = false; sub.resyncing = true
                 if (keyStart && sub.queue.offer(chunk)) {
                     sub.queuedBytes.set(chunk.size)
-                    sub.active = true
-                }
+                    sub.active = true; sub.resyncing = false
+                } else droppedBytes.addAndGet(chunk.size.toLong())
             } else {
                 sub.queuedBytes.addAndGet(chunk.size)
             }

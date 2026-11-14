@@ -1,6 +1,8 @@
 #!/bin/bash
 # Envoltorio de clang que imita ppu-gcc de PSL1GHT. EXPERIMENTAL (ver docs/PS3-TOOLCHAIN-CLANG.md).
-P=/home/claude/ps3dev; N=$P/ppu/powerpc64-ps3-elf; L=$P/ppu/ppu/lib
+# OBSOLETO (ver LEEME-OBSOLETO.md). Ya no se usa en el workflow. Antes tenía rutas fijas de otra máquina (/home/claude/...), causa de «stdio.h not found».
+: "${PS3DEV:?definir PS3DEV (raíz del SDK ps3dev)}"; : "${OT_EXTRA:=$(dirname "$0")}"
+P=$PS3DEV; N=$P/ppu/powerpc64-ps3-elf; L=$P/ppu/ppu/lib
 args=(); asm=0; compile=0
 for a in "$@"; do case "$a" in
   -D__ASSEMBLY__) asm=1; args+=("$a");;
@@ -9,7 +11,7 @@ for a in "$@"; do case "$a" in
   *) args+=("$a");; esac; done
 BASE=(--target=powerpc64-unknown-elf -mcpu=970 -nostdlibinc -isystem $N/include -fno-pic -fno-pie -fno-stack-protector -Wno-everything -Wno-unused-command-line-argument)
 if [ $compile = 1 ]; then
-  extra=(); [ $asm = 1 ] && extra=(-include /home/claude/ps3build/extra/ppc-asm.h)
+  extra=(); [ $asm = 1 ] && extra=(-include $OT_EXTRA/ppc-asm.h)
   exec clang "${BASE[@]}" "${extra[@]}" "${args[@]}"
 fi
 exec clang "${BASE[@]}" -nostdlib -nostartfiles -fuse-ld=lld -static -Wl,--no-pie,-T,$L/lv2.ld,--allow-multiple-definition,--no-gc-sections,-z,norelro $L/lv2-crt0.o $L/lv2-crti.o "${args[@]}" -L$P/ppu/lib -L$N/lib -Wl,--start-group -lc -lsysbase -lnosys -Wl,--end-group $L/lv2-crtn.o $L/lv2-sprx.o

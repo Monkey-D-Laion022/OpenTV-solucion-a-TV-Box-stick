@@ -33,4 +33,13 @@ class MethodAdvisorTest {
         val m = MethodAdvisor.merge(listOf("TV" to o(LinkKind.DLNA, "a"), "tv" to o(LinkKind.DLNA, "a")))
         assertEquals(1, m.single().offers.size)
     }
+
+    @Test fun elPuenteUneCastYDlnaDelMismoTv() {
+        val ep = LanEndpoint("192.168.1.20", 8080, "/ctl")
+        val u = UpnpDevice("uuid:1", "[LG] webOS TV", "LG", "OLED", "http://x/d.xml", "urn:schemas-upnp-org:service:AVTransport:1", ep)
+        val t = TvTargets.build(listOf(CastDevice("c1", "LG webOS TV")), listOf(u))
+        val d = MethodAdvisor.fromTargets(t)
+        assertEquals(1, d.size); assertEquals(setOf(LinkKind.CAST, LinkKind.DLNA), d.single().kinds)
+        assertEquals(LinkKind.CAST, MethodAdvisor.best(d.single()))
+    }
 }

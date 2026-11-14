@@ -29,6 +29,11 @@ object MethodAdvisor {
             .map { (_, v) -> UnifiedDevice(v.first().first.trim(), v.map { it.second }.distinctBy { it.kind to it.id }) }
             .sortedBy { it.name.lowercase() }
 
+    /** Puente con la lista actual de destinos (Cast + DLNA): un TV por nombre, con todos sus métodos. */
+    fun fromTargets(targets: List<TvTarget>): List<UnifiedDevice> = merge(
+        targets.map { t -> t.name to DeviceOffer(if (t is TvTarget.CastTarget) LinkKind.CAST else LinkKind.DLNA, t.key) },
+    )
+
     fun normalize(name: String): String = java.text.Normalizer.normalize(name, java.text.Normalizer.Form.NFD)
         .replace(Regex("\\p{M}+"), "")
         .lowercase()

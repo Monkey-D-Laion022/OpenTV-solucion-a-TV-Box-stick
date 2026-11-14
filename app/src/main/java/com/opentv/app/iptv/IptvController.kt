@@ -236,7 +236,7 @@ class IptvController private constructor(context: Context) {
         else ProfileChoice(requested, "Perfil elegido a mano: se intentó ${requested.shortLabel} sin comprobar soporte previo.")
         val preset = choice.preset
         IptvService.start(appContext)
-        val hub = StreamHub(maxQueuedBytes = 1024 * 1024)
+        val hub = StreamHub(maxQueuedBytes = HubSizing.queueBytes(preset.bitrateBps))
         val segmenter = HlsSegmenter(preset.hlsConfig())
         val mp4 = Mp4Feed()
         val token = _access.value.fixedToken ?: randomToken()
@@ -285,7 +285,7 @@ class IptvController private constructor(context: Context) {
             val base = "http://${ip.hostAddress}:$port/$token"
             val pageUrl = if (token == IptvAccess.SHORT.fixedToken) "http://${ip.hostAddress}:$port/" else null
             val timer = java.util.Timer("opentv-iptv-stats", true)
-            val encRate = RateMeter(); val sentRate = RateMeter(); val servedRate = RateMeter(); val capRate = RateMeter(); val renRate = RateMeter()
+            val lostRate = RateMeter(); val encRate = RateMeter(); val sentRate = RateMeter(); val servedRate = RateMeter(); val capRate = RateMeter(); val renRate = RateMeter()
             var lastEncoded = 0L
             var lastProgressMs = startedAt
             var fallbackDone = false
@@ -304,6 +304,7 @@ class IptvController private constructor(context: Context) {
                     val encFps = encRate.sample(pipe.encodedFrames, now)
                     val producedKbps = (sentRate.sample(pipe.producedBytes, now) * 8 / 1000).toInt()
                     val deliveredKbps = (servedRate.sample(srv.bytesSent.get(), now) * 8 / 1000).toInt()
+                    val lostKbps = (lostRate.sample(hub.droppedBytes.get(), now) * 8 / 1000).toInt()
                     val audio = pipe.audioState(now)
                     val encodedTotal = pipe.encodedFrames
                     if (encodedTotal > lastEncoded) { lastEncoded = encodedTotal; lastProgressMs = now }
@@ -339,7 +340,7 @@ class IptvController private constructor(context: Context) {
                         val a = adapter.onSecond(
                             QualityAdapter.Sample(
                                 encFps, renFps, producedKbps, deliveredKbps, srv.activeClients, FpsGovernor.thermalLimited(thermal),
-                                backlog = pipe.backlog, encodeLatencyP95Ms = lat.p95,
+                                backlog = pipe.backlog, encodeLatencyP95Ms = lat.p95, lostKbps = lostKbps,
                             ),
                         )
                         if (a.changed) {

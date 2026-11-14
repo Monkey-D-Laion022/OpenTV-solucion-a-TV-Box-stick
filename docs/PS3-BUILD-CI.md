@@ -19,3 +19,8 @@ Agregar al final del job `diagnose-ps3` los pasos de `receivers/ps3/ci/workflow-
 - `mbedtls_hardware_poll()` (src/main.c) usa `sysGetRandomNumber` del sistema; si falla devuelve error y OpenTV Link **no arranca** (falla cerrado).
 - La verificación del PKG es estructural. Instalar requiere CFW/HEN.
 - Este procedimiento se probó en el entorno de desarrollo con un compilador sustituto (Clang) porque no se pudo descargar el SDK allí: **la primera ejecución con el GCC real puede mostrar errores que hay que corregir.**
+
+## Corrección del error «'stdio.h' file not found» (job diagnose-ps3)
+Causa: el job ejecutaba el flujo experimental con Clang (`toolchain/*.sh`). Su `ppu-gcc.clang-wrapper` tenía la ruta fija `/home/claude/ps3dev`, inexistente en GitHub, y Clang quedaba sin los headers Newlib del SDK.
+Solución: el job ahora usa solo el `ppu-gcc` real: `ci/setup-sdk.sh` (instala el SDK y comprueba que compila con stdio.h/string.h/stdint.h/math.h del propio SDK y que no usa `/usr/include`) → `make tools` → `make ci` (FAAD2 + mbedTLS + receptor + PKG + verificación).
+Verificado en PC con el SDK real, desde cero: PKG de 354.624 bytes, 9/9 verificaciones. NO se ejecutó en GitHub Actions (queda pendiente de tu ejecución). La descarga del SDK vía API de GitHub no se pudo probar aquí (la API no es accesible desde mi entorno); se reutilizó la misma lógica de selección de asset que ya funcionó en tu log.

@@ -1,0 +1,13 @@
+# Simulación en PC (bucle cerrado: codificador CBR → StreamHub real → enlace → QualityAdapter real). NO es hardware.
+# Fuente: tools/stress/AdaptStress.kt
+escenario (1080p60 pedido, 300 s)                        | versión   |   perd% ultim60 huecoMax estado final                      
+Wi-Fi sano 40 Mbps + microcorte 300 ms/5 s               | antes     |    0.0%    0.0%    300 ms 1080p · 60 fps @60fps 10000kbps   
+Wi-Fi sano 40 Mbps + microcorte 300 ms/5 s               | DESPUÉS   |    0.0%    0.0%    300 ms 1080p · 60 fps @60fps 10000kbps   
+Wi-Fi sano 40 Mbps + corte 1,2 s cada 10 s               | antes     |    8.4%    8.4%   1200 ms 1080p · 60 fps @60fps 10000kbps   
+Wi-Fi sano 40 Mbps + corte 1,2 s cada 10 s               | DESPUÉS   |    0.0%    0.0%   1200 ms 1080p · 60 fps @60fps 10000kbps   
+Enlace justo 9 Mbps (película bajando a la vez)          | antes     |    9.9%    9.3%    112 ms 1080p · 60 fps @60fps 10000kbps   
+Enlace justo 9 Mbps (película bajando a la vez)          | DESPUÉS   |    4.2%    5.4%    817 ms 1080p · 60 fps @60fps 9500kbps    
+Enlace 7 Mbps constante                                  | antes     |   42.5%   42.5%    988 ms 1080p · 60 fps @60fps 10000kbps   
+Enlace 7 Mbps constante                                  | DESPUÉS   |    8.0%    6.9%   1006 ms 1080p · 60 fps @60fps 7500kbps    
+Enlace 12 Mbps que cae a 6 Mbps entre 60-120 s y vuelve  | antes     |    9.5%    0.0%    671 ms 1080p · 60 fps @60fps 10000kbps   
+Enlace 12 Mbps que cae a 6 Mbps entre 60-120 s y vuelve  | DESPUÉS   |    4.0%    0.0%    851 ms 1080p · 60 fps @60fps 7625kbps    

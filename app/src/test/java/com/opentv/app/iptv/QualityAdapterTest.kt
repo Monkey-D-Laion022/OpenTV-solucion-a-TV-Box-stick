@@ -96,4 +96,35 @@ class QualityAdapterTest {
         repeat(40) { if (g.onSecond(FpsGovernor.Sample(10.0, 10.0, 1000, 1000, 1, false)).exhausted) exhausted = true }
         assertTrue(exhausted)
     }
+
+    // ── pérdida real de transporte (enlace «justo» que entrega ~70-90 %) ──
+    private fun lossy(fps: Double, lostKbps: Int) = QualityAdapter.Sample(fps, fps, 10000, 8000, 1, false, lostKbps = lostKbps)
+
+    @Test fun laPerdidaSostenidaBajaElBitrateSinTocarResolucionNiFps() {
+        val a = QualityAdapter(IptvPreset.FULL_HD_60)
+        val acts = run(a, 12, lossy(60.0, 1500))
+        val br = acts.filter { it.kind == QualityAdapter.Kind.BITRATE }
+        assertTrue(br.isNotEmpty())
+        assertTrue(acts.none { it.kind == QualityAdapter.Kind.RESOLUTION || it.kind == QualityAdapter.Kind.FPS })
+        assertEquals(IptvPreset.FULL_HD_60, a.current); assertEquals(60, a.targetFps)
+        assertTrue(br.first().bitrateBps < IptvPreset.FULL_HD_60.bitrateBps)
+    }
+    @Test fun unaPerdidaAisladaNoCambiaNada() {
+        val a = QualityAdapter(IptvPreset.FULL_HD_60)
+        val acts = run(a, 30, ok(60.0)) + a.onSecond(lossy(60.0, 1500)) + run(a, 20, ok(60.0))
+        assertTrue(acts.none { it.kind == QualityAdapter.Kind.BITRATE })
+    }
+    @Test fun elBitrateNuncaBajaDelPisoPorPerdida() {
+        val a = QualityAdapter(IptvPreset.FULL_HD_60)
+        val acts = run(a, 120, lossy(60.0, 3000))
+        assertTrue(acts.filter { it.kind != QualityAdapter.Kind.NONE }.all { it.bitrateBps >= IptvPreset.FULL_HD_60.bitrateBps / 4 })
+        assertEquals(60, a.targetFps)
+    }
+    @Test fun trasUnCorteLaRecuperacionEsMasLenta() {
+        val a = QualityAdapter(IptvPreset.FULL_HD_60)
+        run(a, 3, lossy(60.0, 1500))                                // un solo recorte (3 s con pérdida)
+        val up1 = (1..60).map { a.onSecond(ok(60.0)) }.indexOfFirst { it.kind == QualityAdapter.Kind.BITRATE }
+        assertTrue("debe recuperar", up1 >= 0)
+        assertTrue("no antes de 35 s (la espera se duplicó a 40 s)", up1 >= 35)
+    }
 }

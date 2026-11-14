@@ -2,3 +2,4 @@
 OK (505 tests)
 
 Pruebas JVM 2026-11-14: 517 OK (lógica pura; excluye OutputController.kt)
+Pruebas JVM 2026-11-14 (candidata): 530 OK (lógica pura; excluye OutputController.kt)

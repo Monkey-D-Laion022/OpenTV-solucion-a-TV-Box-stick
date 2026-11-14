@@ -30,7 +30,32 @@ Con tope de cola de 2 MB en vez de 1 MB, el microcorte de 800 ms pasa de 1,6 % d
 3. Una app pesada compite con el codificador/GL por CPU y GPU; la señal para confirmarlo en el teléfono son `lateTicks` altos y `capturedFrames` vs `renderedFrames` en la pantalla de estado de IPTV.
 4. Stremio puede además marcar su reproductor como contenido protegido (FLAG_SECURE/DRM): la captura sale negra aunque la app «cargue». Es un límite de Android, no de OpenTV.
 
-## Propuestas separadas (NO aplicadas; esperan tu autorización)
-- **A. Subir el tope de cola de `StreamHub` de 1 MB a 2 MB en `IptvController`** (una constante). Costo: hasta ~0,8 s más de retraso solo durante un atasco, nunca en régimen normal. Beneficio medido en simulación: cubre microcortes de hasta 1,6 s a 10 Mbps.
-- **B. Ante enlace saturado, bajar bitrate (CBR) antes que resolución/fps**: el codificador admite `setBitrate` en vivo; hoy el adaptador cambia de preset. Requiere pruebas en el Redmi.
+## ACTUALIZACIÓN: optimizaciones aplicadas (autorizadas el 2026-11-14)
+1. **Cola por cliente dimensionada en tiempo** (`iptv/HubSizing.kt`): ~1,6 s del bitrate pedido, piso 1 MB, techo 3 MB. Perfiles de hasta 5 Mbps: sin cambio (1 MB). 1080p60 (10 Mbps): 2 MB.
+2. **Señal de pérdida real** (`StreamHub.droppedBytes`, solo un contador; el reparto no cambió) y su uso en `QualityAdapter`: ≥ 2 % de lo producido en 30 s y en ≥ 2 episodios → bitrate −25 % (piso 40 %), **sin tocar resolución ni FPS**. Recuperación +10 % cada 20 s, y cada corte duplica la espera (hasta 120 s) para no oscilar.
+3. Sin cambios en captura, codificador ni FPS: la configuración ya era la de tiempo real.
+
+Antes/después (simulación en bucle cerrado, `docs/resultados-simulacion-iptv.txt`, 1080p60 pedido, 300 s):
+
+| Escenario | Pérdida antes → después | Estado final |
+|---|---|---|
+| Wi-Fi sano + corte de 1,2 s cada 10 s | 8,4 % → 0,0 % | 1080p60 a 10 Mbps |
+| Enlace 9 Mbps (película bajando a la vez) | 9,9 % → 4,2 % | 1080p60 a ~9,5 Mbps |
+| Enlace 7 Mbps constante | 42,5 % → 8,0 % | 1080p60 a ~7,5 Mbps |
+| 12 Mbps que cae a 6 Mbps 60 s y vuelve | 9,5 % → 4,0 % | 1080p60 |
+| Wi-Fi sano + microcorte 300 ms | 0 % → 0 % | sin cambio |
+
+Costos honestos: con enlace insuficiente el hueco máximo sin imagen sube (p. ej. 112 → 817 ms a 9 Mbps) porque la cola más grande tarda más en vaciarse; la pérdida total baja pero cada episodio dura más. En todos los casos se mantiene 1080p60. Con enlace sano el uso normal no cambia.
+Límites: es un modelo (tiempo lógico, sin Wi-Fi, CPU ni térmica reales); falta medirlo en el Redmi 14C con Stremio/Super TV.
+
+### Criterio de eficiencia por tecnología (no se copian parámetros)
+| Tecnología | Quién fija el flujo | Estado |
+|---|---|---|
+| IPTV / `/tv` / DLNA | Tubería IPTV compartida (DLNA y `/tv` heredan la mejora) | optimizado arriba |
+| OpenTV Link / PS3 | El receptor limita fps/bitrate en ACCEPT y reporta STATS; el emisor ajusta (`OtBitrateController`) | ya adaptativo; sin cambios |
+| Miracast | Lo negociado por el TV (M3/M4); nivel H.264 flexible | sin cambios de bitrate; [HW] |
+
+## Propuestas que quedan (NO aplicadas)
+- **C. Codificación VBR/CBR restringida** para ahorrar tráfico en pantallas estáticas: depende del codificador de cada teléfono; requiere medir en el Redmi antes de tocar.
+- **D. Buffer de envío del socket (SO_SNDBUF)**: beneficio no demostrable sin dispositivo.
 - Para medir de verdad: grabar `lateTicks`, `capturedFrames/renderedFrames` y la tasa de entrega por cliente durante Stremio/Super TV y compartirlos.
