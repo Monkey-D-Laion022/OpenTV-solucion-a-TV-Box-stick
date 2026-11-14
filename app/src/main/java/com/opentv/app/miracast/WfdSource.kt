@@ -54,7 +54,19 @@ object WfdFormatChooser {
             return WfdChoice(mode, c.preset, profileBit, levelBit, audio,
                 "Se elige ${mode.label} (${c.preset.shortLabel}) de entre ${v.modes.size} modo(s) que declara el televisor; nivel H.264 0x${levelBit.toString(16)}, perfil ${if (profileBit == 1) "CBP" else "CHP"}.") to "ok"
         }
-        return null to "Ningún modo de los ${v.modes.size} que declara el televisor coincide con los que OpenTV produce (1080p60/30, 720p60/30, 854x480p30)."
+        // Segunda pasada: algunos televisores declaran el modo pero un nivel H.264 menor al habitual (p. ej. 1080p30 con nivel 3.2). Antes la
+        // negociación terminaba aquí y M4 nunca se enviaba; ahora se intenta con el nivel más alto que el televisor declara, y se avisa en la nota.
+        val topLevel = listOf(0x10, 0x08, 0x04, 0x02, 0x01).firstOrNull { v.levels and it != 0 }
+        if (topLevel != null) for (c in CANDIDATES) {
+            if (limit != null && c.preset.width.toLong() * c.preset.height * c.preset.fps > limit) continue
+            val mode = v.modes.firstOrNull { !it.interlaced && it.width == c.w && it.height == c.h && it.fps == c.fps } ?: continue
+            val audio = if (m3["wfd_audio_codecs"]?.contains("AAC", ignoreCase = true) == true) WfdAudioChoice.AAC else WfdAudioChoice.NONE
+            return WfdChoice(mode, c.preset, profileBit, topLevel, audio,
+                "Se elige ${mode.label} (${c.preset.shortLabel}) aunque el televisor declara como máximo el nivel H.264 0x${topLevel.toString(16)} (menor al habitual): puede no mostrar imagen.") to "ok"
+        }
+        val declared = v.modes.filter { !it.interlaced }.joinToString(", ") { it.label }.ifBlank { "ninguno progresivo" }
+        return null to "Ningún modo de los ${v.modes.size} que declara el televisor coincide con los que OpenTV produce (1080p60/30, 720p60/30, 854x480p30). " +
+            "Modos progresivos declarados: $declared. Niveles H.264 (máscara): 0x${v.levels.toString(16)}, perfiles: 0x${v.profiles.toString(16)}."
     }
 }
 

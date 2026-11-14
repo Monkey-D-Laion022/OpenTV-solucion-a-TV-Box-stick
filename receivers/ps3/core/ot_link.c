@@ -125,7 +125,7 @@ static int decode_hello(const uint8_t *d, size_t n, hello_t *h) {
 }
 
 int ot_link_run(const ot_link_cfg *cfg, const ot_io *io, const ot_link_cb *cb) {
-    int rc = OT_LINK_ERR_PROTO;
+    int rc = OT_LINK_ERR_PROTO; g_stage = "inicio"; g_merr = 0;
     uint8_t *rx = (uint8_t *)malloc(MAX_PAYLOAD + 32), *pt = (uint8_t *)malloc(MAX_PAYLOAD + 32);
     if (!rx || !pt) { free(rx); free(pt); return OT_LINK_ERR_IO; }
     mbedtls_ecp_group grp; mbedtls_mpi d, z; mbedtls_ecp_point Q, Qp; cipher_t tx, rxc; uint8_t h[6]; size_t len = 0;
@@ -183,15 +183,15 @@ int ot_link_run(const ot_link_cfg *cfg, const ot_io *io, const ot_link_cb *cb) {
           for (int who = 2; who >= 1; who--) { uint8_t rl = (uint8_t)who; mbedtls_md_hmac_starts(&m, ikm, 32); mbedtls_md_hmac_update(&m, (const uint8_t *)"OTV1 auth", 9); mbedtls_md_hmac_update(&m, &rl, 1);
               mbedtls_md_hmac_update(&m, raw_s_copy, raws_n); mbedtls_md_hmac_update(&m, raw_r, rawr_n); mbedtls_md_hmac_finish(&m, who == 2 ? mine : theirs); }
           mbedtls_md_free(&m); }
-        if (write_enc(io, &tx, T_AUTH, 0, mine, 32)) { rc = OT_LINK_ERR_IO; goto done; }
-        int r; do { r = read_frame(io, 1000, h, rx, &len); } while (r == 1 && !(cb->should_stop && cb->should_stop(cb->u)));
+        STAGE("AUTH enviar"); if (write_enc(io, &tx, T_AUTH, 0, mine, 32)) { rc = OT_LINK_ERR_IO; goto done; }
+        STAGE("AUTH esperar"); int r; do { r = read_frame(io, 1000, h, rx, &len); } while (r == 1 && !(cb->should_stop && cb->should_stop(cb->u)));
         if (r) { rc = OT_LINK_ERR_IO; goto done; }
-        if (h[0] != T_AUTH || open_frame(&rxc, h, rx, len, pt, &len) || len != 32 || !ct_eq(pt, theirs, 32)) { rc = OT_LINK_ERR_AUTH; goto done; }
+        STAGE("AUTH validar"); if (h[0] != T_AUTH || open_frame(&rxc, h, rx, len, pt, &len) || len != 32 || !ct_eq(pt, theirs, 32)) { rc = OT_LINK_ERR_AUTH; goto done; }
         if (cb->on_status) cb->on_status(cb->u, "Autenticado");
     }
 
     /* Fase de datos */
-    STAGE("datos");
+    STAGE("esperar OFFER y datos");
     {   uint64_t last_stats = cb->now_ms ? cb->now_ms(cb->u) : 0; int accepted = 0;
         for (;;) {
             if (cb->should_stop && cb->should_stop(cb->u)) { write_enc(io, &tx, T_BYE, 0, NULL, 0); rc = OT_LINK_STOPPED; goto done; }

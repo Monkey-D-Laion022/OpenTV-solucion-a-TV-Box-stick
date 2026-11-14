@@ -85,7 +85,8 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
     fun sendToRenderer(r: Renderer) {
         val live = state.value as? IptvState.Live ?: return
         dlnaSession?.stop()
-        val session = DlnaSession(viewModelScope, dlnaClient, r, urlFor = { live.tsUrl }, onOffer = { controller.requestPreset(it.presetName) })
+        val session = DlnaSession(viewModelScope, dlnaClient, r, urlFor = { live.tsUrl }, onOffer = { controller.requestPreset(it.presetName) },
+            streamAlive = { ((state.value as? IptvState.Live)?.clients ?: 0) > 0 })
         dlnaSession = session
         viewModelScope.launch { session.status.collect { _dlna.value = it } }
         session.start()

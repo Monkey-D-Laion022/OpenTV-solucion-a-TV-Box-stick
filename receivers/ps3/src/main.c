@@ -78,6 +78,14 @@ static void read_cfg(cfg_t *c) {
 
 /* ───── video/audio ───── */
 static char g_crypto[128] = "";
+/* Registro persistente (USRDIR/opentv.log): sirve para saber en qué etapa se corta una prueba aunque la pantalla quede negra. */
+#include <stdarg.h>
+static void trace(const char *fmt, ...) {
+    char l[224]; va_list ap; va_start(ap, fmt); vsnprintf(l, sizeof l, fmt, ap); va_end(ap);
+    printf("[opentv] %s\n", l);
+    FILE *f = fopen("/dev_hdd0/game/OPENTV001/USRDIR/opentv.log", "a"); if (f) { fprintf(f, "%lld %s\n", (long long)(now_ms64() / 1000), l); fclose(f); }
+}
+static uint32_t g_ts_bytes, g_ts_frames;
 static ot_ts g_ts;
 static void on_unit(void *u, ot_stream_kind k, const uint8_t *d, size_t n, int64_t pts, int key) {
     (void)u; if (k == OT_STREAM_VIDEO_H264) ps3av_push_video(d, n, pts, key); else ps3av_push_audio(d, n, pts);
@@ -93,9 +101,9 @@ static int io_recv(void *u, uint8_t *b, size_t n, int to) {
         ssize_t k = recv(g_sock, b + got, n - got, 0); if (k <= 0) return -1; got += (size_t)k; }
     return 0;
 }
-static void cb_ts(void *u, const uint8_t *d, size_t n, int key) { (void)u; (void)key; feed_ts(d, n); }
-static void cb_offer(void *u, const ot_offer *o) { (void)u; char m[96]; snprintf(m, sizeof m, "Recibiendo %ux%u a %u fps (%u kbps)", o->w, o->h, o->fps, o->bitrate / 1000); ps3av_message(m); ps3av_text(0, ""); ps3av_text(1, ""); ps3av_text(2, ""); }
-static void cb_status(void *u, const char *s) { (void)u; ps3av_message(s); }
+static void cb_ts(void *u, const uint8_t *d, size_t n, int key) { (void)u; (void)key; g_ts_bytes += (uint32_t)n; if (++g_ts_frames == 1) trace("llego el primer bloque de transporte TS (%u bytes)", (unsigned)n); feed_ts(d, n); }
+static void cb_offer(void *u, const ot_offer *o) { (void)u; trace("OFFER %ux%u %ufps %ukbps: se acepta", o->w, o->h, o->fps, o->bitrate / 1000); char m[96]; snprintf(m, sizeof m, "Recibiendo %ux%u a %u fps (%u kbps)", o->w, o->h, o->fps, o->bitrate / 1000); ps3av_message(m); ps3av_text(0, ""); ps3av_text(1, ""); ps3av_text(2, ""); }
+static void cb_status(void *u, const char *s) { (void)u; trace("estado: %s", s); ps3av_message(s); }
 static int cb_confirm(void *u, const char *sas, const char *peer) {
     (void)u; char l[64]; ps3av_text(0, "Codigo de emparejamiento"); ps3av_text(1, sas); snprintf(l, sizeof l, "Telefono: %.30s", peer); ps3av_text(2, l);
     ps3av_message("Compara el codigo con el del telefono:  X = coincide    O = no coincide");
@@ -104,6 +112,7 @@ static int cb_confirm(void *u, const char *sas, const char *peer) {
 }
 static void cb_stats(void *u, ot_link_stats *s) {
     (void)u; ps3av_stats a; ps3av_get_stats(&a);
+    static int n; if (++n % 3 == 1) trace("ts=%u KB videoIn=%u imagenes=%u mostradas=%u errDec=%u audio=%u sub=%u skew=%dms %dx%d", (unsigned)(g_ts_bytes / 1024), a.video_in, a.pics_out, a.pics_shown, a.decode_errors, a.audio_frames, a.audio_underruns, (int)a.av_skew_ms, (int)a.width, (int)a.height);
     int lag = a.decode_ms_last < 0 ? 0 : a.decode_ms_last; s->buffer_ms = (uint16_t)(lag > 65000 ? 65000 : lag);
     s->dropped = a.video_dropped_busy + a.video_dropped_nokey + a.decode_errors; s->late = a.audio_underruns;
 }
@@ -159,7 +168,7 @@ int main(void) {
     if (ps3av_init() != 0) { printf("[opentv] no se pudo iniciar video/audio\n"); return 1; }
     cfg_t cfg; read_cfg(&cfg); net_info();
     { char why[96]; int st = ot_selftest(why, sizeof why); snprintf(g_crypto, sizeof g_crypto, st ? "CRIPTO FALLA: %s" : "Cripto OK", why);
-      printf("[opentv] autoprueba cripto: %s\n", g_crypto); }
+      trace("arranque; autoprueba cripto: %s; IP %s", g_crypto, g_ip); }
     uint8_t id[8]; load_device_id(id);
     { FILE *f = fopen(PEERS, "r"); if (!f) g_pair_next = 1; else fclose(f); }       /* sin teléfonos guardados: se empareja directamente */
     ot_mdns_info mi; memset(&mi, 0, sizeof mi); hex(id, 8, mi.id_hex);
@@ -180,7 +189,8 @@ int main(void) {
         int r = poll(p, 2, 100); if (r <= 0) continue;
         if (ms >= 0 && (p[1].revents & POLLIN)) { uint8_t q[512]; ssize_t n = recvfrom(ms, q, sizeof q, 0, NULL, NULL); if (n > 0 && ot_mdns_query_matches(q, (size_t)n, &mi)) mdns_send(ms, &mi); }
         if (ls >= 0 && (p[0].revents & POLLIN)) {
-            g_sock = accept(ls, NULL, NULL); if (g_sock < 0) continue;
+            g_sock = accept(ls, NULL, NULL); if (g_sock < 0) continue; g_ts_bytes = 0; g_ts_frames = 0;
+            trace("conexion TCP aceptada (modo %s)", g_pair_next ? "EMPAREJAR" : "reconectar");
             ot_link_cfg lc; memset(&lc, 0, sizeof lc); memcpy(lc.device_id, id, 8); snprintf(lc.name, sizeof lc.name, "%s", cfg.name);
             lc.pair_mode = g_pair_next; lc.max_bitrate = (uint32_t)cfg.max_kbps * 1000u; lc.target_buffer_ms = 250;
             /* PS3: 1080p a 60 fps NO está demostrado; por defecto se pide 30 fps si la oferta supera 720p (fps1080= en opentv.cfg lo cambia) */
@@ -189,6 +199,7 @@ int main(void) {
             ot_link_cb cb = { NULL, cb_ts, cb_offer, cb_status, cb_confirm, cb_stats, load_secret, save_secret, cb_now, cb_stop };
             ps3av_reset_stream(); ot_ts_init(&g_ts, on_unit, NULL);
             int rc = ot_link_run(&lc, &io, &cb);
+            trace("sesion terminada rc=%d etapa='%s' mbedtls=%d ts=%u KB", rc, ot_link_last_stage(), ot_link_last_mbedtls(), (unsigned)(g_ts_bytes / 1024));
             ot_ts_free(&g_ts); close(g_sock); g_sock = -1;
             /* El modo EMPAREJAR solo se apaga si el emparejamiento realmente se guardó. Antes se apagaba tras CUALQUIER intento: un fallo dejaba la PS3 en
              * «reconectar», el teléfono (sin secreto) respondía ERROR «no emparejado» y la PS3 mostraba -5 en la lectura de HELLO. */

@@ -30,6 +30,7 @@ class DlnaSession(
     private val urlFor: (Offer) -> String,
     private val onOffer: (Offer) -> Unit = {},
     private val pollMs: Long = 2_000,
+    private val streamAlive: () -> Boolean = { false },
 ) {
     private val _status = MutableStateFlow(DlnaStatus(renderer = renderer.friendlyName))
     val status: StateFlow<DlnaStatus> = _status
@@ -61,7 +62,7 @@ class DlnaSession(
                     delay(pollMs)
                     val info = withContext(Dispatchers.IO) { client.transport(renderer) }
                     val now = System.currentTimeMillis()
-                    action = if (info == null) sup.onPollFailed(now) else sup.onTransport(info.state, now)
+                    action = if (info == null) sup.onPollFailed(now, streamAlive()) else sup.onTransport(info.state, now)
                     if (sup.phase == DlnaPhase.PLAYING && _status.value.phase != DlnaPhase.PLAYING) log(DlnaPhase.PLAYING, "El televisor está reproduciendo.")
                     if (sup.phase == DlnaPhase.PLAYING && sup.unstable(now) && _status.value.log.lastOrNull()?.startsWith("Inestable") != true)
                         log(DlnaPhase.PLAYING, "Inestable: ${sup.recoveries} recuperaciones en pocos minutos (última causa: ${sup.lastReason}). Reproduce, pero la sesión no es fiable.")

@@ -129,6 +129,15 @@ class DlnaLogicTest {
         val a = s.onPollFailed(7_000)
         assertTrue(a is DlnaAction.Retry); assertTrue((a as DlnaAction.Retry).reason.contains("dejó de responder"))
     }
+    @Test fun siElTvSigueDescargandoElFlujoUnaConsultaFallidaNoEsUnCorte() {
+        val s = SessionSupervisor(1, maxRetries = 1)
+        s.begin(); s.onCapabilitiesRead(); s.onSent(0); s.onTransport(TransportState.PLAYING, 1_000)
+        repeat(10) { assertEquals(DlnaAction.None, s.onPollFailed(3_000L + it * 2_000, streamAlive = true)) }
+        assertEquals(DlnaPhase.PLAYING, s.phase)
+        // al dejar de pedir el flujo, vuelve a contar como corte
+        s.onPollFailed(30_000); s.onPollFailed(32_000)
+        assertTrue(s.onPollFailed(34_000) is DlnaAction.Retry)
+    }
     @Test fun unaConsultaConRespuestaReiniciaLaCuenta() {
         val s = SessionSupervisor(1)
         s.begin(); s.onCapabilitiesRead(); s.onSent(0); s.onTransport(TransportState.PLAYING, 1_000)

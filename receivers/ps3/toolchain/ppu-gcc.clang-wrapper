@@ -1,57 +1,15 @@
-
-#!/bin/sh
-set -eu
-
-P="${PS3DEV:?ERROR: PS3DEV no está definido}"
-N="$P/ppu/powerpc64-ps3-elf"
-
-if [ ! -d "$N/include" ]; then
-    echo "ERROR: faltan los headers PPU: $N/include" >&2
-    exit 1
+#!/bin/bash
+# Envoltorio de clang que imita ppu-gcc de PSL1GHT. EXPERIMENTAL (ver docs/PS3-TOOLCHAIN-CLANG.md).
+P=/home/claude/ps3dev; N=$P/ppu/powerpc64-ps3-elf; L=$P/ppu/ppu/lib
+args=(); asm=0; compile=0
+for a in "$@"; do case "$a" in
+  -D__ASSEMBLY__) asm=1; args+=("$a");;
+  -c|-S|-E|-M|-MM) compile=1; args+=("$a");;
+  -mcpu=cell|-Wa,-mcell|-mregnames|-mhard-float|-fmodulo-sched|-mminimal-toc|-Wl,-Map,*) ;;
+  *) args+=("$a");; esac; done
+BASE=(--target=powerpc64-unknown-elf -mcpu=970 -nostdlibinc -isystem $N/include -fno-pic -fno-pie -fno-stack-protector -Wno-everything -Wno-unused-command-line-argument)
+if [ $compile = 1 ]; then
+  extra=(); [ $asm = 1 ] && extra=(-include /home/claude/ps3build/extra/ppc-asm.h)
+  exec clang "${BASE[@]}" "${extra[@]}" "${args[@]}"
 fi
-
-if [ "$#" -eq 1 ]; then
-    case "$1" in
-        --version|-version|-v|-dumpmachine|-dumpversion|-print-search-dirs|-print-resource-dir)
-            exec clang \
-                --target=powerpc64-unknown-elf \
-                -mcpu=ppc-cell-be \
-                -mbig-endian \
-                -ffreestanding \
-                -nostdlibinc \
-                -isystem "$N/include" \
-                -fno-pic \
-                -fno-pie \
-                -fno-stack-protector \
-                "$1"
-            ;;
-    esac
-fi
-
-COMPILE=0
-
-for ARG in "$@"; do
-    case "$ARG" in
-        -c|-S|-E|-M|-MM|-fsyntax-only)
-            COMPILE=1
-            ;;
-    esac
-done
-
-if [ "$COMPILE" -eq 1 ]; then
-    exec clang \
-        --target=powerpc64-unknown-elf \
-        -mcpu=ppc-cell-be \
-        -mbig-endian \
-        -ffreestanding \
-        -nostdlibinc \
-        -isystem "$N/include" \
-        -fno-pic \
-        -fno-pie \
-        -fno-stack-protector \
-        "$@"
-fi
-
-echo "ERROR: enlazado PS3 todavía no habilitado." >&2
-echo "Primero debemos validar CRT, linker y ABI." >&2
-exit 1
+exec clang "${BASE[@]}" -nostdlib -nostartfiles -fuse-ld=lld -static -Wl,--no-pie,-T,$L/lv2.ld,--allow-multiple-definition,--no-gc-sections,-z,norelro $L/lv2-crt0.o $L/lv2-crti.o "${args[@]}" -L$P/ppu/lib -L$N/lib -Wl,--start-group -lc -lsysbase -lnosys -Wl,--end-group $L/lv2-crtn.o $L/lv2-sprx.o

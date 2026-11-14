@@ -41,33 +41,50 @@ object LandingPage {
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
     /**
-     * ES3: sin let/const, flechas, fetch ni JSON. Prueba los métodos en orden (los que el navegador dice poder reproducir
-     * primero; si no dice nada se prueban igual, porque `canPlayType` miente en televisores viejos) y pasa al siguiente si
-     * hay error o no arranca en 12 s. Todo se informa al teléfono con imágenes pedidas con `new Image()`.
+     * ES3: sin let/const, flechas, fetch, JSON ni MSE. Elige el orden según lo que el navegador dice poder reproducir, pero
+     * `canPlayType` miente en televisores viejos («hls=maybe» no garantiza nada): MP4 progresivo «probably» va antes que HLS «maybe»,
+     * y TS directo solo se prueba si el navegador no lo descartó (ts=no). Un vigilante comprueba cada 2 s que `currentTime` avance:
+     * si el video arrancó y luego se corta (el caso de «reproduce 2 s y se detiene»), reintenta el mismo método hasta 2 veces y, si no
+     * sirve, pasa al siguiente. Antes, tras el primer «playing», cualquier corte posterior se ignoraba y la página se quedaba muerta.
+     * Todo se informa al teléfono con imágenes pedidas con `new Image()`.
      */
     private const val SCRIPT = """
 (function(){
 var d=document.getElementById('d'),v=document.getElementById('v'),t=document.createElement('video');
 function q(m){try{return t.canPlayType?t.canPlayType(m):''}catch(e){return ''}}
+function r(x){return x==='probably'?2:(x==='maybe'?1:0);}
 var H=q('application/vnd.apple.mpegurl'),M=q('video/mp4; codecs="avc1.4D401F, mp4a.40.2"'),T=q('video/mp2t');
 function send(k,x){try{(new Image()).src='/diag?k='+encodeURIComponent(k)+'&v='+encodeURIComponent(x)+'&ua='+encodeURIComponent(navigator.userAgent||'')+'&t='+(new Date()).getTime();}catch(e){}}
 function say(s){d.innerHTML=s;}
 send('caps','hls='+(H||'no')+',mp4='+(M||'no')+',ts='+(T||'no')+',mse='+(typeof MediaSource!=='undefined'?1:0)+',screen='+(screen.width||0)+'x'+(screen.height||0));
 if(!v){say('Modo solo enlaces: copiá una de las direcciones en tu reproductor.');return;}
-var P=[['HLS',U.hls,H],['MP4 progresivo',U.mp4,M],['TS directo',U.ts,T]],L=[],R=[],i;
-if(v.getAttribute('data-forced')==='1'){for(i=0;i<P.length;i++){if(v.src.indexOf(P[i][1])>=0){L.push(P[i]);}}}
-else{for(i=0;i<P.length;i++){if(P[i][2]){L.push(P[i]);}else{R.push(P[i]);}}for(i=0;i<R.length;i++){L.push(R[i]);}}
-var n=-1,ok=false,tm=null;
+var P=[{n:'MP4 progresivo',u:U.mp4,s:r(M)*2+1},{n:'HLS',u:U.hls,s:r(H)*2},{n:'TS directo',u:U.ts,s:r(T)*2-1}],L=[],i;
+if(v.getAttribute('data-forced')==='1'){for(i=0;i<P.length;i++){if(v.src.indexOf(P[i].u)>=0){L.push(P[i]);}}}
+else{for(i=0;i<P.length;i++){if(P[i].u!==U.ts||T){L.push(P[i]);}}L.sort(function(a,b){return b.s-a.s;});}
+var n=-1,ok=false,played=false,tries=0,last=-1,stall=0,tm=null,wd=null;
+function stopWd(){if(wd){clearInterval(wd);wd=null;}if(tm){clearTimeout(tm);tm=null;}}
+function load(){
+stopWd();ok=false;last=-1;stall=0;
+say('Probando '+L[n].n+(tries?' (reintento '+tries+')':'')+'…');send('try',L[n].n);
+try{v.pause();}catch(e){}
+v.src=L[n].u;try{v.load();}catch(e){}try{v.play();}catch(e){}
+tm=setTimeout(function(){if(!ok){send('timeout',L[n].n);fail('no arrancó en 12 s');}},12000);}
 function next(){
-if(tm){clearTimeout(tm);}
-n++;
-if(n>=L.length){say('Este navegador no pudo reproducir ningún formato. Alternativas: 1) cargá http://'+location.host+U.m3u+' en una app IPTV del televisor (en un LG antiguo con Smart IPTV usá el canal de la prueba 2, TS directo); 2) el espejo nativo (Miracast) del sistema; 3) un receptor HDMI (TV box o stick Android) con OpenTV. Los navegadores de televisores muy antiguos suelen no reproducir HLS ni MP4 en vivo.');send('failed','all');return;}
-say('Probando '+L[n][0]+'…');send('try',L[n][0]);
-v.src=L[n][1];try{v.load();}catch(e){}try{v.play();}catch(e){}
-tm=setTimeout(function(){if(!ok){send('timeout',L[n][0]);next();}},12000);}
-v.onplaying=function(){ok=true;if(tm){clearTimeout(tm);}say('Reproduciendo ('+L[n][0]+').');send('playing',L[n][0]);};
-v.onerror=function(){if(ok){return;}send('error',L[n][0]+':'+((v.error&&v.error.code)||0));next();};
-v.onstalled=function(){send('stalled',L[n][0]);};
+stopWd();tries=0;played=false;n++;
+if(n>=L.length){try{v.removeAttribute('src');v.load();}catch(e){}say('Este navegador no pudo reproducir ningún formato. Alternativas: 1) cargá http://'+location.host+U.m3u+' en una app IPTV del televisor (en un LG antiguo con Smart IPTV usá el canal de la prueba 2, TS directo); 2) el espejo nativo (Miracast) del sistema; 3) un receptor HDMI (TV box o stick Android) con OpenTV. Los navegadores de televisores muy antiguos suelen no reproducir HLS ni MP4 en vivo.');send('failed','all');return;}
+load();}
+function fail(why){
+if(n<0||n>=L.length){return;}
+stopWd();send('cut',L[n].n+': '+why);
+if(played&&tries<2){tries++;load();}else{next();}}
+v.onplaying=function(){
+if(n<0||n>=L.length){return;}
+ok=true;played=true;stall=0;if(tm){clearTimeout(tm);tm=null;}
+say('Reproduciendo ('+L[n].n+').');send('playing',L[n].n);
+if(!wd){wd=setInterval(function(){var c=v.currentTime||0;if(c>last+0.2){last=c;stall=0;}else{stall++;}if(stall>=3){fail('sin avance durante 6 s');}},2000);}};
+v.onerror=function(){if(n<0||n>=L.length){return;}send('error',L[n].n+':'+((v.error&&v.error.code)||0));fail('error '+((v.error&&v.error.code)||0));};
+v.onended=function(){if(n>=0&&n<L.length){fail('el flujo terminó');}};
+v.onstalled=function(){if(n>=0&&n<L.length){send('stalled',L[n].n);}};
 next();
 })();
 """

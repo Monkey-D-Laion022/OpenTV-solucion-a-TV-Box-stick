@@ -125,4 +125,14 @@ class WfdSourceTest {
     @Test fun elDiagnosticoSinCapturaSigueSinTransmitir() {
         assertFalse(WfdSourceFlow("1.1.1.1").state != WfdSourceFlow.State.IDLE)
     }
+
+    @Test fun nivelBajoDeclaradoNoCortaLaNegociacion() {
+        // 1080p30 (bit 7 de CEA = 0x80) con solo nivel 3.1 declarado: antes se rechazaba y M4 no se enviaba
+        val (c, _) = WfdFormatChooser.choose(m3("00000080", level = "01"))
+        assertNotNull(c); assertEquals(IptvPreset.FULL_HD, c!!.preset); assertEquals(0x01, c.levelBit); assertTrue(c.note.contains("menor al habitual"))
+    }
+    @Test fun elFalloEnumeraLosModosDeclarados() {
+        val (c, why) = WfdFormatChooser.choose(m3("00000003")) // 640x480p60 y 720x480p60
+        assertNull(c); assertTrue(why.contains("640x480p60") && why.contains("720x480p60"))
+    }
 }

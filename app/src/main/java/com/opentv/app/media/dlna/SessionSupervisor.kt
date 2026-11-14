@@ -50,7 +50,10 @@ class SessionSupervisor(
     fun unstable(nowMs: Long): Boolean = recoveryTimes.count { nowMs - it <= UNSTABLE_WINDOW_MS } >= UNSTABLE_RECOVERIES
 
     /** El televisor no respondió a la consulta de estado (tiempo agotado, red caída). Varios seguidos durante la reproducción = corte. */
-    fun onPollFailed(nowMs: Long): DlnaAction {
+    fun onPollFailed(nowMs: Long, streamAlive: Boolean = false): DlnaAction {
+        // Muchos televisores viejos tardan o fallan al responder SOAP mientras decodifican, pero siguen pidiendo el flujo:
+        // si hay un cliente descargando, la reproducción no está cortada y reenviar solo provocaría un salto de calidad.
+        if (phase == DlnaPhase.PLAYING && streamAlive) { unreachable = 0; return DlnaAction.None }
         unreachable++
         if (phase == DlnaPhase.PLAYING && unreachable >= UNREACHABLE_LIMIT) { phase = DlnaPhase.STALLED; return failAttempt("el televisor dejó de responder ($unreachable consultas seguidas sin respuesta)", nowMs) }
         if (phase == DlnaPhase.WAITING_PLAY && nowMs - sentAt >= playTimeoutMs) return failAttempt("el televisor no responde y no llegó a reproducir", nowMs)
