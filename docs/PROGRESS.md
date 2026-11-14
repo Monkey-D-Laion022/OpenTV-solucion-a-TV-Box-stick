@@ -374,7 +374,7 @@ Alcance: SOLO descubrir dispositivos Wi-Fi Direct con la API pública y mostrar 
 
 ## Fase 6: IPTV, protocolo OpenTV Link, inventario de conexiones
 - **IPTV** (`iptv/`, `ui/iptv/`): el teléfono emite su pantalla como canal en vivo (HLS v3 + TS directo + lista M3U) con servidor HTTP propio y servicio en primer plano propio (`IptvService`, sin permisos nuevos). Validado con ffmpeg/ffprobe reales (formato) y JUnit; **sin probar en el teléfono, el LG ni SmartOne**. Ver `docs/IPTV.md`.
-- **OpenTV Link v1** (`proto/`, `tools/receiver-py/`): protocolo propio (tramas, ECDH+SAS, reconexión con secreto, AES-256-GCM, control de bitrate). Probado emisor Kotlin ↔ receptor Python en loopback. **Sin emisor/receptor en la app Android todavía.** Ver `docs/PROTOCOLO-OPENTV.md`.
+- **OpenTV Link v1** (`proto/`, núcleo C en `receivers/ps3/core/`): protocolo propio (tramas, ECDH+SAS, reconexión con secreto, AES-256-GCM, control de bitrate). Probado emisor Kotlin ↔ receptor de prueba en loopback (el receptor Python de referencia se eliminó después). **Sin emisor/receptor en la app Android todavía.** Ver `docs/PROTOCOLO-OPENTV.md`.
 - **Conexiones** reorganizada: duplicación, Emisión IPTV, Transmisión OpenTV (pendiente), dispositivos DLNA, diagnóstico.
 - Documentos: `docs/CONEXIONES-INVENTARIO.md` (matriz y decisiones), `docs/REA.md` (respuesta: NO).
 - Hallazgo de seguridad corregido: JCA no valida que un punto ECDH esté en la curva; se comprueba a mano (`OtCrypto.decodePublic`) con prueba.

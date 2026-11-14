@@ -21,12 +21,15 @@ typedef struct {
     unsigned long packets, sync_losses, discontinuities, dropped_oversize;
     int last_cc_v, last_cc_a;
     int started;               /* ya se vio un fotograma clave de video */
+    uint8_t *pend; size_t pend_len, pend_cap;   /* resto de un paquete partido entre dos trozos (ver ot_ts_push) */
 } ot_ts;
 
 void ot_ts_init(ot_ts *t, ot_unit_cb cb, void *user);
 void ot_ts_free(ot_ts *t);
 /* Alimenta bytes en cualquier trozo; busca la sincronización (0x47 cada 188 B) y la recupera si se pierde. Devuelve bytes consumidos. */
 size_t ot_ts_feed(ot_ts *t, const uint8_t *data, size_t len);
+/* Como ot_ts_feed pero con trozos de CUALQUIER tamaño (no múltiplos de 188): guarda el resto parcial para el próximo trozo. Usar esta en la red. */
+void ot_ts_push(ot_ts *t, const uint8_t *data, size_t len);
 /* Termina: entrega lo que quede acumulado. */
 void ot_ts_flush(ot_ts *t);
 #endif

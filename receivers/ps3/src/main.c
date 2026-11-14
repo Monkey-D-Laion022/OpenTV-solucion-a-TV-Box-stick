@@ -85,12 +85,13 @@ static void trace(const char *fmt, ...) {
     printf("[opentv] %s\n", l);
     FILE *f = fopen("/dev_hdd0/game/OPENTV001/USRDIR/opentv.log", "a"); if (f) { fprintf(f, "%lld %s\n", (long long)(now_ms64() / 1000), l); fclose(f); }
 }
+static void log_line(const char *l) { trace("%s", l); }
 static uint32_t g_ts_bytes, g_ts_frames;
 static ot_ts g_ts;
 static void on_unit(void *u, ot_stream_kind k, const uint8_t *d, size_t n, int64_t pts, int key) {
     (void)u; if (k == OT_STREAM_VIDEO_H264) ps3av_push_video(d, n, pts, key); else ps3av_push_audio(d, n, pts);
 }
-static void feed_ts(const uint8_t *d, size_t n) { size_t off = 0; while (off < n) { size_t u = ot_ts_feed(&g_ts, d + off, n - off); if (!u) break; off += u; } }
+static void feed_ts(const uint8_t *d, size_t n) { ot_ts_push(&g_ts, d, n); }   /* conserva el resto de un paquete partido entre dos bloques */
 
 /* ───── callbacks de la sesión Link ───── */
 static int g_sock = -1;
@@ -113,6 +114,7 @@ static int cb_confirm(void *u, const char *sas, const char *peer) {
 static void cb_stats(void *u, ot_link_stats *s) {
     (void)u; ps3av_stats a; ps3av_get_stats(&a);
     static int n; if (++n % 3 == 1) trace("ts=%u KB videoIn=%u imagenes=%u mostradas=%u errDec=%u audio=%u sub=%u skew=%dms %dx%d", (unsigned)(g_ts_bytes / 1024), a.video_in, a.pics_out, a.pics_shown, a.decode_errors, a.audio_frames, a.audio_underruns, (int)a.av_skew_ms, (int)a.width, (int)a.height);
+    if (n % 3 == 1) trace("decodificador: AUenv=%u AUDONE=%u PICOUT=%u errCb=%u(cod %d) rc=%d reinicios=%u descBusy=%u descSinClave=%u SPS=%d/%d %dx%d veredicto=%d", a.au_submitted, a.cb_audone, a.cb_picout, a.cb_error, (int)a.last_cb_error, (int)a.last_decode_rc, a.vdec_resets, a.video_dropped_busy, a.video_dropped_nokey, (int)a.sps_profile, (int)a.sps_level, (int)a.sps_w, (int)a.sps_h, (int)a.sps_verdict);
     int lag = a.decode_ms_last < 0 ? 0 : a.decode_ms_last; s->buffer_ms = (uint16_t)(lag > 65000 ? 65000 : lag);
     s->dropped = a.video_dropped_busy + a.video_dropped_nokey + a.decode_errors; s->late = a.audio_underruns;
 }
@@ -165,6 +167,7 @@ static int run_http(const cfg_t *c) {
 
 int main(void) {
     netInitialize();
+    ps3av_set_logger(log_line);
     if (ps3av_init() != 0) { printf("[opentv] no se pudo iniciar video/audio\n"); return 1; }
     cfg_t cfg; read_cfg(&cfg); net_info();
     { char why[96]; int st = ot_selftest(why, sizeof why); snprintf(g_crypto, sizeof g_crypto, st ? "CRIPTO FALLA: %s" : "Cripto OK", why);

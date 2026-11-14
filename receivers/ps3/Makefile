@@ -41,7 +41,7 @@ SELF_NPDRM := $(call find_tool,make_self_npdrm)
 SFO        := $(call find_tool,sfo)
 PKGTOOL    := $(call find_tool,pkg)
 
-SRC := src/main.c src/ps3_av.c core/ot_link.c core/ot_selftest.c core/ot_ts.c core/ot_http.c core/ot_mdns.c
+SRC := src/main.c src/ps3_av.c core/ot_link.c core/ot_selftest.c core/ot_ts.c core/ot_h264.c core/ot_http.c core/ot_mdns.c
 OBJS := $(patsubst %.c,$(OBJ)/%.o,$(SRC))
 
 MBED_INC := $(DEPS)/mbed-out/include

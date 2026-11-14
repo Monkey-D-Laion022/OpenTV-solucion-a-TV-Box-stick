@@ -3,3 +3,4 @@ OK (505 tests)
 
 Pruebas JVM 2026-11-14: 517 OK (lógica pura; excluye OutputController.kt)
 Pruebas JVM 2026-11-14 (candidata): 530 OK (lógica pura; excluye OutputController.kt)
+Ronda 2026-11-14 (PC): JVM 532 OK · Link 14 OK (receptor C) · H264/TS OK · tv_sim 8/8 · PS3 make pkg verify OK (358496 B). Android NO compilado aquí.

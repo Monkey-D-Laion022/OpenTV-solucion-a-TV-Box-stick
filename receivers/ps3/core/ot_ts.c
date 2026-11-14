@@ -9,7 +9,7 @@ void ot_ts_init(ot_ts *t, ot_unit_cb cb, void *user) {
     t->cb = cb; t->user = user; t->vpts = t->apts = -1; t->last_cc_v = t->last_cc_a = -1;
     t->pmt_pid = 0xFFFF; t->video_pid = t->audio_pid = 0xFFFF;
 }
-void ot_ts_free(ot_ts *t) { free(t->vbuf); free(t->abuf); t->vbuf = t->abuf = NULL; t->vcap = t->acap = 0; }
+void ot_ts_free(ot_ts *t) { free(t->vbuf); free(t->abuf); free(t->pend); t->vbuf = t->abuf = t->pend = NULL; t->vcap = t->acap = t->pend_len = t->pend_cap = 0; }
 
 static int append(uint8_t **buf, size_t *len, size_t *cap, const uint8_t *src, size_t n) {
     if (*len + n > MAX_UNIT) return -1;
@@ -133,3 +133,24 @@ size_t ot_ts_feed(ot_ts *t, const uint8_t *d, size_t len) {
 }
 
 void ot_ts_flush(ot_ts *t) { emit_video(t); emit_audio(t); }
+
+void ot_ts_push(ot_ts *t, const uint8_t *d, size_t n) {
+    if (t->pend_len == 0) {                              /* camino rápido: sin resto previo, se procesa directo y solo se guarda la cola */
+        size_t used = ot_ts_feed(t, d, n);
+        if (used < n && n - used < 4 * OT_TS_PACKET) {
+            if (t->pend_cap < n - used) { uint8_t *p = (uint8_t *)realloc(t->pend, 8 * OT_TS_PACKET); if (!p) return; t->pend = p; t->pend_cap = 8 * OT_TS_PACKET; }
+            memcpy(t->pend, d + used, n - used); t->pend_len = n - used;
+        }
+        return;
+    }
+    size_t need = t->pend_len + n;
+    uint8_t *m = (uint8_t *)malloc(need); if (!m) { t->pend_len = 0; return; }
+    memcpy(m, t->pend, t->pend_len); memcpy(m + t->pend_len, d, n);
+    size_t used = ot_ts_feed(t, m, need);
+    size_t rest = need - used; t->pend_len = 0;
+    if (rest && rest < 4 * OT_TS_PACKET) {
+        if (t->pend_cap < rest) { uint8_t *p = (uint8_t *)realloc(t->pend, 8 * OT_TS_PACKET); if (p) { t->pend = p; t->pend_cap = 8 * OT_TS_PACKET; } }
+        if (t->pend_cap >= rest) { memcpy(t->pend, m + used, rest); t->pend_len = rest; }
+    }
+    free(m);
+}

@@ -6,12 +6,12 @@ if(script.length>3500){console.log('FAIL script demasiado grande',script.length)
 ['=>','let ','const ','fetch(','JSON.','`','async ','Promise'].forEach(function(b){if(script.indexOf(b)>=0){console.log('FAIL token prohibido',b);process.exit(1);}});
 var fails=0;function check(n,c){console.log((c?'ok   ':'FAIL ')+n);if(!c)fails++;}
 function run(caps,scn){
- var log=[],timers=[],now=0,id=0,video={currentTime:0,played:false,error:null,srcs:[],
+ var alt={style:{display:'none'}},log=[],timers=[],now=0,id=0,video={currentTime:0,played:false,error:null,srcs:[],
   pause:function(){},load:function(){},play:function(){},removeAttribute:function(){},getAttribute:function(){return null;},
   set src(x){this.srcs.push(x);this._s=x;},get src(){return this._s||'';}};
  var probe={canPlayType:function(m){return caps[m.indexOf('mpegurl')>=0?'hls':m.indexOf('mp4')>=0?'mp4':'ts']||'';}};
  var sb={U:{hls:'/tv/index.m3u8',mp4:'/tv/live.mp4',ts:'/tv/live.ts',m3u:'/tv/channel.m3u'},
-  document:{getElementById:function(i){return i==='v'?video:{};},createElement:function(){return probe;}},
+  document:{getElementById:function(i){return i==='v'?video:(i==='alt'?alt:{});},createElement:function(){return probe;}},
   navigator:{userAgent:'NetCast'},screen:{width:1920,height:1080},location:{host:'x'},
   Image:function(){var o=this;Object.defineProperty(o,'src',{set:function(u){log.push(decodeURIComponent(u.split('k=')[1].split('&')[0])+'='+decodeURIComponent(u.split('&v=')[1].split('&')[0]));}});},
   setTimeout:function(f,ms){timers.push({id:++id,f:f,at:now+ms});return id;},clearTimeout:function(i){timers=timers.filter(function(t){return t.id!==i;});},
@@ -19,7 +19,7 @@ function run(caps,scn){
   encodeURIComponent:encodeURIComponent,Date:Date};
  vm.runInNewContext(script,sb);
  function adv(ms){var end=now+ms;for(;;){timers.sort(function(a,b){return a.at-b.at;});var t=timers[0];if(!t||t.at>end)break;now=t.at;if(t.every)t.at+=t.every;else timers.shift();scn.tick&&scn.tick(now,video);t.f();}now=end;}
- scn.go(video,adv,sb);return {log:log,video:video};
+ scn.go(video,adv,sb);return {log:log,video:video,alt:alt};
 }
 // 1) MP4 'probably' se prueba antes que HLS 'maybe'; arranca y avanza: no cambia de método
 var r1=run({hls:'maybe',mp4:'probably',ts:''},{go:function(v,adv){check('1 primer intento MP4',v.srcs[0]==='/tv/live.mp4');v.onplaying();for(var i=0;i<10;i++){v.currentTime+=2;adv(2000);}check('1 sigue en MP4 mientras avanza',v.srcs.length===1);}});
@@ -36,4 +36,5 @@ check('4 timeout de arranque cambia de método',r4.video.srcs.length>=2&&r4.vide
 // 5) todos fallan: mensaje final, sin bucle infinito
 var r5=run({hls:'maybe',mp4:'maybe',ts:'maybe'},{go:function(v,adv){for(var i=0;i<12;i++){adv(13000);}}});
 check('5 termina sin bucle ('+r5.video.srcs.length+' cargas)',r5.video.srcs.length<=3&&r5.log.indexOf('failed=all')>=0);
+check('5 muestra el Plan B (enlaces directos) al fallar todo',r5.alt.style.display==='block');
 console.log(fails?'FALLAS: '+fails:'TODO OK');process.exit(fails?1:0);

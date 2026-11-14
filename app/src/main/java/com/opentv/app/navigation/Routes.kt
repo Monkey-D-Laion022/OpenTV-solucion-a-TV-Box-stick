@@ -50,8 +50,7 @@ enum class PendingFeature(
         id = "opentv_link",
         title = "Transmisión OpenTV (protocolo propio)",
         phase = 6,
-        plan = "El emisor y el receptor de OpenTV Link ya están dentro de la app (Conexiones › Transmisión OpenTV). Falta probarlos con dos equipos reales. " +
-            "Para ver el canal en una PC también existe el receptor de referencia (carpeta tools/receiver-py).",
+        plan = "El emisor y el receptor de OpenTV Link ya están dentro de la app (Conexiones › Transmisión OpenTV). Falta probarlos con dos equipos reales.",
     ),
     STREAM_ADDON(
         id = "stream_addon",

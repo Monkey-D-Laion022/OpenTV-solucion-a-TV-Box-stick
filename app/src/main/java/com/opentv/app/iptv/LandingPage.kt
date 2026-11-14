@@ -35,6 +35,8 @@ object LandingPage {
             "<p style=\"font-size:13px\">Forzar: <a href=\"/?m=hls\" $link>HLS</a> · <a href=\"/?m=mp4\" $link>MP4</a> · <a href=\"/?m=ts\" $link>TS</a> · " +
             "<a href=\"/?m=auto\" $link>automático</a> · <a href=\"/?m=none\" $link>solo enlaces</a><br>" +
             "Abrir directo: <a href=\"$hls\" $link>HLS</a> · <a href=\"$mp4\" $link>MP4</a> · <a href=\"$ts\" $link>TS</a></p>" +
+            (if (mode == Mode.NONE) "" else "<p id=\"alt\" style=\"display:none;font-size:22px;line-height:1.6\">Plan B: abrí la emisión directo en el reproductor del televisor (con el control remoto elegí un enlace y OK):<br>" +
+                "<a href=\"$hls\" $link>▶ HLS en el reproductor del TV</a><br><a href=\"$ts\" $link>▶ TS directo en el reproductor del TV</a><br><a href=\"$mp4\" $link>▶ MP4 en el reproductor del TV</a></p>") +
             "<script>var U={hls:\"$hls\",mp4:\"$mp4\",ts:\"$ts\",m3u:\"/$token/channel.m3u\"};" + SCRIPT + "</script></body></html>"
     }
 
@@ -71,7 +73,7 @@ v.src=L[n].u;try{v.load();}catch(e){}try{v.play();}catch(e){}
 tm=setTimeout(function(){if(!ok){send('timeout',L[n].n);fail('no arrancó en 12 s');}},12000);}
 function next(){
 stopWd();tries=0;played=false;n++;
-if(n>=L.length){try{v.removeAttribute('src');v.load();}catch(e){}say('Este navegador no pudo reproducir ningún formato. Alternativas: 1) cargá http://'+location.host+U.m3u+' en una app IPTV del televisor (en un LG antiguo con Smart IPTV usá el canal de la prueba 2, TS directo); 2) el espejo nativo (Miracast) del sistema; 3) un receptor HDMI (TV box o stick Android) con OpenTV. Los navegadores de televisores muy antiguos suelen no reproducir HLS ni MP4 en vivo.');send('failed','all');return;}
+if(n>=L.length){try{v.removeAttribute('src');v.load();}catch(e){}say('Este navegador no pudo reproducir ningún formato. Alternativas: 1) cargá http://'+location.host+U.m3u+' en una app IPTV del televisor (en un LG antiguo con Smart IPTV usá el canal de la prueba 2, TS directo); 2) el espejo nativo (Miracast) del sistema; 3) un receptor HDMI (TV box o stick Android) con OpenTV. Los navegadores de televisores muy antiguos suelen no reproducir HLS ni MP4 en vivo.');send('failed','all');var al=document.getElementById('alt');if(al){al.style.display='block';}return;}
 load();}
 function fail(why){
 if(n<0||n>=L.length){return;}

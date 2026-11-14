@@ -15,6 +15,8 @@ data class Offer(
     /** `true` si el televisor LO LISTÓ; `false` si es el perfil genérico de respaldo. */
     val declaredByRenderer: Boolean,
     val note: String,
+    /** `true` = se entrega la lista HLS (`index.m3u8`) en vez del TS continuo. Solo se usa si el televisor DECLARA formato HLS. */
+    val hls: Boolean = false,
 )
 
 data class Selection(val attempts: List<Offer>, val reasons: List<String>)
@@ -91,8 +93,15 @@ object ProfileSelector {
             if (attempts.isEmpty()) reasons += "Ningún formato declarado sirve para MPEG‑TS con H.264 y AAC; se prueba el genérico por si el televisor es más permisivo de lo que declara."
         }
         attempts += Offer("genérico MPEG‑TS · 1080p30", GENERIC_PROTOCOL_INFO, "MPEG_TS_HD_NA_ISO", 1920, 1080, 30, "FULL_HD", false, "perfil genérico que ya reprodujo H.264 en un LG (con audio en silencio)")
+        // HLS solo si el televisor lo declaró (no se supone nada): los reproductores nativos de LG antiguos suelen manejar HLS mejor que TS continuo,
+        // pero con más retraso, por eso va DESPUÉS de los intentos TS a 1080p y ANTES de bajar a 480p.
+        sink.orEmpty().firstOrNull { it.isHttp && it.contentFormat.lowercase().let { f -> f.contains("mpegurl") } }?.let { p ->
+            attempts += Offer("HLS · ${p.contentFormat} · 1080p30", p.literal, p.profileName, 1920, 1080, 30, "FULL_HD", true,
+                "HLS declarado por el televisor: se entrega la lista m3u8 (más retraso que TS, pero lo reproduce el reproductor nativo)", hls = true)
+            reasons += "El televisor declara HLS (${p.contentFormat}): se agrega como intento antes de bajar a 480p."
+        }
         attempts += Offer("genérico MPEG‑TS · 480p30", GENERIC_PROTOCOL_INFO.replace("_HD_", "_SD_"), "MPEG_TS_SD_NA_ISO", 854, 480, 30, "COMPAT_480", false, "respaldo de menor exigencia")
         reasons += "Se probarán ${attempts.size} variante(s), de mayor a menor preferencia, y se avanza a la siguiente si el televisor no llega a reproducir."
-        return Selection(attempts.distinctBy { it.protocolInfo + it.height }, reasons)
+        return Selection(attempts.distinctBy { it.protocolInfo + it.height + it.hls }, reasons)
     }
 }

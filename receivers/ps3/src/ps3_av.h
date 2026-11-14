@@ -12,7 +12,15 @@ typedef struct {
     int32_t  av_skew_ms;          /* PTS de video entregado − PTS de audio entregado (0 si falta uno) */
     int32_t  width, height;       /* resolución del último fotograma decodificado */
     uint32_t shown_fps_x10;       /* fotogramas mostrados por segundo ×10 (ventana de 1 s) */
+    /* Diagnóstico del decodificador: qué avisos dio cellVdec y qué pasó con el flujo (para saber POR QUÉ no hay imagen) */
+    uint32_t cb_audone, cb_picout, cb_seqdone, cb_error; int32_t last_cb_error;
+    uint32_t vdec_resets, au_oversize, au_submitted;
+    int32_t  last_decode_rc;      /* último código de vdecDecodeAu distinto de 0 */
+    int32_t  sps_profile, sps_level, sps_w, sps_h, sps_verdict;   /* SPS del flujo recibido (0 si todavía no llegó) */
 } ps3av_stats;
+
+/* Registro de eventos importantes (lo conecta main.c al archivo opentv.log). */
+void ps3av_set_logger(void (*fn)(const char *line));
 
 int  ps3av_init(void);
 void ps3av_shutdown(void);

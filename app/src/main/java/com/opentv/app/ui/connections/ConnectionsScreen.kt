@@ -75,9 +75,12 @@ fun ConnectionsScreen(onNavigate: (String) -> Unit, viewModel: HomeViewModel = v
         )
 
         Group("Duplicar la pantalla del teléfono (Miracast / Cast)")
-        NavCatalog.mirroring.forEachIndexed { i, e ->
+        NavCatalog.mirroring.filter { it.id != "browser" }.forEachIndexed { i, e ->
             TvListItem(e.title, e.subtitle, onClick = { open(e) }, modifier = if (i == 0) Modifier.focusRequester(firstFocus) else Modifier)
         }
+
+        Group("Navegador del televisor (/tv): sin app en el TV")
+        NavCatalog.mirroring.filter { it.id == "browser" }.forEach { e -> TvListItem(e.title, e.subtitle, onClick = { open(e) }) }
 
         Group("Emisión IPTV: la pantalla como canal en vivo")
         NavCatalog.iptv.forEach { e -> TvListItem(e.title, e.subtitle, onClick = { open(e) }) }

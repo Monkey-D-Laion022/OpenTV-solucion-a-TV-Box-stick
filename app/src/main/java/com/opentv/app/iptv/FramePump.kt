@@ -18,7 +18,6 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -60,7 +59,11 @@ class FramePump(
     private val vertices: FloatBuffer = floatBuffer(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f))
     private val texCoords: FloatBuffer = floatBuffer(floatArrayOf(0f, 0f, 1f, 0f, 0f, 1f, 1f, 1f))
 
-    private val fresh = AtomicBoolean(false)
+    /** Cuadros nuevos pendientes de consumir. Antes era un Boolean: con 3 cuadros en cola se consumía UNO por tic (el más viejo), la cola
+     *  quedaba siempre llena (retraso fijo de varios cuadros y contrapresión sobre la captura) y se acumulaba desfase de imagen frente al audio. */
+    private val pending = java.util.concurrent.atomic.AtomicInteger(0)
+    /** Cuadros capturados que se descartaron a propósito porque llegó uno más nuevo antes de dibujarlos (el drenaje que mantiene la cola vacía). */
+    val coalescedFrames = AtomicLong(0)
     @Volatile private var hasFrame = false
     @Volatile private var running = false
     private var nextNs = 0L
@@ -144,9 +147,12 @@ class FramePump(
         override fun run() {
             if (!running) return
             try {
-                if (fresh.getAndSet(false)) {
-                    surfaceTexture?.updateTexImage()
+                val n = pending.getAndSet(0)
+                if (n > 0) {
+                    // Se drenan TODOS los cuadros en cola y queda el último: la imagen dibujada es siempre la más reciente.
+                    repeat(n) { surfaceTexture?.updateTexImage() }
                     surfaceTexture?.getTransformMatrix(texMatrix)
+                    if (n > 1) coalescedFrames.addAndGet((n - 1).toLong())
                     hasFrame = true
                 }
                 if (hasFrame) {
@@ -250,7 +256,7 @@ class FramePump(
         st.setOnFrameAvailableListener(
             SurfaceTexture.OnFrameAvailableListener {
                 capturedFrames.incrementAndGet()
-                fresh.set(true)
+                pending.incrementAndGet()
             },
             handler,
         )

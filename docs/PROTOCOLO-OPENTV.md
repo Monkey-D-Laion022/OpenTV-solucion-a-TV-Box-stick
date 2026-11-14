@@ -1,7 +1,7 @@
 # OpenTV Link v1 — protocolo de transmisión propio
 
 Estado: **definido, implementado (`app/.../proto/`) y probado entre dos implementaciones** (emisor Kotlin ↔ receptor de
-referencia en Python, `tools/receiver-py/`) por TCP en loopback. **No** está integrado todavía en la app Android (ni
+C del núcleo compartido, ejercitado por las pruebas de `receivers/ps3/test/`) por TCP en loopback. **No** está integrado todavía en la app Android (ni
 emisor ni receptor) y **no** se probó entre dos equipos reales por Wi-Fi.
 
 ## Qué es propio y qué reutiliza estándares
@@ -90,12 +90,8 @@ El audio y el video viajan juntos en el mismo flujo MPEG-TS con PTS/PCR: la sinc
 bitrate con `OtBitrateController` (baja ×0,7 ante descartes/búfer alto; sube ×1,2 tras 5 informes sanos). El retraso real
 depende del reproductor y de la red y **no está medido**.
 
-## Cómo probarlo hoy (sin la app)
-```
-python3 tools/receiver-py/opentv_receiver.py --host <IP del emisor> --port 8765 --pair      # primera vez
-python3 tools/receiver-py/opentv_receiver.py --host <IP del emisor> --port 8765 | ffplay -i -
-```
-(requiere un emisor: por ahora solo el de pruebas de la JVM; ver `OtLink.kt`).
+## Cómo se prueba
+Las pruebas automatizadas están en `receivers/ps3/test/` (`run_link_tests.sh`): emisor de prueba (Python y réplica Java del emisor Android) contra el núcleo C (`link_host.c`, herramienta INTERNA de pruebas, no un receptor para el usuario). El único receptor del producto es la PS3.
 
 ## Pendiente
 Servicio emisor en Android (reutiliza la captura del canal IPTV y publica TS_DATA), receptor para Android TV (Media3), publicación

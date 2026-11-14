@@ -1,0 +1,16 @@
+# Diagnóstico de la primera ronda de pruebas reales (2026-11-14)
+Leyenda de evidencia: **PC** (prueba automática en PC) · **SIM** (simulación) · **COMP** (compila) · **HW** (hardware real, solo lo que el usuario midió). Causa: **cierta / probable / desconocida**.
+
+| Módulo | Qué se vio (HW) | Causa | Cambio hecho | Verificado | Falta (hardware) |
+|---|---|---|---|---|---|
+| DLNA/espejo | 1080p30, baja latencia, tirones, ≈5 FPS reales capturados, microcierres, audio nativo restringido | Capturado ≈5 FPS: **probable** acumulación de cuadros en `FramePump` (se consumía 1 por tick). Audio: **cierta**, limitación de Android (apps que bloquean la captura). Microcierres: **desconocida** | `FramePump` drena la cola de cuadros pendientes y cuenta `coalescedFrames`; `SessionSupervisor`/`DlnaSession` con `streamAlive`; HLS solo si el receptor lo declara | PC: 532 tests JVM. `FramePump` NO compilado aquí (solo GitHub Actions) | logcat/crash de los microcierres; medir FPS capturado vs codificado vs mostrado |
+| /tv en LG NetCast | reproduce ~2 s, se congela, "failed: all"; HLS directo en el reproductor nativo SÍ anda | **probable**: el script/video HTML5 de Chrome 22 no sostiene el flujo; el reproductor nativo sí | Script v2 (watchdog, reintentos) y bloque **Plan B** con enlaces directos HLS al fallar | SIM: `tools/tv-sim/tv_sim.js` 8/8 (no es una LG) | probar en la LG; si el Plan B funciona es la vía recomendada |
+| Miracast | RTSP llega a M3, falla M4 SET_PARAMETER | **desconocida**: falta el texto de la respuesta M3 (`wfd_video_formats`) de la TV | `WfdFormatChooser` con pasada de nivel permisiva y caso "none"; sin suponer capacidades no declaradas | PC: tests de la lógica | copiar el diagnóstico M3 desde la app y enviarlo |
+| IPTV | Avatar 1080p60 bien; con multitarea extrema y cambios de salida cae GPU/encoder y se desincroniza audio | **probable**: pérdida en cola por cliente lento | Cola dimensionada por bitrate (`HubSizing`), `QualityAdapter` baja bitrate (no resolución ni FPS) ante pérdidas sostenidas y recupera con espera creciente | PC/SIM: `HubStress`, `AdaptStress`, tests | repetir carga pesada en el Redmi |
+| PS3/Link | AES-GCM ok, audio sincronizado, imagen negra, >2400 cuadros descartados | **desconocida** (no se afirma causa). Hallazgo cierto: el demux perdía el resto de paquete parcial entre trozos | `ot_ts_push` conserva el resto; chequeo de compatibilidad SPS (perfil/nivel/MB-rate) con mensaje en pantalla; contadores y recuperación del decodificador; HUD "SIN IMAGEN" con AUDONE/PICOUT/errores; `opentv.log` | PC: 14 pruebas Link, pruebas H264/TS (trozos 4096–65536 sin pérdida); PKG compila (358 496 B) | **ejecutar en la PS3 y enviar `opentv.log` + foto del HUD**: ahí se ve si el decodificador no responde, rechaza el SPS o falla al pintar |
+| APK | aprobado | — | — | — | — |
+
+## Sobre "no subir buffers"
+No se subieron buffers del receptor. Las cifras de descarte se atacaron por (1) la pérdida real de bytes en el demux y (2) el diagnóstico que dirá de qué etapa viene el resto.
+## Limitaciones que solo se resuelven con hardware
+Causa de la imagen negra en PS3, M4 de Miracast, FPS real de captura, microcierres, /tv en la LG, efecto de `FramePump` y de la adaptación en carga real.

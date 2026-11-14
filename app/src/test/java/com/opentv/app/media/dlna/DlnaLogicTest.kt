@@ -129,6 +129,18 @@ class DlnaLogicTest {
         val a = s.onPollFailed(7_000)
         assertTrue(a is DlnaAction.Retry); assertTrue((a as DlnaAction.Retry).reason.contains("dejó de responder"))
     }
+    @Test fun hlsSoloSeOfreceSiElTelevisorLoDeclaraYDespuesDeLosIntentosTsA1080() {
+        val sel = ProfileSelector.select(listOf(pi("http-get:*:video/mpeg:DLNA.ORG_PN=AVC_TS_HD_50_AAC"), pi("http-get:*:application/vnd.apple.mpegurl:*")))
+        val i = sel.attempts.indexOfFirst { it.hls }
+        assertTrue("debe existir el intento HLS", i >= 0)
+        assertTrue("va después del genérico 1080p", sel.attempts.indexOfFirst { !it.declaredByRenderer && it.height == 1080 } < i)
+        assertTrue("va antes del 480p genérico", i < sel.attempts.indexOfFirst { !it.declaredByRenderer && it.height == 480 })
+        assertTrue(sel.attempts[i].height == 1080)
+    }
+    @Test fun sinHlsDeclaradoNuncaSeIntentaHls() {
+        assertTrue(ProfileSelector.select(listOf(pi("http-get:*:video/mpeg:*"))).attempts.none { it.hls })
+        assertTrue(ProfileSelector.select(null).attempts.none { it.hls })
+    }
     @Test fun siElTvSigueDescargandoElFlujoUnaConsultaFallidaNoEsUnCorte() {
         val s = SessionSupervisor(1, maxRetries = 1)
         s.begin(); s.onCapabilitiesRead(); s.onSent(0); s.onTransport(TransportState.PLAYING, 1_000)

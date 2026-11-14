@@ -27,6 +27,8 @@
 #include <io/pad.h>
 #include <neaacdec.h>
 #include "ps3_av.h"
+#include "ot_h264.h"
+#include <stdarg.h>
 #include "ot_font.h"
 
 #define CB_SIZE        0x100000
@@ -39,6 +41,11 @@
 #define AUDIO_MAX_LAG  (48000 / 6)           /* por encima de ~166 ms de cola se descarta audio entrante */
 
 static ps3av_stats g_st;
+static void (*g_logger)(const char *);
+void ps3av_set_logger(void (*fn)(const char *)) { g_logger = fn; }
+static void logf_(const char *fmt, ...) { char l[200]; va_list ap; va_start(ap, fmt); vsnprintf(l, sizeof l, fmt, ap); va_end(ap); if (g_logger) g_logger(l); else printf("[opentv] %s\n", l); }
+static volatile int64_t g_last_progress_us;      /* última vez que el decodificador avisó AUDONE o PICOUT (lo escribe su hilo) */
+static char g_sps_msg[120];
 static volatile int g_hud = 1;
 static char g_msg[160], g_big[3][64];
 static gcmContextData *g_ctx;
@@ -105,6 +112,13 @@ static void draw_text(u32 *fb, int x, int y, const char *s, int scale, u32 fg, u
 }
 static void draw_overlay(u32 *fb) {
     char l[160];
+    if (g_hud && !g_st.width && g_st.video_in) {
+        snprintf(l, sizeof l, " SIN IMAGEN: video %u  AU enviadas %u  AUDONE %u  PICOUT %u  err %u(cod %d)  rc %d  reinicios %u  descartes %u/%u ",
+                 g_st.video_in, g_st.au_submitted, g_st.cb_audone, g_st.cb_picout, g_st.cb_error, (int)g_st.last_cb_error, (int)g_st.last_decode_rc,
+                 g_st.vdec_resets, g_st.video_dropped_busy, g_st.video_dropped_nokey);
+        draw_text(fb, 16, 12, l, 1, 0x00FFE060, 0x00202020);
+        if (g_sps_msg[0]) draw_text(fb, 16, 32, g_sps_msg, 1, 0x00FFFFFF, 0x00802020);
+    }
     if (g_hud && g_st.width) {
         snprintf(l, sizeof l, " %dx%d  %u.%u fps  dec %d ms  A/V %+d ms  drop %u/%u  err %u  aud-under %u ",
                  g_st.width, g_st.height, g_st.shown_fps_x10 / 10, g_st.shown_fps_x10 % 10, g_st.decode_ms_last, g_st.av_skew_ms,
@@ -148,12 +162,12 @@ static int64_t g_last_vpts = -1, g_last_apts = -1;
 static int64_t g_fps_t0; static int g_fps_n;
 
 static u32 vdec_cb(u32 handle, u32 msg, u32 data, u32 arg) {
-    (void)handle; (void)data; (void)arg;
+    (void)handle; (void)arg;
     switch (msg) {
-        case VDEC_CALLBACK_AUDONE: g_au_done++; break;
-        case VDEC_CALLBACK_PICOUT: g_pic_ready++; break;
-        case VDEC_CALLBACK_SEQDONE: g_seq_done = 1; break;
-        case VDEC_CALLBACK_ERROR:  g_st.decode_errors++; break;
+        case VDEC_CALLBACK_AUDONE: g_au_done++; g_st.cb_audone++; g_last_progress_us = (int64_t)sysGetSystemTime(); break;
+        case VDEC_CALLBACK_PICOUT: g_pic_ready++; g_st.cb_picout++; g_last_progress_us = (int64_t)sysGetSystemTime(); break;
+        case VDEC_CALLBACK_SEQDONE: g_seq_done = 1; g_st.cb_seqdone++; break;
+        case VDEC_CALLBACK_ERROR:  g_st.decode_errors++; g_st.cb_error++; g_st.last_cb_error = (int32_t)data; break;
         default: break;
     }
     return 0;
@@ -196,7 +210,7 @@ static void pump_pictures(void) {
         int64_t t_in = (int64_t)p->userdata[0];
         if (w <= 0 || h <= 0 || w > MAX_W || h > MAX_H) { g_pic_ready--; g_st.decode_errors++; vdecGetPicture(g_vdec, &fmt, NULL); continue; }
         if (vdecGetPicture(g_vdec, &fmt, g_pic) != 0) { g_pic_ready--; g_st.decode_errors++; continue; }
-        g_pic_ready--; g_st.pics_out++; g_st.width = w; g_st.height = h;
+        g_pic_ready--; g_st.pics_out++; if (g_st.pics_out == 1) logf_("primera imagen decodificada: %dx%d", w, h); g_st.width = w; g_st.height = h;
         if (t_in > 0) g_st.decode_ms_last = (int)((now_us() - t_in) / 1000);
         shown = 1;
     }
@@ -206,12 +220,34 @@ static void pump_pictures(void) {
         if (t - g_fps_t0 >= 1000000) { g_st.shown_fps_x10 = (uint32_t)((int64_t)g_fps_n * 10000000 / (t - g_fps_t0)); g_fps_n = 0; g_fps_t0 = t; }
     }
 }
+/* Reinicio del decodificador cuando se queda mudo con unidades pendientes (sin AUDONE/PICOUT): antes el receptor descartaba video para siempre. */
+static void vdec_recover(const char *why) {
+    g_st.vdec_resets++;
+    logf_("decodificador sin respuesta (%s): reinicio #%u (AU enviadas %u, AUDONE %u, PICOUT %u, err %u cod %d, rc %d)", why, g_st.vdec_resets,
+          g_st.au_submitted, g_st.cb_audone, g_st.cb_picout, g_st.cb_error, (int)g_st.last_cb_error, (int)g_st.last_decode_rc);
+    vdec_close(); g_have_key = 0;
+    if (vdec_open() != 0) logf_("no se pudo reabrir el decodificador");
+    g_last_progress_us = now_us();
+}
+static void check_sps(const uint8_t *d, size_t n, int key) {
+    if (!key || g_st.sps_profile) return;
+    ot_h264_info i;
+    if (ot_h264_parse_sps(d, n, &i) != 0) return;
+    char why[120]; int v = ot_h264_ps3_verdict(&i, 0, why, sizeof why);
+    g_st.sps_profile = i.profile_idc; g_st.sps_level = i.level_idc; g_st.sps_w = i.width; g_st.sps_h = i.height; g_st.sps_verdict = v;
+    logf_("SPS del flujo: perfil %d nivel %d.%d %dx%d refs %d chroma %d bits %d -> %s%s", i.profile_idc, i.level_idc / 10, i.level_idc % 10, i.width, i.height,
+          i.num_ref_frames, i.chroma_format_idc, i.bit_depth_luma, v ? "NO COMPATIBLE: " : "compatible", v ? why : "");
+    if (v) snprintf(g_sps_msg, sizeof g_sps_msg, " Video no compatible: %s ", why);
+}
 void ps3av_push_video(const uint8_t *d, size_t n, int64_t pts, int key) {
     if (!g_vdec_open) return;
     g_st.video_in++;
+    check_sps(d, n, key);
+    if (g_au_inuse > 0 && g_last_progress_us && now_us() - g_last_progress_us > 1500000) vdec_recover("1,5 s sin avisos con unidades pendientes");
     if (!g_have_key) { if (!key) { g_st.video_dropped_nokey++; return; } g_have_key = 1; }
     release_done_aus();
-    if (n > AU_SLOT_BYTES || g_au_inuse >= AU_SLOTS) { g_st.video_dropped_busy++; g_have_key = 0; return; } /* se pierde una unidad: esperar el próximo IDR */
+    if (n > AU_SLOT_BYTES) { g_st.au_oversize++; if (g_st.au_oversize <= 3) logf_("unidad de video de %u bytes supera el tope de %u: se descarta", (unsigned)n, (unsigned)AU_SLOT_BYTES); g_st.video_dropped_busy++; g_have_key = 0; return; }
+    if (g_au_inuse >= AU_SLOTS) { g_st.video_dropped_busy++; g_have_key = 0; return; } /* se pierde una unidad: esperar el próximo IDR */
     if (!g_seq_started) { if (vdecStartSequence(g_vdec) != 0) { g_st.decode_errors++; return; } g_seq_started = 1; }
     uint8_t *slot = g_au_buf[g_au_head]; memcpy(slot, d, n);
     vdecAU au; memset(&au, 0, sizeof au);
@@ -220,8 +256,8 @@ void ps3av_push_video(const uint8_t *d, size_t n, int64_t pts, int key) {
     au.userdata = (u64)now_us();
     int r = 0;
     for (int tries = 0; tries < 20; tries++) { r = vdecDecodeAu(g_vdec, VDEC_DECODER_MODE_NORMAL, &au); if (r != (s32)VDEC_ERROR_BUSY) break; usleep(1000); }
-    if (r != 0) { g_st.decode_errors++; if (r == (s32)VDEC_ERROR_BUSY) { g_st.video_dropped_busy++; g_have_key = 0; } return; }
-    g_au_head = (g_au_head + 1) % AU_SLOTS; g_au_inuse++;
+    if (r != 0) { g_st.last_decode_rc = r; if (g_st.decode_errors < 5) logf_("vdecDecodeAu devolvió 0x%x", (unsigned)r); g_st.decode_errors++; if (r == (s32)VDEC_ERROR_BUSY) { g_st.video_dropped_busy++; g_have_key = 0; } return; }
+    g_au_head = (g_au_head + 1) % AU_SLOTS; g_au_inuse++; g_st.au_submitted++; if (!g_last_progress_us) g_last_progress_us = now_us();
     g_last_vpts = pts; if (g_last_apts >= 0) g_st.av_skew_ms = (int)((g_last_vpts - g_last_apts) / 90);
     pump_pictures();
 }
@@ -294,7 +330,7 @@ void ps3av_text(int row, const char *t) { if (row < 0 || row > 2) return; snprin
 void ps3av_hud(int on) { g_hud = on; }
 void ps3av_get_stats(ps3av_stats *o) { *o = g_st; }
 void ps3av_reset_stream(void) {
-    vdec_close(); g_have_key = 0; g_last_vpts = g_last_apts = -1; g_have_shown = 0; g_st.width = g_st.height = 0; aac_reset();
+    vdec_close(); g_have_key = 0; g_last_vpts = g_last_apts = -1; g_have_shown = 0; g_st.width = g_st.height = 0; g_st.sps_profile = 0; g_sps_msg[0] = 0; g_last_progress_us = 0; aac_reset();
     if (vdec_open() != 0) ps3av_message("No se pudo reiniciar el decodificador de video");
 }
 int ps3av_poll_buttons(void) {
