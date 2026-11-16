@@ -74,22 +74,22 @@ fun ConnectionsScreen(onNavigate: (String) -> Unit, viewModel: HomeViewModel = v
             color = OpenTvColors.Muted,
         )
 
-        Group("Duplicar la pantalla del teléfono (Miracast / Cast)")
-        NavCatalog.mirroring.filter { it.id != "browser" }.forEachIndexed { i, e ->
+        Group("1. Receptores externos (DLNA/UPnP)")
+        NavCatalog.playback.forEachIndexed { i, e ->
             TvListItem(e.title, e.subtitle, onClick = { open(e) }, modifier = if (i == 0) Modifier.focusRequester(firstFocus) else Modifier)
         }
 
-        Group("Navegador del televisor (/tv): sin app en el TV")
+        Group("2. Servidor web local (/tv): el televisor abre una dirección en su navegador")
         NavCatalog.mirroring.filter { it.id == "browser" }.forEach { e -> TvListItem(e.title, e.subtitle, onClick = { open(e) }) }
 
-        Group("Emisión IPTV: la pantalla como canal en vivo")
+        Group("3. IPTV: lista M3U, canal en vivo")
         NavCatalog.iptv.forEach { e -> TvListItem(e.title, e.subtitle, onClick = { open(e) }) }
 
-        Group("Transmisión OpenTV (protocolo propio)")
-        NavCatalog.opentvLink.forEach { e -> TvListItem(e.title, e.subtitle, onClick = { open(e) }) }
+        Group("Otros métodos: Miracast / Cast")
+        NavCatalog.mirroring.filter { it.id != "browser" }.forEach { e -> TvListItem(e.title, e.subtitle, onClick = { open(e) }) }
 
-        Group("Dispositivos encontrados y envío de contenido (DLNA)")
-        NavCatalog.playback.forEach { e -> TvListItem(e.title, e.subtitle, onClick = { open(e) }) }
+        Group("Otros métodos: OpenTV Link (PS3 y receptores OpenTV)")
+        NavCatalog.opentvLink.forEach { e -> TvListItem(e.title, e.subtitle, onClick = { open(e) }) }
 
         Group("Diagnóstico de conexiones (solo prueban, no transmiten)")
         NavCatalog.connectionDiagnostics.forEach { e -> TvListItem(e.title, e.subtitle, onClick = { open(e) }) }

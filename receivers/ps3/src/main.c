@@ -4,7 +4,7 @@
  * Respaldo sin cifrado: leer http://IP:PUERTO/live.ts del canal IPTV del teléfono (opentv.cfg, triángulo).
  *
  * ESTADO: compila y enlaza con la toolchain clang del proyecto; el núcleo (ot_link/ot_ts/ot_mdns) está probado en PC. NUNCA se ejecutó en una PS3.
- * Mando: ✕ = emparejar (siguiente conexión) / coincide el código · ○ = no coincide · △ = modo HTTP · □ = mostrar/ocultar datos · START = cortar la sesión.
+ * Mando: ✕ = emparejar (siguiente conexión) / coincide el código · ○ = no coincide · △ = modo HTTP · □ = mostrar/ocultar datos · START = cortar la sesión (en el menú: salir al XMB). El botón PS lo gestiona el sistema: «Salir del juego» se atiende vía sysUtil.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -146,7 +146,7 @@ static void mdns_send(int s, const ot_mdns_info *mi) {
 static void idle_screen(const cfg_t *c) {
     char l[96]; ps3av_text(0, "OpenTV"); snprintf(l, sizeof l, "IP %s  puerto %d", g_ip, LINK_PORT); ps3av_text(1, l);
     ps3av_text(2, g_pair_next ? "Modo: EMPAREJAR" : "Modo: reconectar");
-    snprintf(l, sizeof l, "En el telefono: OpenTV > Enviar a TV.  X = emparejar%s", c->host[0] ? "   /\\ = HTTP" : "");
+    snprintf(l, sizeof l, "X = emparejar%s   START = salir  (en transmision: START = cortar)", c->host[0] ? "   /\\ = HTTP" : "");
     ps3av_message(g_lan_ok ? l : "Sin red: conecta el cable o el Wi-Fi de la PS3");
     if (g_crypto[0] && strcmp(g_crypto, "Cripto OK")) ps3av_text(2, g_crypto);
 }
@@ -183,6 +183,7 @@ int main(void) {
     idle_screen(&cfg);
     for (;;) {
         int b = ps3av_poll_buttons();
+        if (b & PS3AV_BTN_START) { ps3av_message("Saliendo al XMB..."); ps3av_exit_to_xmb(); }
         if (b & PS3AV_BTN_CROSS) { g_pair_next = !g_pair_next; idle_screen(&cfg); }
         if (b & PS3AV_BTN_SQUARE) { static int on = 1; on = !on; ps3av_hud(on); }
         if ((b & PS3AV_BTN_TRIANGLE) && cfg.host[0]) { run_http(&cfg); idle_screen(&cfg); }

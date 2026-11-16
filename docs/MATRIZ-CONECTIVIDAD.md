@@ -18,3 +18,8 @@ Regla aplicada: **nada simulado se marca APROBADA.** Android no se pudo compilar
 - Interfaz: Miracast/Cast, /tv, IPTV, OpenTV Link y DLNA ya son grupos separados en Conexiones. `MethodAdvisor` existe y tiene tests, pero **no está conectado a la pantalla** (no se hizo a ciegas): pendiente.
 - Funciones visibles sin validar: textos "Sin probar" ya presentes en la UI para IPTV y Link.
 - Fugas/concurrencia/sesiones largas: NO medidas. Solo hay `HubStress` (PC) para el Hub. Requiere hardware.
+
+## Actualización 2026-11-16
+- PS3: START en el menú sale al XMB; «Salir del juego» (botón PS) se atiende con el callback sysUtil, que no existía. El botón PS no se puede interceptar. PKG compila; sin probar en consola.
+- Interfaz de conexiones: tres apartados (DLNA, /tv, IPTV) y debajo «Otros métodos» (Miracast/Cast, OpenTV Link). Sin compilar Compose aquí.
+- "Shisoku": no existe en el código ni en la documentación (ver `docs/AUDITORIA-SHISOKU-Y-HOME.md`).

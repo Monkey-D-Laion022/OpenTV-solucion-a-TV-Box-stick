@@ -25,6 +25,8 @@
 #include <codec/vdec.h>
 #include <audio/audio.h>
 #include <io/pad.h>
+#include <sysutil/sysutil.h>
+#include <lv2/process.h>
 #include <neaacdec.h>
 #include "ps3_av.h"
 #include "ot_h264.h"
@@ -333,8 +335,15 @@ void ps3av_reset_stream(void) {
     vdec_close(); g_have_key = 0; g_last_vpts = g_last_apts = -1; g_have_shown = 0; g_st.width = g_st.height = 0; g_st.sps_profile = 0; g_sps_msg[0] = 0; g_last_progress_us = 0; aac_reset();
     if (vdec_open() != 0) ps3av_message("No se pudo reiniciar el decodificador de video");
 }
+/* Botón PS → «Salir del juego»: el sistema solo avisa por este callback (SYSUTIL_EXIT_GAME); la app NO puede interceptar ni reasignar el botón PS.
+ * Se limpia y se vuelve al XMB con sysProcessExit. Se comprueba cada vez que se leen los botones, que todos los bucles hacen a menudo. */
+static volatile int g_exit_req;
+static void sysutil_cb(u64 status, u64 param, void *usrdata) { (void)param; (void)usrdata; if (status == SYSUTIL_EXIT_GAME) g_exit_req = 1; }
+void ps3av_exit_to_xmb(void) { printf("[opentv] saliendo al XMB\n"); ps3av_shutdown(); sysProcessExit(0); }
 int ps3av_poll_buttons(void) {
     padData d; static int prev = 0; int cur = 0;
+    sysUtilCheckCallback();
+    if (g_exit_req) ps3av_exit_to_xmb();
     if (ioPadGetData(0, &d) != 0 || d.len == 0) return 0;
     if (d.BTN_CROSS) cur |= PS3AV_BTN_CROSS; if (d.BTN_CIRCLE) cur |= PS3AV_BTN_CIRCLE; if (d.BTN_TRIANGLE) cur |= PS3AV_BTN_TRIANGLE;
     if (d.BTN_SQUARE) cur |= PS3AV_BTN_SQUARE; if (d.BTN_START) cur |= PS3AV_BTN_START; if (d.BTN_SELECT) cur |= PS3AV_BTN_SELECT;
@@ -349,6 +358,7 @@ int ps3av_init(void) {
     if ((r = vdec_open()) != 0) { printf("[opentv] vdec_open=%d\n", r); ps3av_message("Decodificador H.264 no disponible"); return -4; }
     if ((r = audio_init()) != 0) { printf("[opentv] audio_init=%d (sin audio)\n", r); ps3av_message("Audio no disponible; solo video"); }
     ioPadInit(7);
+    sysUtilRegisterCallback(0, sysutil_cb, NULL);
     present(0);
     return 0;
 }

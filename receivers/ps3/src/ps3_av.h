@@ -31,6 +31,7 @@ void ps3av_message(const char *text);          /* línea de estado inferior (y t
 void ps3av_text(int row, const char *text);    /* texto grande centrado (p. ej. el código de emparejamiento) */
 void ps3av_hud(int on);
 void ps3av_get_stats(ps3av_stats *out);
+void ps3av_exit_to_xmb(void);                 /* limpia y vuelve al XMB (no retorna) */
 int  ps3av_poll_buttons(void);                 /* bits PS3AV_BTN_*: se lee un mando */
 #define PS3AV_BTN_CROSS    1
 #define PS3AV_BTN_CIRCLE   2

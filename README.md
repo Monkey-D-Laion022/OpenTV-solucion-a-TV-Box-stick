@@ -1,121 +1,59 @@
 # OpenTV
 
-Aplicación Android que convierte un teléfono antiguo en un centro multimedia para televisor
-(launcher tipo Android TV, reproductor, conexión a TV y control remoto desde otro celular).
+**Objetivo:** convertir un teléfono Android en una alternativa real a un TV Box/stick para televisores antiguos (por ejemplo LG NetCast 2014): lanzador tipo Android TV, reproductor, y varias formas de **llevar imagen y sonido del teléfono al televisor por Wi-Fi**.
 
-> **Estado: Fase 3 de 7 (conectividad), código escrito y auditado de forma estática, SIN compilar.** Ver [`docs/PROGRESS.md`](docs/PROGRESS.md) para lo que
-> existe, lo que falta y lo que NO se ha verificado.
+> **Estado honesto (2026-11-16):** la app y el receptor PS3 se compilan en GitHub Actions. Las tecnologías de conexión **no están todavía aprobadas**: la primera ronda física (Redmi 14C + LG 42LB5800-SB + PS3) dejó resultados PARCIAL o FALLIDO, y las correcciones posteriores solo se probaron en PC/simulación. Ver [`docs/MATRIZ-CONECTIVIDAD.md`](docs/MATRIZ-CONECTIVIDAD.md).
 
-## Requisitos para compilar
+## Arquitectura
+- `app/`: app Android (Kotlin, Compose, Media3). Lanzador, apps, multimedia, conexiones, control remoto.
+  - `iptv/`: captura de pantalla → H.264 por hardware → MPEG-TS/HLS (`StreamHub`, `QualityAdapter`, `FramePump`, `LandingPage` de `/tv`).
+  - `media/dlna/`, `connect/`: descubrimiento SSDP y control UPnP/DLNA; `MethodAdvisor` recomienda un método (no oculta los demás).
+  - `proto/`: emisor de OpenTV Link (ECDH P-256, HKDF, AES-256-GCM, código de emparejamiento).
+  - Miracast/Wi-Fi Direct: diagnóstico y negociación RTSP (WFD).
+  - Protegidos (no se tocan sin autorización): `ScreenResizer`, `PrefsResizeStore`, Shizuku/flujo de resolución, adaptación 16:9, `CatalogLogicTest.kt`; no se usa `wm density`.
+- `receivers/ps3/`: **único receptor propio**: OpenTV Link para PlayStation 3 (C, ps3dev/PSL1GHT, mbedTLS, FAAD2). Núcleo compartido en `core/` (`ot_link`, `ot_ts`, `ot_h264`, `ot_mdns`). `test/link_host.c` es solo una herramienta interna de pruebas.
+- `tools/`: simuladores y pruebas de estrés (`tv-sim` para navegador antiguo, `stress`).
+- `docs/`: informes, protocolo y matriz.
 
-- JDK 17 o superior (probado con 21 solo para la lógica pura; ver PROGRESS).
-- Android SDK con **plataforma 34** y build-tools. Con Android Studio (Hedgehog o más nuevo) se
-  instala solo al abrir el proyecto. Sin Android Studio, crea `local.properties` en la raíz:
+## Dispositivos objetivo
+Emisor: Android 7+ (probado: Redmi 14C, Android 16/HyperOS 3). Receptores: televisores con DLNA/navegador (probado: LG NetCast 2014), televisores con Miracast, PlayStation 3 (OpenTV Link), apps IPTV.
 
-  ```
-  sdk.dir=/ruta/al/Android/Sdk
-  ```
-- Acceso a `google()`, `mavenCentral()` y `services.gradle.org` para descargar dependencias.
+## Métodos de conexión (pantalla Conexiones)
+| Apartado | Qué hace | Estado |
+|---|---|---|
+| 1. Receptores externos (DLNA/UPnP) | Detecta televisores en la red y les envía una dirección o el flujo de la pantalla | PARCIAL (1080p30, tirones y ≈5 FPS capturados en la prueba) |
+| 2. Servidor web local `/tv` | El TV abre `http://IP:puerto/tv`; reproducción en navegador antiguo con recuperación automática y enlaces directos HLS (Plan B) | FALLIDO en ronda 1 (se congelaba); corrección solo en simulación → PENDIENTE DE HARDWARE |
+| 3. IPTV | Publica la pantalla como canal M3U/HLS | PARCIAL (1080p60 estable normal; cae bajo multitarea extrema) |
+| Miracast / Cast | Espejo del sistema y diagnóstico WFD | FALLIDO (la negociación falla en M4; causa sin confirmar) |
+| OpenTV Link | Protocolo propio cifrado hacia un receptor OpenTV (PS3) | PARCIAL (cifrado y audio OK, imagen negra en la PS3) |
+Detectar un dispositivo no es conectarse; la app muestra cada método por separado y el usuario elige.
 
-## Compilar sin computadora (GitHub Actions)
+## Receptor PS3: controles
+Menú: ✕ emparejar · △ modo HTTP (respaldo sin cifrado) · □ datos en pantalla · **START = salir al XMB**. Durante una transmisión: **START = cortar y volver al menú**. El botón **PS** lo gestiona el sistema: la app no puede interceptarlo, solo atiende «Salir del juego» (callback `sysUtil`) y cierra limpio. **Sin probar en consola.**
 
-El repositorio incluye `.github/workflows/build.yml`. Si subís el proyecto a un repositorio de
-GitHub, cada subida compila en los servidores de GitHub, corre las pruebas y deja el APK como
-descargable: pestaña **Actions** › la última ejecución › **Artifacts** › `OpenTV-debug-apk`.
-Si falla, el log del paso «Pruebas unitarias y APK de depuración» trae el error exacto, que se
-puede copiar y pegar para corregirlo. Este workflow **no se ha ejecutado todavía**.
+## Compatibilidades y limitaciones conocidas
+- LG NetCast: reproductor nativo sí abre HLS directo; el navegador (Chrome 22) no es confiable. No se asume MSE ni MP4 moderno.
+- Miracast: se respeta lo que el TV declara; 1080p60 no se fuerza.
+- Audio nativo: Android permite capturar solo el audio de apps que no lo bloqueen.
+- PS3: 1080p60 no demostrado; por defecto pide 30 fps sobre 720p.
+- La interfaz de conexiones y los cambios de `FramePump` no se compilaron fuera de GitHub Actions.
 
-## Comandos (solo con computadora)
+## Pruebas (separadas por tipo)
+- **Automatizadas (PC):** 532 tests JVM; 14 pruebas de OpenTV Link (protocolo, fragmentación, manipulación); pruebas H.264/TS y de demux.
+- **Compilación:** PKG PS3 compila y verifica (`make pkg verify`); el APK lo compila GitHub Actions (no compilado en el entorno de desarrollo).
+- **Simulaciones (no equivalen a hardware):** `tools/tv-sim` (navegador antiguo), `HubStress`, `AdaptStress`.
+- **Físicas:** solo la ronda 1 (ver [`docs/DIAGNOSTICO-RONDA1-REAL.md`](docs/DIAGNOSTICO-RONDA1-REAL.md)). Pendientes: ver [`docs/PRUEBAS-FISICAS.md`](docs/PRUEBAS-FISICAS.md).
 
-```bash
-./gradlew :app:testDebugUnitTest   # pruebas unitarias
-./gradlew :app:assembleDebug       # APK de depuración
-# Resultado: app/build/outputs/apk/debug/app-debug.apk
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
+## Generar el APK
+`./gradlew :app:testDebugUnitTest :app:assembleDebug` (JDK 17+, Android SDK 34) → `app/build/outputs/apk/debug/app-debug.apk`. Sin computadora: GitHub Actions, workflow **Build**, artefacto `OpenTV-debug-apk`.
 
-Todavía no hay APK de lanzamiento firmado (se prepara en la Fase 6).
+## Generar el PKG de PS3
+GitHub Actions, trabajo `diagnose-ps3`: instala el SDK real (ps3dev), compila FAAD2 y mbedTLS, el receptor y el PKG; artefactos `opentv-ps3-pkg` y `opentv-ps3-debug`. Local: `cd receivers/ps3 && PS3DEV=<sdk> PSL1GHT=<sdk> make pkg verify` → `build/opentv-ps3.pkg`. Detalle en [`docs/PS3-BUILD-CI.md`](docs/PS3-BUILD-CI.md).
 
-## Qué hace la Fase 3 (Conectar TV)
+## Diagnósticos y registros
+- PS3: `/dev_hdd0/game/OPENTV001/USRDIR/opentv.log` (etapas, SPS, contadores del decodificador) y el cartel «SIN IMAGEN» en pantalla.
+- Miracast: pantalla de diagnóstico WFD de la app (copiar el texto de M3).
+- Android: logcat / reporte de cierre.
 
-- **Estado real, sin simular**: la pantalla «Conectar TV» muestra por método (Miracast, Cast, DLNA,
-  Wi‑Fi Direct) un estado honesto: Conectado / Disponible / Sin verificar / Solo detectado /
-  No disponible.
-- **Miracast**: Android no da a las apps ninguna API para buscar TV ni conectarse. OpenTV solo
-  puede (a) detectar si hay una pantalla externa con `DisplayManager` (no distingue HDMI de
-  inalámbrica) y (b) abrir la pantalla de transmisión del sistema (`ACTION_CAST_SETTINGS`).
-  «Desconectar» abre esa misma pantalla, porque una app no puede cortar el enlace.
-- **Google Cast**: SDK oficial (`CastContext` + `MediaRouter`). Hoy **detecta** dispositivos; el
-  envío de contenido llega con el reproductor (Fase 4).
-- **DLNA**: búsqueda SSDP real por UDP y envío de un enlace directo al TV (AVTransport). Solo
-  acepta enlaces y TV de la red local. No duplica la pantalla.
-- **Wi‑Fi Direct**: solo se detecta el hardware. No se usa todavía (el canal entre dos teléfonos
-  llega en la Fase 5) y nunca se promete video.
-- **Guía por marca de TV y fabricante del teléfono** y solución de problemas.
-- Permisos nuevos: `INTERNET` y `ACCESS_NETWORK_STATE` (normales, sin diálogo).
-
-## Qué hace la Fase 2 (launcher)
-
-- **Aplicaciones**: lista real de apps instaladas (nombre e ícono reales, con
-  `queries` en el manifest, sin `QUERY_ALL_PACKAGES`), búsqueda sin tildes ni mayúsculas, orden
-  (favoritas primero / A–Z / Z–A), «Actualizar», y apertura con intent explícito.
-- **Favoritas**: pulsación prolongada, o tecla Menú / F, marca ★. Aparecen en el inicio.
-- **Apps solo verticales**: si el manifest de la app declara orientación vertical fija, se avisa
-  antes de abrirla (OpenTV no puede forzarla a horizontal; Android no lo permite).
-- **Errores al abrir**: app desinstalada, bloqueada por el sistema o con fallo, con mensaje claro.
-- **Launcher predeterminado**: OpenTV aparece como opción de «App de inicio» (alias HOME). Se
-  elige desde Configuración, que abre la pantalla oficial de Android. Nunca se activa solo, y el
-  mismo lugar sirve para volver al launcher original. El botón Inicio devuelve a la pantalla
-  principal de OpenTV.
-- Íconos cargados bajo demanda, caché LRU con tope de 2–8 MB y vaciado ante falta de memoria.
-
-## Qué hace la Fase 1
-
-- Interfaz horizontal (`sensorLandscape`), fondo a pantalla completa y barras del sistema ocultas.
-- Margen de seguridad del 5 % por lado para el contenido (overscan de algunos TV) y respeto de la
-  muesca de la cámara.
-- Inicio con hora, fecha, estado de transmisión y 6 tarjetas navegables con flechas, Enter y
-  Escape/Atrás. Las funciones que aún no existen llevan la etiqueta «Fase N» y su pantalla lo dice.
-- «Continuar viendo» no se muestra: todavía no hay historial real.
-- Dispositivo: pantalla real, ventana de la app, orientación, densidad, relación de aspecto, RAM,
-  versión de Android y limitaciones conocidas. Solo valores que informa el sistema.
-- Configuración: solo las secciones que existen (Diagnóstico y Acerca de).
-- Sin permisos en el manifest.
-
-## Estructura
-
-```
-app/src/main/java/com/opentv/app/
-  MainActivity.kt          ventana inmersiva, Escape = Atrás
-  OpenTvApp / AppContainer dependencias compartidas (inyección manual, perezosa)
-  core/                    lógica pura sin Android (AspectRatio, OrientationPolicy)
-  apps/                    repositorio, favoritas, lanzador, íconos, búsqueda/orden
-  launcher/                ayuda para el launcher predeterminado
-  connect/                 capacidades, Cast, SSDP/UPnP/DLNA, pantalla externa, guías
-  device/                  lectura de pantalla, memoria y versión (DeviceInfoProvider)
-  navigation/              rutas y NavHost
-  ui/theme|components      tema oscuro, FocusableSurface, TvCard, TvButton, InfoRow
-  ui/home|device|settings|pending|apps|connect   pantallas
-```
-
-Los paquetes de las fases siguientes (`apps`, `connect`, `player`, `files`, `remote`, `data`,
-`diagnostics`) se crearán con su código; no se dejan carpetas vacías.
-
-## Decisiones de arquitectura (Fase 0/1)
-
-- **minSdk 24, target/compile 34.** Un solo módulo Gradle con paquetes por responsabilidad.
-- **MVVM**: `ViewModel` + `StateFlow` (el reloj se detiene cuando la pantalla no está visible).
-  La lectura de `DeviceInfo` es una instantánea sin estado y se hace en un proveedor de la capa de
-  dispositivo; se pasará a ViewModel cuando haya estado que conservar.
-- **Foco primero**: todo elemento interactivo pasa por `FocusableSurface`, con estado de foco
-  siempre visible. No se usa `androidx.tv` para no subir requisitos ni dependencias.
-- **Textos en español dentro del código.** Pendiente moverlos a `strings.xml` si se localiza.
-
-## Limitaciones conocidas
-
-- Miracast no tiene API pública de transmisión para apps: OpenTV solo podrá abrir la función del
-  sistema (Fase 3) y no controla la relación de aspecto de esa transmisión.
-- Las apps externas con orientación fija no pueden forzarse a 16:9/horizontal.
-- La ventana inmersiva oculta las barras; en algunos equipos se muestran al deslizar desde el borde.
-- `FLAG_KEEP_SCREEN_ON` mantiene la pantalla encendida mientras OpenTV está abierta (consumo de
-  batería: usar el teléfono enchufado).
+## Pendiente y próximos pasos
+Validar físicamente cada tecnología; conectar `MethodAdvisor` a la interfaz; medir FPS de captura/codificación/recepción/pantalla; sesiones largas. Otras funciones de la app se retoman cuando termine la etapa de conectividad.
