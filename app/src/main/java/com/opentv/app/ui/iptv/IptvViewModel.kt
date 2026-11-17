@@ -11,7 +11,7 @@ import com.opentv.app.iptv.IptvState
 import com.opentv.app.stream.MirrorRequest
 import kotlinx.coroutines.Dispatchers
 import com.opentv.app.media.dlna.DlnaClient
-import com.opentv.app.media.dlna.DlnaSession
+import com.opentv.app.iptv.IptvDlna
 import com.opentv.app.media.dlna.DlnaStatus
 import com.opentv.app.media.dlna.Renderer
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -68,9 +68,7 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
     val renderers: StateFlow<List<Renderer>> = _renderers.asStateFlow()
     private val _searching = MutableStateFlow(false)
     val searching: StateFlow<Boolean> = _searching.asStateFlow()
-    private val _dlna = MutableStateFlow<DlnaStatus?>(null)
-    val dlna: StateFlow<DlnaStatus?> = _dlna.asStateFlow()
-    private var dlnaSession: DlnaSession? = null
+    val dlna: StateFlow<DlnaStatus?> get() = IptvDlna.status
 
     fun searchRenderers() {
         if (_searching.value) return
@@ -81,16 +79,8 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Envía el canal en vivo (MPEG‑TS) al televisor [r]. Requiere la emisión IPTV en marcha. */
-    fun sendToRenderer(r: Renderer) {
-        val live = state.value as? IptvState.Live ?: return
-        dlnaSession?.stop()
-        val session = DlnaSession(viewModelScope, dlnaClient, r, urlFor = { offer -> if (offer.hls) live.hlsUrl else live.tsUrl }, onOffer = { controller.requestPreset(it.presetName) },
-            streamAlive = { ((state.value as? IptvState.Live)?.clients ?: 0) > 0 })
-        dlnaSession = session
-        viewModelScope.launch { session.status.collect { _dlna.value = it } }
-        session.start()
-    }
+    /** Envía el canal en vivo al televisor [r]. La sesión la posee [IptvDlna] (ámbito de proceso), no este ViewModel. */
+    fun sendToRenderer(r: Renderer) = IptvDlna.send(getApplication(), r)
 
-    fun stopRenderer() { dlnaSession?.stop(); dlnaSession = null }
+    fun stopRenderer() = IptvDlna.stop()
 }

@@ -23,3 +23,13 @@ Regla aplicada: **nada simulado se marca APROBADA.** Android no se pudo compilar
 - PS3: START en el menú sale al XMB; «Salir del juego» (botón PS) se atiende con el callback sysUtil, que no existía. El botón PS no se puede interceptar. PKG compila; sin probar en consola.
 - Interfaz de conexiones: tres apartados (DLNA, /tv, IPTV) y debajo «Otros métodos» (Miracast/Cast, OpenTV Link). Sin compilar Compose aquí.
 - "Shisoku": no existe en el código ni en la documentación (ver `docs/AUDITORIA-SHISOKU-Y-HOME.md`).
+
+## Actualización 2026-11-16 (noche) — 2.ª ronda de campo (informe de Gemini, sin logs adjuntos)
+| Hallazgo informado | Qué se hizo | Estado |
+|---|---|---|
+| Miracast: M3 sin 1080p60; flujo RTP a 1920x1080p30 (11078 paquetes a los 41,4 s) | Nada que forzar: se respeta lo declarado. Contradice en parte la ronda 1 (fallo en M4): puede ser intermitente o haber mejorado. **No se sabe si se vio imagen** | PARCIAL, a confirmar |
+| IPTV: 1080p60 estable, p50 16,7 ms por cuadro | — | PARCIAL (cortes al cambiar de app) |
+| Microcortes al abrir/cerrar otras apps | El servicio de captura YA es un servicio en primer plano independiente de la Activity. Defecto real corregido: la sesión DLNA colgaba del `viewModelScope` (sin `onCleared`) y moría al salir de la pantalla/destruirse la Activity → ahora la posee `IptvDlna` (ámbito de proceso) y se detiene sola si el canal para. **Causa de los microcortes: hipótesis** (competencia por GPU al arrancar la otra app; `FramePump` ya repite el último cuadro a ritmo fijo) | PENDIENTE DE HARDWARE |
+| Web Video Caster con `index.m3u8` funciona; cae a 30 fps con apps pesadas | Botón «Abrir el canal en otra app» (Intent ACTION_VIEW, application/vnd.apple.mpegurl). El televisor decodifica el HLS igual que antes; el teléfono sigue capturando y codificando, así que **no libera recursos del teléfono** | Implementado, sin probar |
+| Espejo DLNA anidado en IPTV | Ahora es «Espejo de pantalla con sonido» dentro del apartado DLNA (pantalla propia, mismo motor); IPTV ya no muestra el bloque DLNA | Implementado, sin compilar Compose |
+| PS3: cuelgue al perder foco / START / PS | El PKG probado no registraba el callback sysUtil. Ahora: callback + START; `sleep()` de 4–6 s reemplazados por esperas que atienden botones/callback; `send()` con tope de 3 s para que un teléfono desaparecido no cuelgue la consola. **Causa del cuelgue no confirmada** | PENDIENTE DE HARDWARE |

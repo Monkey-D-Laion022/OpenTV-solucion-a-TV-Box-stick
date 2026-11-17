@@ -19,6 +19,7 @@ object Routes {
     const val MIRROR = "mirror"
     const val BROWSER = "browser"
     const val IPTV = "iptv"
+    const val DLNA_MIRROR = "dlna_mirror"
     const val OPENTV_PROTOCOL = "opentv-protocol"
     const val LINK_SEND = "link-send"
     const val LINK_RECEIVE = "link-receive"

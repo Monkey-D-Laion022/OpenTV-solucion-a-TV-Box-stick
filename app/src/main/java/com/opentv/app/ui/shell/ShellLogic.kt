@@ -71,6 +71,11 @@ object NavCatalog {
             "Dibuja la interfaz de OpenTV en una pantalla virtual 16:9 y la envía al TV por DLNA.",
             route = Routes.REMOTE,
         ),
+        NavEntry(
+            "dlnamirror", "Espejo de pantalla con sonido", "Pantalla del teléfono → televisor DLNA",
+            "Captura la pantalla (y el sonido que Android permita) y la envía a un televisor DLNA/UPnP de tu red. Sin probar todavía con tu LG: la prueba anterior mostró tirones.",
+            route = Routes.DLNA_MIRROR,
+        ),
     )
 
     /** Pruebas de conexión: descubrir un dispositivo no es conectarse ni transmitir. */

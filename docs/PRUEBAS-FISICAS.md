@@ -16,3 +16,10 @@ Un mensaje decía «audio capturado» y otro «pista en silencio». Corregido en
 
 ## Lista de pruebas para la versión 6.5 (por hacer; ver docs/NOTA-PRUEBAS-6.5.md)
 Ver el archivo NOTA de la entrega: qué probar en el teléfono, el Noblex X7 y el LG 42LB5800-SB, resultado esperado y qué informar.
+
+## Ronda 3 (2026-11-16)
+1. **PS3:** instalar el PKG nuevo. (a) En el menú, START → vuelve al XMB. (b) Durante una transmisión, START → vuelve al menú sin reiniciar. (c) Con transmisión activa, botón PS → «Salir del juego» → debe volver al XMB. Si se cuelga: `opentv.log` y qué pantalla se veía.
+2. **Redmi:** con IPTV emitiendo al LG, abrir y cerrar Stremio/Play TV 3 veces. Anotar la línea de temporización de la pantalla IPTV (ticks tardíos, FPS codificados) antes y después, y el logcat.
+3. **DLNA:** Conexiones › «Espejo de pantalla con sonido»: iniciar, enviar al LG, salir de la pantalla y volver: la sesión debe seguir en estado reproduciendo.
+4. **Miracast:** ¿se veía imagen cuando el log mostró RTP? Copiar el texto M3.
+5. **IPTV › «Abrir el canal en otra app»:** elegir Web Video Caster y confirmar que reproduce en el LG.

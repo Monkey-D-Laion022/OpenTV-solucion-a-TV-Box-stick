@@ -21,10 +21,10 @@ Emisor: Android 7+ (probado: Redmi 14C, Android 16/HyperOS 3). Receptores: telev
 ## Métodos de conexión (pantalla Conexiones)
 | Apartado | Qué hace | Estado |
 |---|---|---|
-| 1. Receptores externos (DLNA/UPnP) | Detecta televisores en la red y les envía una dirección o el flujo de la pantalla | PARCIAL (1080p30, tirones y ≈5 FPS capturados en la prueba) |
+| 1. Receptores externos (DLNA/UPnP) | Detecta televisores en la red; envía una dirección o, con «Espejo de pantalla con sonido», la pantalla del teléfono | PARCIAL (1080p30, tirones y ≈5 FPS capturados en la prueba) |
 | 2. Servidor web local `/tv` | El TV abre `http://IP:puerto/tv`; reproducción en navegador antiguo con recuperación automática y enlaces directos HLS (Plan B) | FALLIDO en ronda 1 (se congelaba); corrección solo en simulación → PENDIENTE DE HARDWARE |
-| 3. IPTV | Publica la pantalla como canal M3U/HLS | PARCIAL (1080p60 estable normal; cae bajo multitarea extrema) |
-| Miracast / Cast | Espejo del sistema y diagnóstico WFD | FALLIDO (la negociación falla en M4; causa sin confirmar) |
+| 3. IPTV | Publica la pantalla como canal M3U/HLS; botón «Abrir el canal en otra app» (Web Video Caster u otro reproductor, por Intent) | PARCIAL (1080p60 estable normal; cae bajo multitarea extrema) |
+| Miracast / Cast | Espejo del sistema y diagnóstico WFD | PARCIAL: la 2.ª ronda informa RTP enviado a 1080p30 (el TV no declara 1080p60); falta confirmar que se vea imagen. Antes fallaba en M4 |
 | OpenTV Link | Protocolo propio cifrado hacia un receptor OpenTV (PS3) | PARCIAL (cifrado y audio OK, imagen negra en la PS3) |
 Detectar un dispositivo no es conectarse; la app muestra cada método por separado y el usuario elige.
 

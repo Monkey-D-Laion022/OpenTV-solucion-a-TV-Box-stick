@@ -85,6 +85,9 @@ fun OpenTvNavHost(
         composable(Routes.BROWSER) {
             com.opentv.app.ui.browser.BrowserMirrorScreen(onBack = goBack)
         }
+        composable(Routes.DLNA_MIRROR) {
+            com.opentv.app.ui.iptv.IptvScreen(onBack = goBack, dlnaMode = true)
+        }
         composable(Routes.IPTV) {
             com.opentv.app.ui.iptv.IptvScreen(onBack = goBack)
         }

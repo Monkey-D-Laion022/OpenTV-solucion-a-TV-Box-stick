@@ -2,7 +2,9 @@ package com.opentv.app.ui.iptv
 
 import android.Manifest
 import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.core.content.ContextCompat
 import android.media.projection.MediaProjectionManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -40,7 +42,7 @@ import com.opentv.app.ui.theme.OpenTvColors
  * IPTV del televisor. Compatibilidad con cada app/TV: sin comprobar; por eso hay una lista de pruebas.
  */
 @Composable
-fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
+fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel(), dlnaMode: Boolean = false) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val preset by viewModel.preset.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -78,8 +80,13 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
             modifier = Modifier.fillMaxSize().padding(8.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Emisión IPTV: la pantalla como canal", style = MaterialTheme.typography.headlineMedium, color = OpenTvColors.OnBackground)
-            Text(
+            Text(if (dlnaMode) "Espejo de pantalla con sonido por DLNA" else "Emisión IPTV: la pantalla como canal", style = MaterialTheme.typography.headlineMedium, color = OpenTvColors.OnBackground)
+            if (dlnaMode) Text(
+                "El teléfono captura su pantalla (y el sonido que Android permita), la codifica en H.264 y se la entrega a un televisor DLNA/UPnP de tu red: " +
+                    "el televisor la reproduce con su propio reproductor, sin instalar nada. Usa el mismo motor de captura que IPTV, así que no se puede " +
+                    "usar a la vez que el espejo por navegador (Android permite una sola captura de pantalla). Latencia de segundos y 30 fps como máximo.",
+                style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
+            ) else Text(
                 "El teléfono captura su pantalla, la codifica en H.264 y la publica como un canal en vivo (HLS) en tu red Wi‑Fi. " +
                     "Cargás la lista M3U en una app IPTV del televisor y elegís el canal. Es una emisión por HTTP sin cifrar: " +
                     "mientras esté activa, cualquier equipo de tu Wi‑Fi que tenga la dirección puede verla. " +
@@ -97,6 +104,7 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                 is IptvState.Failed -> Text(s.message, style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.Warning)
                 is IptvState.Live -> {
                     Text("Emitiendo · pedido al codificador: ${s.preset.label}", style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.Success)
+                    if (!dlnaMode) {
                     if (s.pageUrl != null) {
                         Text("Navegador del televisor (lo más simple): escribí esta dirección.", style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground)
                         Text(s.pageUrl, style = MaterialTheme.typography.titleMedium, color = OpenTvColors.Success)
@@ -178,6 +186,7 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                         style = MaterialTheme.typography.bodyMedium,
                         color = if (s.requests.isEmpty()) OpenTvColors.Warning else OpenTvColors.Muted,
                     )
+                    }
                 }
             }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -185,13 +194,21 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                     TvButton(text = "Detener la emisión", onClick = viewModel::stop, horizontalPadding = 20.dp, modifier = Modifier.focusRequester(firstFocus))
                     val live = state as? IptvState.Live
                     if (live != null) {
+                        if (!dlnaMode) TvButton(
+                            text = "Abrir el canal en otra app (Web Video Caster, reproductor…)",
+                            onClick = {
+                                val view = Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(live.hlsUrl), "application/vnd.apple.mpegurl")
+                                runCatching { context.startActivity(Intent.createChooser(view, "Abrir el canal HLS con…").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                            },
+                            horizontalPadding = 20.dp,
+                        )
                         TvButton(text = "Copiar lista M3U", onClick = { clipboard.setText(AnnotatedString(live.m3uUrl)) }, horizontalPadding = 20.dp)
                         TvButton(text = "Copiar canal HLS", onClick = { clipboard.setText(AnnotatedString(live.hlsUrl)) }, horizontalPadding = 20.dp)
                         TvButton(text = "Copiar lista de pruebas", onClick = { clipboard.setText(AnnotatedString(live.compatM3uUrl)) }, horizontalPadding = 20.dp)
                     }
                 } else {
                     TvButton(
-                        text = "Iniciar emisión IPTV",
+                        text = if (dlnaMode) "Iniciar el espejo" else "Iniciar emisión IPTV",
                         onClick = { if (audioGranted()) launchCapture() else audioPermission.launch(Manifest.permission.RECORD_AUDIO) },
                         horizontalPadding = 20.dp,
                         modifier = Modifier.focusRequester(firstFocus),
@@ -201,6 +218,7 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                         onClick = { if (auto) viewModel.toggleAuto() else viewModel.cyclePreset() }, horizontalPadding = 20.dp,
                     )
                     if (!auto) TvButton(text = "Volver a calidad automática", onClick = viewModel::toggleAuto, horizontalPadding = 20.dp)
+                    if (!dlnaMode) {
                     TvButton(
                         text = if (measuring) "Midiendo… (unos segundos)" else "Medir mi teléfono (1080p60/720p60)",
                         onClick = { if (!measuring) viewModel.measure() }, horizontalPadding = 20.dp,
@@ -215,7 +233,9 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                         text = if (pump) "Ritmo fijo de cuadros: activado (recomendado)" else "Ritmo fijo de cuadros: desactivado (captura directa)",
                         onClick = viewModel::togglePump, horizontalPadding = 20.dp,
                     )
+                    }
                 }
+                if (!dlnaMode) {
                 TvButton(
                     text = if (governorOn) "Gobernador de FPS: activado (baja el ritmo si no se sostiene)" else "Gobernador de FPS: desactivado (ritmo fijo del perfil, para medir)",
                     onClick = viewModel::toggleGovernor, horizontalPadding = 20.dp,
@@ -224,6 +244,8 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                     text = if (marksOn) "Marcas de diagnóstico: activadas (contador en la esquina)" else "Marcas de diagnóstico: desactivadas",
                     onClick = viewModel::toggleMarks, horizontalPadding = 20.dp,
                 )
+                }
+                if (dlnaMode) {
                 Text(
                     "Enviar por DLNA (sin instalar nada en el televisor): el televisor tiene que ser un renderizador DLNA y estar en la misma red. " +
                         "Prueba varios formatos según lo que el televisor declare. Latencia de segundos y 30 fps como máximo; si el televisor no reproduce, el motivo aparece abajo.",
@@ -244,6 +266,7 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel()) {
                         color = if (d.phase == DlnaPhase.PLAYING) OpenTvColors.Success else if (d.phase == DlnaPhase.FAILED) OpenTvColors.Warning else OpenTvColors.Muted,
                     )
                     TvButton(text = "Detener DLNA", onClick = viewModel::stopRenderer, horizontalPadding = 20.dp)
+                }
                 }
                 TvButton(
                     text = if (soloTv) "Audio solo en TV: activado (experimental)" else "Audio solo en TV: desactivado",

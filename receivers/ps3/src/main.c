@@ -95,7 +95,10 @@ static void feed_ts(const uint8_t *d, size_t n) { ot_ts_push(&g_ts, d, n); }   /
 
 /* ───── callbacks de la sesión Link ───── */
 static int g_sock = -1;
-static int io_send(void *u, const uint8_t *b, size_t n) { (void)u; while (n) { ssize_t w = send(g_sock, b, n, 0); if (w <= 0) return -1; b += w; n -= (size_t)w; } return 0; }
+/* Espera sin bloquear el bucle: sigue leyendo botones (y con ello el callback del sistema: botón PS / «Salir del juego»). Un sleep() largo congelaba esa atención. */
+static void wait_polling(int ms) { for (int t = 0; t < ms; t += 100) { (void)ps3av_poll_buttons(); usleep(100000); } }
+/* El envío espera como máximo 3 s por espacio en el socket: si el teléfono desaparece, un send() sin límite colgaba toda la consola. */
+static int io_send(void *u, const uint8_t *b, size_t n) { (void)u; while (n) { struct pollfd p = { g_sock, POLLOUT, 0 }; if (poll(&p, 1, 3000) <= 0) return -1; ssize_t w = send(g_sock, b, n, 0); if (w <= 0) return -1; b += w; n -= (size_t)w; } return 0; }
 static int io_recv(void *u, uint8_t *b, size_t n, int to) {
     (void)u; size_t got = 0;
     while (got < n) { struct pollfd p = { g_sock, POLLIN, 0 }; int r = poll(&p, 1, got ? 8000 : to); if (r == 0) return got ? -1 : 1; if (r < 0) return -1;
@@ -208,9 +211,9 @@ int main(void) {
             /* El modo EMPAREJAR solo se apaga si el emparejamiento realmente se guardó. Antes se apagaba tras CUALQUIER intento: un fallo dejaba la PS3 en
              * «reconectar», el teléfono (sin secreto) respondía ERROR «no emparejado» y la PS3 mostraba -5 en la lectura de HELLO. */
             if (g_saved_now) { g_pair_next = 0; g_saved_now = 0; }
-            if (rc == OT_LINK_ERR_NOTPAIRED) { g_pair_next = 1; ps3av_message("Telefono no emparejado: la PS3 pasa a EMPAREJAR; reintenta desde el telefono"); sleep(4); }
+            if (rc == OT_LINK_ERR_NOTPAIRED) { g_pair_next = 1; ps3av_message("Telefono no emparejado: la PS3 pasa a EMPAREJAR; reintenta desde el telefono"); wait_polling(4000); }
             else if (rc == OT_LINK_BYE || rc == OT_LINK_STOPPED) { /* fin normal */ }
-            else { char m[160]; snprintf(m, sizeof m, "Sesion terminada: codigo %d en etapa '%s' (mbedtls %d)", rc, ot_link_last_stage(), ot_link_last_mbedtls()); ps3av_message(m); printf("[opentv] %s\n", m); sleep(6); }
+            else { char m[160]; snprintf(m, sizeof m, "Sesion terminada: codigo %d en etapa '%s' (mbedtls %d)", rc, ot_link_last_stage(), ot_link_last_mbedtls()); ps3av_message(m); printf("[opentv] %s\n", m); wait_polling(6000); }
             idle_screen(&cfg);
         }
     }
