@@ -43,10 +43,10 @@ class DlnaClient(private val connectTimeoutMs: Int = 3_000, private val readTime
     }
 
     /** Una orden SOAP. Nunca lanza: devuelve [SoapResult] con `failure` si algo salió mal. */
-    fun soap(service: ServiceRef, action: String, body: String): SoapResult {
+    fun soap(service: ServiceRef, action: String, body: String, readTimeoutOverrideMs: Int = readTimeoutMs): SoapResult {
         return try {
             val c = URL(service.controlUrl).openConnection() as HttpURLConnection
-            c.connectTimeout = connectTimeoutMs; c.readTimeout = readTimeoutMs
+            c.connectTimeout = connectTimeoutMs; c.readTimeout = readTimeoutOverrideMs
             c.requestMethod = "POST"; c.doOutput = true
             c.setRequestProperty("Content-Type", "text/xml; charset=\"utf-8\"")
             c.setRequestProperty("SOAPACTION", DlnaXml.soapAction(service.type, action))
@@ -62,7 +62,7 @@ class DlnaClient(private val connectTimeoutMs: Int = 3_000, private val readTime
     /** Formatos que el televisor dice aceptar; `null` si no se pudo leer. */
     fun readSink(r: Renderer): List<ProtocolInfo>? {
         val cm = r.connectionManager ?: return null
-        val res = soap(cm, "GetProtocolInfo", DlnaXml.protocolInfo(cm.type))
+        val res = soap(cm, "GetProtocolInfo", DlnaXml.protocolInfo(cm.type), readTimeoutOverrideMs = 2_000)   // el LG no responde: no se espera 6 s
         return if (res.ok) DlnaXml.parseSink(res.body) else null
     }
 

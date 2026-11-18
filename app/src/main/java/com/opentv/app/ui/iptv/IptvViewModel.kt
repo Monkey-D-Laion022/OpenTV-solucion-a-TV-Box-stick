@@ -35,6 +35,7 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun cycleAccess() = controller.cycleAccess()
+    fun useShortAddress() = controller.useShortAddress()
 
     val auto: StateFlow<Boolean> get() = controller.auto
     val calibration: StateFlow<List<String>> get() = controller.calibration

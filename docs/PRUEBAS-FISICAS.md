@@ -23,3 +23,10 @@ Ver el archivo NOTA de la entrega: qué probar en el teléfono, el Noblex X7 y e
 3. **DLNA:** Conexiones › «Espejo de pantalla con sonido»: iniciar, enviar al LG, salir de la pantalla y volver: la sesión debe seguir en estado reproduciendo.
 4. **Miracast:** ¿se veía imagen cuando el log mostró RTP? Copiar el texto M3.
 5. **IPTV › «Abrir el canal en otra app»:** elegir Web Video Caster y confirmar que reproduce en el LG.
+
+## Ronda 4 (2026-11-17)
+1. **PS3 (lo más importante):** instalar el PKG nuevo y abrirlo SIN transmitir: START debe salir al XMB. Luego transmitir (el teléfono muestra el código; en la PS3 aparece «Recibiendo…»). Si la imagen sigue negra: **foto del cartel «SIN IMAGEN»** y, después de salir con START, el archivo `opentv.log` (`/dev_hdd0/game/OPENTV001/USRDIR/opentv.log`). Si la consola vuelve a congelarse: anotar cuántos segundos pasaron y si el audio sonó.
+2. Transmitir a la PS3 con **video en movimiento** (no la pantalla quieta): la prueba anterior produjo ~230 kbit/s.
+3. **DLNA › «Espejo de pantalla con sonido»:** copiar el bloque de diagnósticos; anotar si el LG reproduce a 60 fps o cae al TS 1080p30 y cuántos timeouts hay.
+4. **Navegador /tv:** Conexiones › «Espejo con sonido en el navegador (/tv)»; escribir la dirección en el navegador del LG; anotar qué se ve, si hay sonido y si se corta.
+5. **Miracast:** copiar el texto M3 de la pantalla de diagnóstico WFD.

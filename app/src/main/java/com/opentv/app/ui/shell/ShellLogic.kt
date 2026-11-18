@@ -53,8 +53,8 @@ object NavCatalog {
             action = EntryAction.NATIVE_CAST,
         ),
         NavEntry(
-            "browser", "Espejo por navegador", "Sin Miracast: el TV abre una web",
-            "El TV abre una dirección corta en su navegador y ve la pantalla del teléfono (imagen sin sonido).",
+            "browser", "Espejo con sonido en el navegador (/tv)", "El TV abre una dirección corta, sin app",
+            "El TV abre una dirección corta en su navegador y ve la pantalla del teléfono con el sonido que Android permita. Usa el motor de IPTV (el espejo por navegador anterior se eliminó). Sin comprobar en tu LG.",
             route = Routes.BROWSER,
         ),
     )

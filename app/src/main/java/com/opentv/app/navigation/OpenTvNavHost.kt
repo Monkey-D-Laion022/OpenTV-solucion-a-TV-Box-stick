@@ -83,7 +83,7 @@ fun OpenTvNavHost(
             NativeMirrorScreen(onBack = goBack, onOpenGuide = { navController.navigate(Routes.SHIZUKU_GUIDE) })
         }
         composable(Routes.BROWSER) {
-            com.opentv.app.ui.browser.BrowserMirrorScreen(onBack = goBack)
+            com.opentv.app.ui.iptv.IptvScreen(onBack = goBack, browserMode = true)
         }
         composable(Routes.DLNA_MIRROR) {
             com.opentv.app.ui.iptv.IptvScreen(onBack = goBack, dlnaMode = true)

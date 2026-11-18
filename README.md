@@ -21,11 +21,11 @@ Emisor: Android 7+ (probado: Redmi 14C, Android 16/HyperOS 3). Receptores: telev
 ## Métodos de conexión (pantalla Conexiones)
 | Apartado | Qué hace | Estado |
 |---|---|---|
-| 1. Receptores externos (DLNA/UPnP) | Detecta televisores en la red; envía una dirección o, con «Espejo de pantalla con sonido», la pantalla del teléfono | PARCIAL (1080p30, tirones y ≈5 FPS capturados en la prueba) |
-| 2. Servidor web local `/tv` | El TV abre `http://IP:puerto/tv`; reproducción en navegador antiguo con recuperación automática y enlaces directos HLS (Plan B) | FALLIDO en ronda 1 (se congelaba); corrección solo en simulación → PENDIENTE DE HARDWARE |
-| 3. IPTV | Publica la pantalla como canal M3U/HLS; botón «Abrir el canal en otra app» (Web Video Caster u otro reproductor, por Intent) | PARCIAL (1080p60 estable normal; cae bajo multitarea extrema) |
+| 1. Receptores externos (DLNA/UPnP) | Detecta televisores en la red; envía una dirección o, con «Espejo de pantalla con sonido», la pantalla del teléfono | PARCIAL (ronda 3: conecta mejor pero 30 fps y lag con multitarea). Ahora intenta HLS 1080p60 primero si el TV no declara formatos; pantalla con diagnósticos como IPTV |
+| 2. Servidor web local `/tv` | «Espejo con sonido en el navegador (/tv)»: usa el motor de IPTV; el TV abre una dirección corta; reproducción en navegador antiguo con recuperación automática y enlaces directos HLS (Plan B). El espejo por navegador anterior (MJPEG) se eliminó | FALLIDO en ronda 1 (se congelaba); corrección solo en simulación → PENDIENTE DE HARDWARE |
+| 3. IPTV | Publica la pantalla como canal M3U/HLS; botón «Abrir el canal en otra app» (Web Video Caster u otro reproductor, por Intent) | PARCIAL alto (ronda 3: 10/10 a 1080p60 en el LG, incluso con otras apps; microcortes al cambiar de app) |
 | Miracast / Cast | Espejo del sistema y diagnóstico WFD | PARCIAL: la 2.ª ronda informa RTP enviado a 1080p30 (el TV no declara 1080p60); falta confirmar que se vea imagen. Antes fallaba en M4 |
-| OpenTV Link | Protocolo propio cifrado hacia un receptor OpenTV (PS3) | PARCIAL (cifrado y audio OK, imagen negra en la PS3) |
+| OpenTV Link | Protocolo propio cifrado hacia un receptor OpenTV (PS3) | FALLIDO en ronda 3 (pantalla negra y congelamiento de la consola); se corrigieron bloqueos probables, sin probar en consola |
 Detectar un dispositivo no es conectarse; la app muestra cada método por separado y el usuario elige.
 
 ## Receptor PS3: controles

@@ -68,9 +68,12 @@ class DlnaLogicTest {
         assertFalse(sel.attempts.last().declaredByRenderer); assertTrue(sel.attempts.size >= 3)
         assertTrue(sel.attempts.first().declaredByRenderer)
     }
-    @Test fun sinListaSoloGenericoPrimero1080Luego480() {
+    @Test fun sinListaPrimeroHls1080p60PorEvidenciaLuegoGenerico1080Luego480() {
         val sel = ProfileSelector.select(null)
-        assertEquals(listOf(1080, 480), sel.attempts.map { it.height }); assertTrue(sel.reasons.first().contains("No se pudo leer"))
+        assertEquals(listOf(1080, 1080, 480), sel.attempts.map { it.height }); assertTrue(sel.reasons.first().contains("No se pudo leer"))
+        val first = sel.attempts.first()
+        assertTrue(first.hls && first.fps == 60 && !first.declaredByRenderer && first.presetName == "FULL_HD_60")
+        assertTrue(sel.attempts.drop(1).all { !it.hls && it.fps == 30 })   // el respaldo sigue siendo el TS genérico que ya funcionaba
     }
     @Test fun noOfreceSesentaFps() {
         val sel = ProfileSelector.select(listOf(pi("http-get:*:video/mpeg:DLNA.ORG_PN=AVC_TS_HD_60_AAC")))
@@ -139,7 +142,7 @@ class DlnaLogicTest {
     }
     @Test fun sinHlsDeclaradoNuncaSeIntentaHls() {
         assertTrue(ProfileSelector.select(listOf(pi("http-get:*:video/mpeg:*"))).attempts.none { it.hls })
-        assertTrue(ProfileSelector.select(null).attempts.none { it.hls })
+        assertTrue(ProfileSelector.select(null).attempts.filter { it.hls }.all { !it.declaredByRenderer })   // sin lista: solo el intento por evidencia, marcado como no declarado
     }
     @Test fun siElTvSigueDescargandoElFlujoUnaConsultaFallidaNoEsUnCorte() {
         val s = SessionSupervisor(1, maxRetries = 1)

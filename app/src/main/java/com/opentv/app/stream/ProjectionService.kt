@@ -34,7 +34,6 @@ class ProjectionService : Service() {
             val container = (application as OpenTvApp).container
             CoroutineScope(Dispatchers.Main).launch {
                 container.projection.stop()
-                container.browserMirror.stop()
             }
             stopSelf()
             return START_NOT_STICKY

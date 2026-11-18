@@ -33,3 +33,22 @@ Regla aplicada: **nada simulado se marca APROBADA.** Android no se pudo compilar
 | Web Video Caster con `index.m3u8` funciona; cae a 30 fps con apps pesadas | Botón «Abrir el canal en otra app» (Intent ACTION_VIEW, application/vnd.apple.mpegurl). El televisor decodifica el HLS igual que antes; el teléfono sigue capturando y codificando, así que **no libera recursos del teléfono** | Implementado, sin probar |
 | Espejo DLNA anidado en IPTV | Ahora es «Espejo de pantalla con sonido» dentro del apartado DLNA (pantalla propia, mismo motor); IPTV ya no muestra el bloque DLNA | Implementado, sin compilar Compose |
 | PS3: cuelgue al perder foco / START / PS | El PKG probado no registraba el callback sysUtil. Ahora: callback + START; `sleep()` de 4–6 s reemplazados por esperas que atienden botones/callback; `send()` con tope de 3 s para que un teléfono desaparecido no cuelgue la consola. **Causa del cuelgue no confirmada** | PENDIENTE DE HARDWARE |
+
+## Actualización 2026-11-17 — 3.ª ronda física (Redmi + LG + PS3) y cambios
+**Resultados informados (hardware real):** IPTV/HLS al LG 10/10 a 1080p60 (también con Web Video Caster y con Stremio abierto; bajadas de bitrate al 40% y recuperación solas). DLNA: conexión mejor pero 30 fps y lag con multitarea; el LG no responde a `GetProtocolInfo`; 2 timeouts antes de reproducir. PS3: «Recibiendo 1920×1080», pantalla negra, corte a los 2 s, y la consola quedó **congelada (ni START ni PS)**; el log del teléfono muestra `ECONNREFUSED` en el puerto 8766. Miracast: no se probó.
+
+| Módulo | Estado | Qué se cambió (sin compilar Android; PS3 sí compila) | Pendiente de hardware |
+|---|---|---|---|
+| IPTV/HLS | **PARCIAL alto** (10/10 informado; no se marca APROBADA: los cambios de esta ronda no están compilados y hay microcortes al cambiar de app) | Sin cambios de comportamiento | repetir con el APK nuevo |
+| DLNA | PARCIAL | (1) Si el TV no declara formatos se prueba primero **HLS 1080p60** (evidencia: HLS 1080p60 ya funcionó en este LG con su reproductor nativo); el TS 1080p30 genérico queda de respaldo. (2) `GetProtocolInfo` espera 2 s, no 6. (3) La pantalla DLNA muestra los mismos diagnósticos que IPTV (FPS capturados/entregados/codificados, bitrate, gobernador, tiempos). | ¿reproduce a 60? ¿siguen los timeouts? |
+| /tv navegador | PENDIENTE DE HARDWARE | **Se eliminó el espejo por navegador anterior (MJPEG)** con su pantalla, sus clases y sus tests. «Espejo con sonido en el navegador (/tv)» usa ahora el motor de IPTV (dirección corta, HLS/TS con audio, Plan B de enlaces directos) | probar en el navegador del LG |
+| Miracast / Wi-Fi Direct | PENDIENTE DE HARDWARE | Nada que forzar: ver `docs/MIRACAST-60FPS.md` | M3 del TV |
+| OpenTV Link / PS3 | **FALLIDA** (pantalla negra + congelamiento) | Ver sección PS3 abajo | `opentv.log` |
+
+### PS3: causa probable del congelamiento (hipótesis fuerte, NO confirmada)
+Tres lugares del hilo principal podían esperar para siempre, y ahí no se atiende ni START ni PS:
+1. `vdec_recover()` (agregado por mí en la ronda 1) cerraba y reabría el decodificador tras 1,5 s sin respuesta; **`vdecClose` sobre un decodificador atascado no vuelve nunca**. El corte «a los 2 s» y la consola congelada encajan con esto. Es mi propio cambio: pudo convertir un decodificador mudo en un congelamiento total.
+2. `ps3av_shutdown()` (al salir con START/PS) llamaba al mismo `vdecClose`.
+3. Esperas de GPU sin tope (`flip`, `wait_finish`).
+**Cambios:** el recovery quedó **solo de diagnóstico**; el cierre del decodificador se hace en un hilo aparte con tope de 4 s y, si no responde, se abandona (el video queda desactivado, el audio sigue); la salida al XMB ya no cierra el decodificador; esperas de GPU acotadas (1 s / 100 ms); contadores de decodificador atómicos. El PKG compila y verifica. **No resuelve la pantalla negra**: sigue sin causa confirmada. El `ECONNREFUSED` indica que la app dejó de escuchar (se colgó o terminó) y es consistente con lo anterior.
+**Telemetría del emisor:** a 1080p60 el codificador entregó ~230 kbit/s a 30 fps frente a 7–10 Mbit/s pedidos: con la pantalla casi estática un codificador CBR por hardware puede producir muy poco, así que no prueba un fallo por sí solo; conviene repetir con video en movimiento.

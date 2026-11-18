@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 /**
  * «Audio solo en TV» compartido por las tecnologías que capturan el audio con [CapturePipeline] (IPTV y OpenTV Link).
  * Une la preferencia del usuario, [LocalMuteJudge] (decide midiendo) y [LocalAudioMuter] (baja/restaura el volumen).
- * Comprobado físicamente en IPTV (LG y Noblex Android TV). Miracast nativo, DLNA y el espejo por navegador usan archivos
+ * Comprobado físicamente en IPTV (LG y Noblex Android TV). Miracast nativo, DLNA y el navegador /tv (motor de IPTV) usan archivos
  * protegidos y no pasan por aquí.
  */
 class SoloTvAudio private constructor(context: Context) {

@@ -76,7 +76,7 @@ sealed interface IptvState {
  * HLS (playlist .m3u8 + segmentos) y como TS continuo, junto con una lista M3U lista para cargar en una app IPTV.
  *
  * Es independiente de la proyección DLNA y del espejo nativo: no comparte sesión con ellos ni los modifica. Solo
- * una captura de pantalla puede estar activa a la vez; no lo uses junto con el espejo por navegador.
+ * una captura de pantalla puede estar activa a la vez; no lo uses junto con DLNA ni el navegador /tv (comparten esta captura).
  * Audio: si el usuario concedió RECORD_AUDIO se captura el audio que reproduce el teléfono (Android 10+); si no, o si
  * Android lo rechaza, se emite una pista AAC en silencio (muchos reproductores no abren video sin audio) y la
  * pantalla lo dice. Solo se informa «con sonido» si se midieron muestras no nulas. NO verificado en hardware.
@@ -156,6 +156,11 @@ class IptvController private constructor(context: Context) {
 
     private val _access = MutableStateFlow(IptvAccess.SHORT)
     val access: StateFlow<IptvAccess> = _access.asStateFlow()
+
+    /** El navegador del televisor necesita la dirección corta (`/tv`): solo se puede cambiar con la emisión detenida. */
+    fun useShortAddress() {
+        if (session == null) _access.value = IptvAccess.SHORT
+    }
 
     fun cycleAccess() {
         if (session == null) _access.value = _access.value.next()

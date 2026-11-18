@@ -36,6 +36,8 @@ object ProfileSelector {
     const val GENERIC_PROTOCOL_INFO =
         "http-get:*:video/mpeg:DLNA.ORG_PN=MPEG_TS_HD_NA_ISO;DLNA.ORG_OP=00;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000"
 
+    const val HLS_PROTOCOL_INFO = "http-get:*:application/vnd.apple.mpegurl:DLNA.ORG_OP=00;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000"
+
     private const val LIVE_FLAGS = "DLNA.ORG_OP=00;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000"
 
     private enum class Kind(val rank: Int) { AVC_AAC(0), AVC_OTHER(1), WILDCARD(2), MPEG2_PROFILE(3) }
@@ -74,7 +76,12 @@ object ProfileSelector {
         val reasons = mutableListOf<String>()
         val attempts = mutableListOf<Offer>()
         if (sink.isNullOrEmpty()) {
-            reasons += "No se pudo leer la lista de formatos del televisor (GetProtocolInfo): se usa solo el perfil genérico, primero 1080p y luego 480p."
+            reasons += "No se pudo leer la lista de formatos del televisor (GetProtocolInfo): no se supone nada sobre sus capacidades."
+            // Evidencia física (no una suposición sobre el receptor): en este LG, HLS 1080p60 de OpenTV se reprodujo bien con el reproductor nativo
+            // (por Web Video Caster y directo). Por eso, SOLO cuando el televisor no declaró nada, se intenta primero HLS 1080p60; si no reproduce,
+            // se cae al TS genérico 1080p30 que ya funcionaba.
+            attempts += Offer("HLS · 1080p60 (el televisor no declaró formatos; HLS ya funcionó en este LG)", HLS_PROTOCOL_INFO, null, 1920, 1080, 60, "FULL_HD_60", false,
+                "intento a 60 fps por HLS basado en una prueba física previa, no en lo que el televisor declara", hls = true)
         } else {
             reasons += "El televisor declara ${sink.size} formato(s); ${sink.count { classify(it) != null }} sirven para MPEG‑TS con H.264 y AAC."
             val ranked = sink.mapNotNull { p -> classify(p)?.let { p to it } }.sortedWith(compareBy({ it.second.rank }, { sizeFor(it.first).second * -1 }))

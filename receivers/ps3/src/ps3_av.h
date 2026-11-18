@@ -14,7 +14,7 @@ typedef struct {
     uint32_t shown_fps_x10;       /* fotogramas mostrados por segundo ×10 (ventana de 1 s) */
     /* Diagnóstico del decodificador: qué avisos dio cellVdec y qué pasó con el flujo (para saber POR QUÉ no hay imagen) */
     uint32_t cb_audone, cb_picout, cb_seqdone, cb_error; int32_t last_cb_error;
-    uint32_t vdec_resets, au_oversize, au_submitted;
+    uint32_t vdec_resets, au_oversize, au_submitted, flip_timeouts, vdec_wedged;
     int32_t  last_decode_rc;      /* último código de vdecDecodeAu distinto de 0 */
     int32_t  sps_profile, sps_level, sps_w, sps_h, sps_verdict;   /* SPS del flujo recibido (0 si todavía no llegó) */
 } ps3av_stats;

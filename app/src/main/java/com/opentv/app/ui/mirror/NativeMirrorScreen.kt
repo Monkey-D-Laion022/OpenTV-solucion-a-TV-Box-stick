@@ -98,7 +98,7 @@ fun NativeMirrorScreen(
             if (!viewModel.castAvailable || !viewModel.wifiDirect) {
                 Text(
                     text = "Este teléfono no parece tener transmisión Miracast del sistema. Alternativa: «Proyectar OpenTV en el TV» " +
-                        "(DLNA propio) o «Espejo por navegador» (desde el inicio): funcionan con cualquier teléfono con Wi-Fi.",
+                        "(DLNA propio) o «Espejo en el navegador (/tv)» (desde el inicio): funcionan con cualquier teléfono con Wi-Fi.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = OpenTvColors.Warning,
                 )

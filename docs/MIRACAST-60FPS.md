@@ -1,0 +1,5 @@
+# ¿Se puede forzar 1080p60 en Wi-Fi Direct/Miracast? (2026-11-17)
+**No, y no se debe intentar.** En Wi-Fi Display el *sink* (el televisor) declara en el mensaje M3 `wfd_video_formats` lo que decodifica; el *source* (el teléfono) solo puede elegir entre lo declarado en M4. Enviar un modo no declarado (por ejemplo 1080p60, bit 8 de la tabla CEA, con H.264 nivel 4.2) hace que el decodificador del TV lo rechace o muestre basura. El informe de campo dice que el LG no declara 1080p60 y queda en 1920×1080p30.
+**Lo que sí hace el código:** `WfdVideoFormats` interpreta las tablas CEA/VESA/HH y elige el mejor modo declarado; hay tests que lo demuestran (`bit8IsExactly1080p60`, `only1080p30MeansNo60At1080`, `pickBestPrefers1080p30Over720p60AndBothAt60Wins`). Si un televisor declara 1080p60 con nivel suficiente, se negocia 1080p60 solo; si no, se respeta 1080p30.
+**Camino a 60 fps con este LG:** el HLS 1080p60 que ya funcionó (IPTV, 10/10) y que DLNA intenta ahora primero cuando el TV no declara formatos.
+**Pendiente:** el texto M3 real del televisor, para confirmar qué declara.

@@ -42,7 +42,8 @@ import com.opentv.app.ui.theme.OpenTvColors
  * IPTV del televisor. Compatibilidad con cada app/TV: sin comprobar; por eso hay una lista de pruebas.
  */
 @Composable
-fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel(), dlnaMode: Boolean = false) {
+fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel(), dlnaMode: Boolean = false, browserMode: Boolean = false) {
+    val simple = dlnaMode || browserMode   // pantallas por método: DLNA y navegador comparten el motor de IPTV pero muestran solo lo suyo
     val state by viewModel.state.collectAsStateWithLifecycle()
     val preset by viewModel.preset.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -63,6 +64,7 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel(), dlnaM
     // Si el usuario niega el permiso se emite igual, con pista en silencio (la pantalla lo indica).
     val audioPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { launchCapture() }
     val firstFocus = remember { FocusRequester() }
+    if (browserMode) LaunchedEffect(Unit) { viewModel.useShortAddress() }
     LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
     val lastStop by viewModel.lastStop.collectAsStateWithLifecycle()
     val soloTv by viewModel.soloTv.collectAsStateWithLifecycle()
@@ -80,11 +82,17 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel(), dlnaM
             modifier = Modifier.fillMaxSize().padding(8.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(if (dlnaMode) "Espejo de pantalla con sonido por DLNA" else "Emisión IPTV: la pantalla como canal", style = MaterialTheme.typography.headlineMedium, color = OpenTvColors.OnBackground)
+            Text(if (dlnaMode) "Espejo de pantalla con sonido por DLNA" else if (browserMode) "Espejo con sonido en el navegador del televisor (/tv)" else "Emisión IPTV: la pantalla como canal", style = MaterialTheme.typography.headlineMedium, color = OpenTvColors.OnBackground)
             if (dlnaMode) Text(
                 "El teléfono captura su pantalla (y el sonido que Android permita), la codifica en H.264 y se la entrega a un televisor DLNA/UPnP de tu red: " +
                     "el televisor la reproduce con su propio reproductor, sin instalar nada. Usa el mismo motor de captura que IPTV, así que no se puede " +
-                    "usar a la vez que el espejo por navegador (Android permite una sola captura de pantalla). Latencia de segundos y 30 fps como máximo.",
+                    "usar a la vez que el navegador /tv ni IPTV (Android permite una sola captura de pantalla). Latencia de segundos y 30 fps como máximo.",
+                style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
+            ) else if (browserMode) Text(
+                "Sin instalar nada en el televisor: el teléfono captura su pantalla y el sonido que Android permita, la codifica en H.264 (con el mismo motor estable de IPTV, " +
+                    "hasta 1080p60 si el teléfono lo sostiene) y la publica en una dirección corta. En el navegador del televisor escribís esa dirección: la página prueba " +
+                    "los formatos que el navegador realmente reproduce y, si falla, ofrece enlaces directos HLS para el reproductor nativo. " +
+                    "Compatibilidad con tu LG NetCast: sin comprobar en esta versión. Es HTTP sin cifrar dentro de tu Wi‑Fi. Usa la misma captura que IPTV y DLNA: no se pueden usar a la vez.",
                 style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
             ) else Text(
                 "El teléfono captura su pantalla, la codifica en H.264 y la publica como un canal en vivo (HLS) en tu red Wi‑Fi. " +
@@ -92,7 +100,7 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel(), dlnaM
                     "mientras esté activa, cualquier equipo de tu Wi‑Fi que tenga la dirección puede verla. " +
                     "Todavía NO está comprobado con tu LG 42LB5800 ni con SmartOne IPTV; la lista de pruebas sirve justamente para eso. " +
                     "El sonido del teléfono se captura solo si concedés el permiso de audio (Android lo llama «grabar audio»; OpenTV no usa el micrófono: captura lo que suena en el teléfono). Algunas apps bloquean esa captura y entonces llega silencio: la pantalla lo avisa. " +
-                    "No la uses junto con el espejo por navegador (Android permite una sola captura de pantalla a la vez).",
+                    "No la uses junto con DLNA ni el navegador /tv (Android permite una sola captura de pantalla a la vez).",
                 style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Muted,
             )
             when (val s = state) {
@@ -104,7 +112,41 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel(), dlnaM
                 is IptvState.Failed -> Text(s.message, style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.Warning)
                 is IptvState.Live -> {
                     Text("Emitiendo · pedido al codificador: ${s.preset.label}", style = MaterialTheme.typography.bodyLarge, color = OpenTvColors.Success)
-                    if (!dlnaMode) {
+                    if (browserMode && s.pageUrl != null) {
+                        Text("En el navegador del televisor escribí:", style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground)
+                        Text(s.pageUrl, style = MaterialTheme.typography.headlineSmall, color = OpenTvColors.Success)
+                        Text("Equipos conectados: ${s.clients} · FPS codificados: ${"%.0f".format(s.encodedFps)} · ${s.producedKbps} kbit/s", style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground)
+                        Text((if (s.healthy) "Estado verificado: " else "ATENCIÓN: ") + s.health, style = MaterialTheme.typography.bodyMedium, color = if (s.healthy) OpenTvColors.Success else OpenTvColors.Warning)
+                    }
+                    if (dlnaMode) {
+                        // Mismo detalle de medición que IPTV (es el mismo motor): cada FPS por separado, para ver DÓNDE se pierden cuadros.
+                        val cap = s.capturedFps?.let { "%.0f".format(it) } ?: "no medible"
+                        val rend = s.renderedFps?.let { "%.0f".format(it) } ?: "no aplica"
+                        Text((if (s.healthy) "Estado verificado: " else "ATENCIÓN: ") + s.health, style = MaterialTheme.typography.bodyLarge, color = if (s.healthy) OpenTvColors.Success else OpenTvColors.Warning)
+                        Text(
+                            "Equipos conectados: ${s.clients} · segmentos publicados: ${s.segments}\n" +
+                                "Pedido: ${s.preset.width}×${s.preset.height} a ${s.preset.fps} fps, ${s.preset.bitrateBps / 1000} kbit/s" +
+                                (if (s.profileApplied) "." else " (el codificador eligió su propio perfil).") + "\n" +
+                                "FPS capturados: $cap · entregados al codificador: $rend · codificados: ${"%.0f".format(s.encodedFps)} · último cuadro hace ${s.msSinceFrame} ms.\n" +
+                                "Bitrate producido: ${s.producedKbps} kbit/s · entregado: ${s.deliveredKbps} kbit/s.\n" +
+                                "FPS recibidos y mostrados por el televisor: no disponibles (el televisor no los informa).\n" +
+                                (if (s.withAudio) "Audio: ${s.audio.label}" else "Sin pista de audio"),
+                            style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground,
+                        )
+                        if (s.pumpActive) Text(
+                            "Gobernador de FPS: objetivo ${s.targetFps} de ${s.preset.fps} fps · causa observada: ${s.bottleneck}." + (s.governorNote?.let { "\n$it" } ?: "") +
+                                "\nEstado térmico de Android: ${s.thermal ?: "no disponible"}.",
+                            style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground,
+                        )
+                        if (s.timing != null) Text(s.timing, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground)
+                        if (s.fpsWarning != null) Text(s.fpsWarning, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning)
+                        if (s.note != null) Text(s.note, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning)
+                        if (s.audio == IptvAudio.CAPTURING_NO_SOUND || s.audio == IptvAudio.CAPTURING_ZEROS) Text(
+                            "Se captura audio pero no se detecta sonido: si suena algo en el teléfono, la app de origen bloquea la captura (Android no permite saltarlo).",
+                            style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning,
+                        )
+                    }
+                    if (!simple) {
                     if (s.pageUrl != null) {
                         Text("Navegador del televisor (lo más simple): escribí esta dirección.", style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground)
                         Text(s.pageUrl, style = MaterialTheme.typography.titleMedium, color = OpenTvColors.Success)
@@ -194,7 +236,7 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel(), dlnaM
                     TvButton(text = "Detener la emisión", onClick = viewModel::stop, horizontalPadding = 20.dp, modifier = Modifier.focusRequester(firstFocus))
                     val live = state as? IptvState.Live
                     if (live != null) {
-                        if (!dlnaMode) TvButton(
+                        if (!simple) TvButton(
                             text = "Abrir el canal en otra app (Web Video Caster, reproductor…)",
                             onClick = {
                                 val view = Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(live.hlsUrl), "application/vnd.apple.mpegurl")
@@ -208,7 +250,7 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel(), dlnaM
                     }
                 } else {
                     TvButton(
-                        text = if (dlnaMode) "Iniciar el espejo" else "Iniciar emisión IPTV",
+                        text = if (simple) "Iniciar el espejo" else "Iniciar emisión IPTV",
                         onClick = { if (audioGranted()) launchCapture() else audioPermission.launch(Manifest.permission.RECORD_AUDIO) },
                         horizontalPadding = 20.dp,
                         modifier = Modifier.focusRequester(firstFocus),
@@ -218,7 +260,7 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel(), dlnaM
                         onClick = { if (auto) viewModel.toggleAuto() else viewModel.cyclePreset() }, horizontalPadding = 20.dp,
                     )
                     if (!auto) TvButton(text = "Volver a calidad automática", onClick = viewModel::toggleAuto, horizontalPadding = 20.dp)
-                    if (!dlnaMode) {
+                    if (!simple) {
                     TvButton(
                         text = if (measuring) "Midiendo… (unos segundos)" else "Medir mi teléfono (1080p60/720p60)",
                         onClick = { if (!measuring) viewModel.measure() }, horizontalPadding = 20.dp,
@@ -235,7 +277,7 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel(), dlnaM
                     )
                     }
                 }
-                if (!dlnaMode) {
+                if (!simple) {
                 TvButton(
                     text = if (governorOn) "Gobernador de FPS: activado (baja el ritmo si no se sostiene)" else "Gobernador de FPS: desactivado (ritmo fijo del perfil, para medir)",
                     onClick = viewModel::toggleGovernor, horizontalPadding = 20.dp,

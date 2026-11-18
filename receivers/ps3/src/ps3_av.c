@@ -61,7 +61,8 @@ static u32 g_label = 1;
 static void wait_finish(void) {
     rsxSetWriteBackendLabel(g_ctx, GCM_LABEL_INDEX, g_label);
     rsxFlushBuffer(g_ctx);
-    while (*(vu32 *)gcmGetLabelAddress(GCM_LABEL_INDEX) != g_label) usleep(30);
+    /* Espera acotada (1 s): si la GPU no responde, el hilo principal NO puede quedarse aquí para siempre (START y PS dejarían de funcionar). */
+    for (int i = 0; i < 33000 && *(vu32 *)gcmGetLabelAddress(GCM_LABEL_INDEX) != g_label; i++) usleep(30);
     g_label++;
 }
 static void wait_rsx_idle(void) {
@@ -70,7 +71,7 @@ static void wait_rsx_idle(void) {
     g_label++; wait_finish();
 }
 static void flip(void) {
-    if (!g_first_flip) { while (gcmGetFlipStatus() != 0) usleep(200); }
+    if (!g_first_flip) { int i = 0; while (gcmGetFlipStatus() != 0 && i < 500) { usleep(200); i++; } if (i >= 500) g_st.flip_timeouts++; }   /* tope de 100 ms por cuadro */
     gcmResetFlipStatus();
     gcmSetFlip(g_ctx, (u8)g_fb_cur);
     rsxFlushBuffer(g_ctx);
@@ -155,8 +156,10 @@ static void present(int have_pic) {
 }
 
 /* ───────── video (cellVdec) ───────── */
-static u32 g_vdec; static int g_vdec_open;
+static u32 g_vdec; static int g_vdec_open; static volatile int g_vdec_wedged;
 static void *g_vmem; static uint8_t *g_au_buf[AU_SLOTS];
+#define ATOMIC_INC(x) __sync_fetch_and_add(&(x), 1)
+#define ATOMIC_DEC(x) __sync_fetch_and_sub(&(x), 1)
 static volatile int g_pic_ready, g_au_done, g_seq_done; static volatile int g_seq_started;
 static int g_au_head, g_au_tail, g_au_inuse;  /* anillo de buffers de unidades de acceso */
 static int g_have_key, g_have_shown;
@@ -166,8 +169,8 @@ static int64_t g_fps_t0; static int g_fps_n;
 static u32 vdec_cb(u32 handle, u32 msg, u32 data, u32 arg) {
     (void)handle; (void)arg;
     switch (msg) {
-        case VDEC_CALLBACK_AUDONE: g_au_done++; g_st.cb_audone++; g_last_progress_us = (int64_t)sysGetSystemTime(); break;
-        case VDEC_CALLBACK_PICOUT: g_pic_ready++; g_st.cb_picout++; g_last_progress_us = (int64_t)sysGetSystemTime(); break;
+        case VDEC_CALLBACK_AUDONE: ATOMIC_INC(g_au_done); g_st.cb_audone++; g_last_progress_us = (int64_t)sysGetSystemTime(); break;
+        case VDEC_CALLBACK_PICOUT: ATOMIC_INC(g_pic_ready); g_st.cb_picout++; g_last_progress_us = (int64_t)sysGetSystemTime(); break;
         case VDEC_CALLBACK_SEQDONE: g_seq_done = 1; g_st.cb_seqdone++; break;
         case VDEC_CALLBACK_ERROR:  g_st.decode_errors++; g_st.cb_error++; g_st.last_cb_error = (int32_t)data; break;
         default: break;
@@ -175,6 +178,7 @@ static u32 vdec_cb(u32 handle, u32 msg, u32 data, u32 arg) {
     return 0;
 }
 static int vdec_open(void) {
+    if (g_vdec_wedged) return -9;                              /* decodificador atascado: no se reabre */
     vdecType type = { VDEC_CODEC_TYPE_H264, 42 };            /* H.264 hasta nivel 4.2 */
     vdecAttr attr; memset(&attr, 0, sizeof attr);
     if (vdecQueryAttr(&type, &attr) != 0) return -1;
@@ -186,15 +190,26 @@ static int vdec_open(void) {
     if (vdecOpen(&type, &cfg, &cl, &g_vdec) != 0) return -3;
     g_vdec_open = 1; g_seq_started = 0; return 0;
 }
-static void vdec_close(void) {
-    if (!g_vdec_open) return;
+static volatile int g_close_done;
+static void vdec_close_body(void) {
     g_seq_done = 0;
     if (g_seq_started && vdecEndSequence(g_vdec) == 0) for (int i = 0; i < 200 && !g_seq_done; i++) usleep(10000);   /* hasta 2 s por SEQDONE */
-    vdecClose(g_vdec); g_vdec_open = 0; g_seq_started = 0;
-    free(g_vmem); g_vmem = NULL; g_pic_ready = g_au_done = 0; g_au_head = g_au_tail = g_au_inuse = 0;
+    vdecClose(g_vdec);
+}
+static void vdec_close_thread(void *arg) { (void)arg; vdec_close_body(); g_close_done = 1; sysThreadExit(0); }
+/* vdecClose sobre un decodificador atascado no vuelve nunca. Se hace en un hilo aparte con tope de 4 s: si no termina, se ABANDONA (la memoria
+ * no se libera porque las SPU aún podrían usarla) y se marca el decodificador como bloqueado. Antes esto congelaba el hilo principal. */
+static void vdec_close(void) {
+    if (!g_vdec_open) return;
+    g_close_done = 0; sys_ppu_thread_t th = 0;
+    if (sysThreadCreate(&th, vdec_close_thread, NULL, 1200, 0x10000, THREAD_JOINABLE, (char *)"opentv-vdec-close") != 0) { vdec_close_body(); g_close_done = 1; }
+    for (int i = 0; i < 400 && !g_close_done; i++) { usleep(10000); if ((i % 10) == 0) sysUtilCheckCallback(); }
+    g_vdec_open = 0; g_seq_started = 0; g_pic_ready = g_au_done = 0; g_au_head = g_au_tail = g_au_inuse = 0;
+    if (g_close_done) { if (th) { u64 rv; sysThreadJoin(th, &rv); } free(g_vmem); g_vmem = NULL; }
+    else { g_vdec_wedged = 1; g_st.vdec_wedged = 1; g_vmem = NULL; logf_("el decodificador no respondió al cierre (4 s): se abandona; el video queda desactivado hasta reiniciar la app"); }
 }
 static void release_done_aus(void) {
-    while (g_au_done > 0 && g_au_inuse > 0) { g_au_done--; g_au_tail = (g_au_tail + 1) % AU_SLOTS; g_au_inuse--; }
+    while (g_au_done > 0 && g_au_inuse > 0) { ATOMIC_DEC(g_au_done); g_au_tail = (g_au_tail + 1) % AU_SLOTS; g_au_inuse--; }
     if (g_au_inuse == 0) g_au_done = 0;
 }
 static int64_t now_us(void) { return (int64_t)sysGetSystemTime(); }
@@ -205,14 +220,14 @@ static void pump_pictures(void) {
     int shown = 0;
     while (g_pic_ready > 0) {
         u32 item = 0;
-        if (vdecGetPicItem(g_vdec, &item) != 0 || !item) { g_pic_ready--; g_st.decode_errors++; continue; }
+        if (vdecGetPicItem(g_vdec, &item) != 0 || !item) { ATOMIC_DEC(g_pic_ready); g_st.decode_errors++; continue; }
         const vdecPicture *p = (const vdecPicture *)(uintptr_t)item;
         const vdecH264Info *hi = (const vdecH264Info *)(uintptr_t)p->codec_specific_addr;
         int w = hi ? hi->width : 0, h = hi ? hi->height : 0;
         int64_t t_in = (int64_t)p->userdata[0];
-        if (w <= 0 || h <= 0 || w > MAX_W || h > MAX_H) { g_pic_ready--; g_st.decode_errors++; vdecGetPicture(g_vdec, &fmt, NULL); continue; }
-        if (vdecGetPicture(g_vdec, &fmt, g_pic) != 0) { g_pic_ready--; g_st.decode_errors++; continue; }
-        g_pic_ready--; g_st.pics_out++; if (g_st.pics_out == 1) logf_("primera imagen decodificada: %dx%d", w, h); g_st.width = w; g_st.height = h;
+        if (w <= 0 || h <= 0 || w > MAX_W || h > MAX_H) { ATOMIC_DEC(g_pic_ready); g_st.decode_errors++; vdecGetPicture(g_vdec, &fmt, NULL); continue; }
+        if (vdecGetPicture(g_vdec, &fmt, g_pic) != 0) { ATOMIC_DEC(g_pic_ready); g_st.decode_errors++; continue; }
+        ATOMIC_DEC(g_pic_ready); g_st.pics_out++; if (g_st.pics_out == 1) logf_("primera imagen decodificada: %dx%d", w, h); g_st.width = w; g_st.height = h;
         if (t_in > 0) g_st.decode_ms_last = (int)((now_us() - t_in) / 1000);
         shown = 1;
     }
@@ -224,11 +239,10 @@ static void pump_pictures(void) {
 }
 /* Reinicio del decodificador cuando se queda mudo con unidades pendientes (sin AUDONE/PICOUT): antes el receptor descartaba video para siempre. */
 static void vdec_recover(const char *why) {
+    /* Solo diagnóstico. Antes se cerraba y reabría el decodificador aquí; sobre un decodificador atascado vdecClose se cuelga y congelaba toda la consola. */
     g_st.vdec_resets++;
-    logf_("decodificador sin respuesta (%s): reinicio #%u (AU enviadas %u, AUDONE %u, PICOUT %u, err %u cod %d, rc %d)", why, g_st.vdec_resets,
+    if (g_st.vdec_resets <= 5) logf_("decodificador sin respuesta (%s): AU enviadas %u, AUDONE %u, PICOUT %u, err %u cod %d, rc %d", why,
           g_st.au_submitted, g_st.cb_audone, g_st.cb_picout, g_st.cb_error, (int)g_st.last_cb_error, (int)g_st.last_decode_rc);
-    vdec_close(); g_have_key = 0;
-    if (vdec_open() != 0) logf_("no se pudo reabrir el decodificador");
     g_last_progress_us = now_us();
 }
 static void check_sps(const uint8_t *d, size_t n, int key) {
@@ -339,7 +353,8 @@ void ps3av_reset_stream(void) {
  * Se limpia y se vuelve al XMB con sysProcessExit. Se comprueba cada vez que se leen los botones, que todos los bucles hacen a menudo. */
 static volatile int g_exit_req;
 static void sysutil_cb(u64 status, u64 param, void *usrdata) { (void)param; (void)usrdata; if (status == SYSUTIL_EXIT_GAME) g_exit_req = 1; }
-void ps3av_exit_to_xmb(void) { printf("[opentv] saliendo al XMB\n"); ps3av_shutdown(); sysProcessExit(0); }
+/* Salida: NO se cierra el decodificador (puede estar atascado y vdecClose no vuelve); el sistema libera SPU, hilos y memoria al terminar el proceso. */
+void ps3av_exit_to_xmb(void) { printf("[opentv] saliendo al XMB\n"); g_arun = 0; sysProcessExit(0); }
 int ps3av_poll_buttons(void) {
     padData d; static int prev = 0; int cur = 0;
     sysUtilCheckCallback();
