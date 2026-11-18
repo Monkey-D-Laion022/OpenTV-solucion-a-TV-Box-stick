@@ -1,0 +1,6 @@
+Archivos retirados (espejo por navegador MJPEG). Quedan como archivos vacíos (solo "package") porque descomprimir un ZIP encima del repositorio
+no borra los viejos y los viejos hacían fallar la compilación. Se pueden borrar a mano cuando quieras; el proyecto compila igual.
+app/src/main/java/com/opentv/app/stream/{BrowserMirror,MjpegHttpServer,MjpegHub,MjpegPages,MjpegAdaptive,MjpegQuality}.kt
+app/src/main/java/com/opentv/app/ui/browser/{BrowserMirrorScreen,BrowserMirrorViewModel}.kt
+app/src/test/java/com/opentv/app/stream/{MjpegTest,MjpegAdaptiveTest}.kt
+También (sin efecto en la compilación): receivers/pc/ y tools/receiver-py/ si siguen en el repositorio.
