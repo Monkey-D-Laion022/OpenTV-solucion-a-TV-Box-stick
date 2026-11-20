@@ -204,7 +204,7 @@ class HomeState(
         }
     }
 
-    fun setShowNotifText(on: Boolean) {
+    fun updateShowNotifText(on: Boolean) {
         showNotifText = on
         prefs.setShowNotifText(on)
     }

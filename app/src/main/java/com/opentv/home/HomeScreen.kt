@@ -599,7 +599,7 @@ private fun QuickPanel(state: HomeState) {
                     }
                 }
                 item {
-                    Button(onClick = { state.setShowNotifText(!state.showNotifText) }) {
+                    Button(onClick = { state.updateShowNotifText(!state.showNotifText) }) {
                         Text(if (state.showNotifText) "Ocultar texto de notificaciones" else "Mostrar texto de notificaciones")
                     }
                 }
