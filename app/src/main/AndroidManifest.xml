@@ -94,6 +94,22 @@
             </intent-filter>
         </activity>
 
+        <!--
+            PRUEBA de Home v3 (aislada). Aparece como un ícono aparte, SIN categoría HOME: no compite con .HomeAlias ni cambia el launcher.
+            Sin servicios de notificaciones ni protector de pantalla registrados. Para quitarla: docs/HOME-V3-QUITAR.txt.
+        -->
+        <activity
+            android:name="com.opentv.home.OpenTvHomeActivity"
+            android:exported="true"
+            android:label="OpenTV Home (prueba)"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <!-- Shizuku entrega su conexión a la app a través de este proveedor. -->
         <provider
             android:name="rikka.shizuku.ShizukuProvider"

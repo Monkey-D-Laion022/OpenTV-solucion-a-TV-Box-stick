@@ -17,6 +17,8 @@ mediarouter = "1.6.0"
 media3 = "1.4.1"
 # Fase 4 (resolución 16:9 vía Shizuku). Versión sin verificar contra el repositorio.
 shizuku = "13.1.5"
+# Prueba de Home v3 (aislada; ver docs/HOME-V3-QUITAR.txt). 1.0.0 = última compilada contra compileSdk 34 / Compose 1.6; SIN verificar contra el repositorio.
+tvMaterial = "1.0.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -38,6 +40,7 @@ androidx-media3-exoplayer-dash = { group = "androidx.media3", name = "media3-exo
 androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 shizuku-api = { group = "dev.rikka.shizuku", name = "api", version.ref = "shizuku" }
 shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref = "shizuku" }
+androidx-tv-material = { group = "androidx.tv", name = "tv-material", version.ref = "tvMaterial" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 [plugins]

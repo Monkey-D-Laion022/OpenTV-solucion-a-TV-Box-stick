@@ -19,6 +19,9 @@ data class Offer(
     val hls: Boolean = false,
 )
 
+/** Clave estable de una oferta, para recordar cuál funcionó en un televisor. */
+val Offer.key: String get() = "${if (hls) "hls" else "ts"}|${width}x$height|$fps|${protocolInfo.hashCode()}"
+
 data class Selection(val attempts: List<Offer>, val reasons: List<String>)
 
 /**
@@ -35,6 +38,17 @@ data class Selection(val attempts: List<Offer>, val reasons: List<String>)
 object ProfileSelector {
     const val GENERIC_PROTOCOL_INFO =
         "http-get:*:video/mpeg:DLNA.ORG_PN=MPEG_TS_HD_NA_ISO;DLNA.ORG_OP=00;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000"
+
+    /** Algunos LG antiguos solo reconocen este tipo MIME para HLS. */
+    const val HLS_PROTOCOL_INFO_ALT = "http-get:*:application/x-mpegURL:DLNA.ORG_OP=00;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000"
+
+    /** Pone primero la oferta que ya funcionó en este televisor (si sigue en la lista); el resto conserva su orden. */
+    fun preferRemembered(sel: Selection, rememberedKey: String?): Selection {
+        val i = sel.attempts.indexOfFirst { it.key == rememberedKey }
+        if (rememberedKey == null || i <= 0) return sel
+        return Selection(listOf(sel.attempts[i]) + sel.attempts.filterIndexed { j, _ -> j != i },
+            sel.reasons + "Se prueba primero el formato que ya funcionó en este televisor: ${sel.attempts[i].label}.")
+    }
 
     const val HLS_PROTOCOL_INFO = "http-get:*:application/vnd.apple.mpegurl:DLNA.ORG_OP=00;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000"
 
@@ -82,6 +96,8 @@ object ProfileSelector {
             // se cae al TS genérico 1080p30 que ya funcionaba.
             attempts += Offer("HLS · 1080p60 (el televisor no declaró formatos; HLS ya funcionó en este LG)", HLS_PROTOCOL_INFO, null, 1920, 1080, 60, "FULL_HD_60", false,
                 "intento a 60 fps por HLS basado en una prueba física previa, no en lo que el televisor declara", hls = true)
+            attempts += Offer("HLS · 1080p60 · MIME x-mpegURL", HLS_PROTOCOL_INFO_ALT, null, 1920, 1080, 60, "FULL_HD_60", false,
+                "mismo intento con el otro tipo MIME de HLS que usan algunos LG", hls = true)
         } else {
             reasons += "El televisor declara ${sink.size} formato(s); ${sink.count { classify(it) != null }} sirven para MPEG‑TS con H.264 y AAC."
             val ranked = sink.mapNotNull { p -> classify(p)?.let { p to it } }.sortedWith(compareBy({ it.second.rank }, { sizeFor(it.first).second * -1 }))
@@ -109,6 +125,6 @@ object ProfileSelector {
         }
         attempts += Offer("genérico MPEG‑TS · 480p30", GENERIC_PROTOCOL_INFO.replace("_HD_", "_SD_"), "MPEG_TS_SD_NA_ISO", 854, 480, 30, "COMPAT_480", false, "respaldo de menor exigencia")
         reasons += "Se probarán ${attempts.size} variante(s), de mayor a menor preferencia, y se avanza a la siguiente si el televisor no llega a reproducir."
-        return Selection(attempts.distinctBy { it.protocolInfo + it.height + it.hls }, reasons)
+        return Selection(attempts.distinctBy { it.protocolInfo + it.height + it.fps + it.hls }, reasons)
     }
 }

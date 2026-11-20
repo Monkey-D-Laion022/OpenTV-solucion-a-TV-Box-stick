@@ -81,6 +81,7 @@ class WfdSourceStreamer(
                 )
                 pipe = p
                 p.start()
+                startedAtMs = System.currentTimeMillis()
                 running = true
             } catch (e: RuntimeException) {
                 onProblem("No se pudo iniciar la captura para Miracast: ${e.message ?: e.javaClass.simpleName}")
@@ -99,5 +100,12 @@ class WfdSourceStreamer(
         main.post { IptvService.stopIfIdle(appContext) } // el servicio solo se apaga si ninguna otra transmisión sigue registrada
     }
 
-    fun summary(): String = "RTP enviados: $packets paquetes, ${bytes / 1024} KB, errores de envío: $sendErrors"
+    fun summary(): String {
+        val p = pipe
+        val secs = if (startedAtMs > 0) (System.currentTimeMillis() - startedAtMs) / 1000.0 else 0.0
+        val enc = p?.encodedFrames ?: 0L
+        val fps = if (secs >= 1.0) " · cuadros codificados $enc (≈ ${"%.1f".format(java.util.Locale.US, enc / secs)} fps promedio en ${secs.toInt()} s; no es lo que muestra el televisor)" else ""
+        return "RTP enviados: $packets paquetes, ${bytes / 1024} KB, errores de envío: $sendErrors$fps"
+    }
+    @Volatile private var startedAtMs = 0L
 }

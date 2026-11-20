@@ -26,6 +26,8 @@ class SessionSupervisor(
     private val playTimeoutMs: Long = 15_000,
     private val maxRetries: Int = 2,
     private val backoffMs: List<Long> = listOf(2_000, 4_000, 8_000),
+    /** Reintentos permitidos para cada intento (por índice). Un intento especulativo no merece 3 esperas de 15 s. */
+    private val retriesFor: (Int) -> Int = { maxRetries },
 ) {
     var phase: DlnaPhase = DlnaPhase.IDLE; private set
     var attemptIndex: Int = 0; private set
@@ -91,11 +93,11 @@ class SessionSupervisor(
         lastReason = reason
         recoveries++; recoveryTimes.addLast(nowMs); while (recoveryTimes.size > 12) recoveryTimes.removeFirst()
         unreachable = 0
-        if (retries < maxRetries) {
+        if (retries < retriesFor(attemptIndex)) {
             val wait = backoffMs.getOrElse(retries) { backoffMs.last() }
             retries++
             phase = DlnaPhase.RETRYING
-            return DlnaAction.Retry(attemptIndex, wait, "$reason; reintento $retries de $maxRetries")
+            return DlnaAction.Retry(attemptIndex, wait, "$reason; reintento $retries de ${retriesFor(attemptIndex)}")
         }
         if (attemptIndex + 1 < attemptCount) {
             attemptIndex++; retries = 0

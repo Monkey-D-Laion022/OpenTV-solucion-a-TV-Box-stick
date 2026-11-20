@@ -39,8 +39,16 @@ object WfdFormatChooser {
         Cand(854, 480, 30, IptvPreset.COMPAT_480, 0x01),
     )
 
+    private fun candidates(preferFluidity: Boolean): List<Cand> =
+        if (!preferFluidity) CANDIDATES else CANDIDATES.sortedWith(compareByDescending<Cand> { it.fps >= 60 }.thenByDescending { it.w })
+
     /** Elige lo mejor que el televisor declara aceptar y que OpenTV sabe producir, sin pasar de [maxPreset] si se da. */
-    fun choose(m3: Map<String, String>, maxPreset: IptvPreset? = null): Pair<WfdChoice?, String> {
+    /**
+     * [preferFluidity] = prioriza 60 fps sobre resolución: 1080p60, 720p60, y solo después 1080p30. Se agregó porque el LG declara 720p60 pero no
+     * 1080p60 (M3 real): sin esto se negociaba 1080p30. Sigue sin forzarse nada: solo se elige entre modos que el televisor DECLARA.
+     */
+    fun choose(m3: Map<String, String>, maxPreset: IptvPreset? = null, preferFluidity: Boolean = false): Pair<WfdChoice?, String> {
+        val CANDIDATES = candidates(preferFluidity)
         val v = m3["wfd_video_formats"]?.let { WfdVideoFormats.parse(it) }
             ?: return null to "El televisor no declaró wfd_video_formats interpretable: no se puede elegir formato."
         if (v.noVideo) return null to "El televisor declara «none» como video."
@@ -121,7 +129,7 @@ sealed interface WfdAction {
  * Continuación del intercambio tras M3. Estados: M4 → M5 → SETUP → PLAY → transmitiendo (con mantenimiento M16, petición de
  * cuadro clave M7 y TEARDOWN). Lógica pura.
  */
-class WfdSourceFlow(private val localIp: String, private val maxPreset: IptvPreset? = null) {
+class WfdSourceFlow(private val localIp: String, private val maxPreset: IptvPreset? = null, private val preferFluidity: Boolean = true) {
     enum class State { IDLE, WAIT_M4, WAIT_M5, WAIT_SETUP, WAIT_PLAY, STREAMING, DONE, FAILED }
 
     var state = State.IDLE; private set
@@ -132,7 +140,7 @@ class WfdSourceFlow(private val localIp: String, private val maxPreset: IptvPres
     private val session = "6a1b2c3d"
 
     fun start(m3: Map<String, String>, nextCseq: Int): Pair<Int, List<WfdAction>> {
-        val (c, why) = WfdFormatChooser.choose(m3, maxPreset)
+        val (c, why) = WfdFormatChooser.choose(m3, maxPreset, preferFluidity)
         if (c == null) { state = State.FAILED; return nextCseq to listOf(WfdAction.Fail(why)) }
         val port = parseClientRtpPort(m3["wfd_client_rtp_ports"])
         if (port == null) { state = State.FAILED; return nextCseq to listOf(WfdAction.Fail("El televisor no declaró wfd_client_rtp_ports interpretable.")) }

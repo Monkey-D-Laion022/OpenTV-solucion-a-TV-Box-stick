@@ -1,0 +1,7 @@
+Home v3 (prueba aislada) — cómo quitarla por completo si afecta a la app o rompe el build
+1. Borrar la carpeta app/src/main/java/com/opentv/home/
+2. En app/src/main/AndroidManifest.xml borrar el bloque <activity android:name="com.opentv.home.OpenTvHomeActivity"> (y su comentario).
+3. En app/build.gradle.kts borrar la línea implementation(libs.androidx.tv.material)
+4. En gradle/libs.versions.toml borrar tvMaterial y androidx-tv-material.
+Si solo falla la COMPILACIÓN por un detalle de tv-material, el error nombra el parámetro; no hace falta quitar todo, pero para no frenar las pruebas de conectividad conviene quitarla (pasos 1–4) y volver a compilar.
+Qué NO se agregó: NotificationListenerService, DreamService, permiso REQUEST_DELETE_PACKAGES, segundo HOME. Los archivos de esos servicios están en el código pero SIN registrar (inertes).

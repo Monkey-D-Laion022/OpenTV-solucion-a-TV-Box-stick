@@ -16,6 +16,12 @@ data class DlnaStatus(
     val renderer: String = "",
     val offer: String = "",
     val log: List<String> = emptyList(),
+    /** Intento en curso (1…[attempts]), cuántos hay y por qué transporte va; antes el diagnóstico solo mostraba un texto genérico. */
+    val attempt: Int = 0,
+    val attempts: Int = 0,
+    val transport: String = "",
+    val recoveries: Int = 0,
+    val lastReason: String = "",
 )
 
 /**
@@ -31,14 +37,20 @@ class DlnaSession(
     private val onOffer: (Offer) -> Unit = {},
     private val pollMs: Long = 2_000,
     private val streamAlive: () -> Boolean = { false },
+    /** Clave del formato que ya funcionó en este televisor (se prueba primero). */
+    private val rememberedKey: String? = null,
+    /** Se llama cuando el televisor pasa a reproducir con una oferta: quien llama la recuerda. */
+    private val onPlaying: (Offer) -> Unit = {},
 ) {
     private val _status = MutableStateFlow(DlnaStatus(renderer = renderer.friendlyName))
     val status: StateFlow<DlnaStatus> = _status
     private var job: Job? = null
 
     private fun log(phase: DlnaPhase, msg: String, offer: String = _status.value.offer) {
-        _status.value = DlnaStatus(phase, renderer.friendlyName, offer, (_status.value.log + msg).takeLast(30))
+        _status.value = _status.value.copy(phase = phase, offer = offer, log = (_status.value.log + msg).takeLast(30))
     }
+    private var currentOffer: Offer? = null
+    private var notified = false
 
     fun start() {
         if (job?.isActive == true) return
@@ -48,9 +60,10 @@ class DlnaSession(
     private suspend fun run() {
         log(DlnaPhase.READING_CAPS, "Leyendo los formatos que acepta ${renderer.friendlyName}…")
         val sink = client.readSink(renderer)
-        val selection = ProfileSelector.select(sink)
+        val selection = ProfileSelector.preferRemembered(ProfileSelector.select(sink), rememberedKey)
         selection.reasons.forEach { log(DlnaPhase.READING_CAPS, it) }
-        val sup = SessionSupervisor(selection.attempts.size)
+        val sup = SessionSupervisor(selection.attempts.size, retriesFor = { i -> selection.attempts.getOrNull(i)?.let { if (!it.declaredByRenderer && it.hls && it.fps > 30) 0 else 2 } ?: 2 })
+        _status.value = _status.value.copy(attempts = selection.attempts.size)
         sup.begin()
         var action: DlnaAction = sup.onCapabilitiesRead()
         while (scope.isActive) {
@@ -63,7 +76,9 @@ class DlnaSession(
                     val info = withContext(Dispatchers.IO) { client.transport(renderer) }
                     val now = System.currentTimeMillis()
                     action = if (info == null) sup.onPollFailed(now, streamAlive()) else sup.onTransport(info.state, now)
+                    _status.value = _status.value.copy(recoveries = sup.recoveries, lastReason = sup.lastReason)
                     if (sup.phase == DlnaPhase.PLAYING && _status.value.phase != DlnaPhase.PLAYING) log(DlnaPhase.PLAYING, "El televisor está reproduciendo.")
+                    if (sup.phase == DlnaPhase.PLAYING && !notified) { notified = true; currentOffer?.let { onPlaying(it) } }
                     if (sup.phase == DlnaPhase.PLAYING && sup.unstable(now) && _status.value.log.lastOrNull()?.startsWith("Inestable") != true)
                         log(DlnaPhase.PLAYING, "Inestable: ${sup.recoveries} recuperaciones en pocos minutos (última causa: ${sup.lastReason}). Reproduce, pero la sesión no es fiable.")
                 }
@@ -73,6 +88,8 @@ class DlnaSession(
 
     private suspend fun send(sup: SessionSupervisor, attempts: List<Offer>, index: Int, why: String): DlnaAction {
         val offer = attempts[index]
+        currentOffer = offer; notified = false
+        _status.value = _status.value.copy(attempt = index + 1, attempts = attempts.size, transport = if (offer.hls) "HLS (lista m3u8)" else "MPEG‑TS continuo")
         log(DlnaPhase.SENDING, "Enviando ${offer.label} ($why). ${offer.note}.", offer.label)
         onOffer(offer)
         val res = withContext(Dispatchers.IO) { client.setAndPlay(renderer, urlFor(offer), "OpenTV", offer.protocolInfo) }

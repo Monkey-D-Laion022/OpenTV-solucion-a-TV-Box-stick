@@ -65,6 +65,7 @@ dependencies {
     implementation(libs.androidx.media3.ui)
     implementation(libs.shizuku.api)
     implementation(libs.shizuku.provider)
+    implementation(libs.androidx.tv.material) // solo lo usa com.opentv.home (prueba de Home v3)
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

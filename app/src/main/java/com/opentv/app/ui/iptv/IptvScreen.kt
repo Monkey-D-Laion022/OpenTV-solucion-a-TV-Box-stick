@@ -139,6 +139,7 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel(), dlnaM
                             style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground,
                         )
                         if (s.timing != null) Text(s.timing, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground)
+                        if (s.powerSaveWarning != null) Text(s.powerSaveWarning, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning)
                         if (s.fpsWarning != null) Text(s.fpsWarning, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning)
                         if (s.note != null) Text(s.note, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning)
                         if (s.audio == IptvAudio.CAPTURING_NO_SOUND || s.audio == IptvAudio.CAPTURING_ZEROS) Text(
@@ -303,7 +304,8 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel(), dlnaM
                 val d = dlna
                 if (d != null) {
                     Text(
-                        "DLNA → ${d.renderer}: ${d.phase.name}" + (if (d.offer.isNotEmpty()) " · ${d.offer}" else "") + "\n" + d.log.takeLast(8).joinToString("\n"),
+                        "DLNA → ${d.renderer}: ${d.phase.name}" + (if (d.offer.isNotEmpty()) " · ${d.offer}" else "") +
+                            (if (d.attempt > 0) "\nIntento ${d.attempt} de ${d.attempts} · transporte: ${d.transport} · recuperaciones: ${d.recoveries}" + (if (d.lastReason.isNotEmpty()) " (última: ${d.lastReason})" else "") else "") + "\n" + d.log.takeLast(8).joinToString("\n"),
                         style = MaterialTheme.typography.bodyMedium,
                         color = if (d.phase == DlnaPhase.PLAYING) OpenTvColors.Success else if (d.phase == DlnaPhase.FAILED) OpenTvColors.Warning else OpenTvColors.Muted,
                     )

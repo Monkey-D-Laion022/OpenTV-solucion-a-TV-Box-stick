@@ -5,6 +5,7 @@ import com.opentv.app.media.dlna.DlnaClient
 import com.opentv.app.media.dlna.DlnaSession
 import com.opentv.app.media.dlna.DlnaStatus
 import com.opentv.app.media.dlna.Renderer
+import com.opentv.app.media.dlna.key
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -28,10 +29,14 @@ object IptvDlna {
     private var session: DlnaSession? = null
     private var statusJob: Job? = null
     private var watchJob: Job? = null
+    /** Formato que funcionó, por televisor (UDN): la próxima vez se prueba primero y no se repiten los intentos fallidos. */
+    private lateinit var prefs: android.content.SharedPreferences
+    private fun prefKey(r: Renderer) = "ok_" + r.udn
 
     @Synchronized
     fun send(context: Context, renderer: Renderer) {
         val controller = IptvController.get(context.applicationContext)
+        prefs = context.applicationContext.getSharedPreferences("opentv_dlna_memory", Context.MODE_PRIVATE)
         val live = controller.state.value as? IptvState.Live ?: return
         stop()
         val s = DlnaSession(
@@ -39,6 +44,8 @@ object IptvDlna {
             urlFor = { offer -> if (offer.hls) live.hlsUrl else live.tsUrl },
             onOffer = { controller.requestPreset(it.presetName) },
             streamAlive = { ((controller.state.value as? IptvState.Live)?.clients ?: 0) > 0 },
+            rememberedKey = runCatching { prefs.getString(prefKey(renderer), null) }.getOrNull(),
+            onPlaying = { offer -> runCatching { prefs.edit().putString(prefKey(renderer), offer.key).apply() } },
         )
         session = s
         statusJob = scope.launch { s.status.collect { _status.value = it } }

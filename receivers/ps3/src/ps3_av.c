@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <ppu-types.h>
 #include <sys/thread.h>
+#include <sys/spu.h>
 #include <sys/systime.h>
 #include <sys/event_queue.h>
 #include <lv2/systime.h>
@@ -116,9 +117,9 @@ static void draw_text(u32 *fb, int x, int y, const char *s, int scale, u32 fg, u
 static void draw_overlay(u32 *fb) {
     char l[160];
     if (g_hud && !g_st.width && g_st.video_in) {
-        snprintf(l, sizeof l, " SIN IMAGEN: video %u  AU enviadas %u  AUDONE %u  PICOUT %u  err %u(cod %d)  rc %d  reinicios %u  descartes %u/%u ",
+        snprintf(l, sizeof l, " SIN IMAGEN: video %u  AU enviadas %u  AUDONE %u  PICOUT %u  err %u(cod %d)  rc %d  reinicios %u  descartes %u/%u  var %u ",
                  g_st.video_in, g_st.au_submitted, g_st.cb_audone, g_st.cb_picout, g_st.cb_error, (int)g_st.last_cb_error, (int)g_st.last_decode_rc,
-                 g_st.vdec_resets, g_st.video_dropped_busy, g_st.video_dropped_nokey);
+                 g_st.vdec_resets, g_st.video_dropped_busy, g_st.video_dropped_nokey, g_st.vdec_variant);
         draw_text(fb, 16, 12, l, 1, 0x00FFE060, 0x00202020);
         if (g_sps_msg[0]) draw_text(fb, 16, 32, g_sps_msg, 1, 0x00FFFFFF, 0x00802020);
     }
@@ -177,18 +178,47 @@ static u32 vdec_cb(u32 handle, u32 msg, u32 data, u32 arg) {
     }
     return 0;
 }
+/* Variantes de arranque del decodificador. Con la PS3 real el decodificador acepta 8 unidades y nunca avisa (AUDONE 0), con 1080p60 y con 720p30:
+ * la causa no es el nivel. Como no se pudo confirmar cuál parámetro de vdecOpen/SPU falla, la app prueba una variante distinta en cada arranque
+ * mientras la anterior no haya producido nunca un AUDONE. Estado en USRDIR/vdec_variant.txt: "N E" (E: 0 abierta, 2 recibió unidades sin respuesta, 1 funcionó). */
+#define VDEC_VARIANTS 6
+#define VDEC_STATE_FILE "/dev_hdd0/game/OPENTV001/USRDIR/vdec_variant.txt"
+static unsigned g_variant;
+static void variant_save(int st) { FILE *f = fopen(VDEC_STATE_FILE, "w"); if (f) { fprintf(f, "%u %d\n", g_variant, st); fclose(f); } }
+static void variant_load(void) {
+    unsigned n = 0; int st = 0; FILE *f = fopen(VDEC_STATE_FILE, "r");
+    if (f) { if (fscanf(f, "%u %d", &n, &st) != 2) { n = 0; st = 0; } fclose(f); }
+    if (n >= VDEC_VARIANTS) n = 0;
+    if (st == 2) n = (n + 1) % VDEC_VARIANTS;            /* la anterior recibió video y nunca respondió: probar la siguiente */
+    g_variant = n; g_st.vdec_variant = n; variant_save(0);
+}
+static int g_variant_marked;
 static int vdec_open(void) {
     if (g_vdec_wedged) return -9;                              /* decodificador atascado: no se reabre */
+    variant_load();
     vdecType type = { VDEC_CODEC_TYPE_H264, 42 };            /* H.264 hasta nivel 4.2 */
     vdecAttr attr; memset(&attr, 0, sizeof attr);
     if (vdecQueryAttr(&type, &attr) != 0) return -1;
-    g_vmem = memalign(128, attr.mem_size); if (!g_vmem) return -2;
+    g_st.vdec_cmd_depth = attr.cmd_depth;
+    g_vmem = memalign(1024 * 1024, (attr.mem_size + 0xFFFFF) & ~0xFFFFFu); if (!g_vmem) g_vmem = memalign(128, attr.mem_size);   /* alineado a 1 MiB si el montón lo permite */
+    if (!g_vmem) return -2;
     vdecConfig cfg; memset(&cfg, 0, sizeof cfg);
     cfg.mem_addr = (u32)(uintptr_t)g_vmem; cfg.mem_size = attr.mem_size;
     cfg.ppu_thread_prio = 1001; cfg.ppu_thread_stack_size = 0x4000; cfg.spu_thread_prio = 250; cfg.num_spus = 4;
+    switch (g_variant) {
+        case 1: { int rs = sysSpuInitialize(6, 0); logf_("sysSpuInitialize(6,0) = %d", rs); break; }
+        case 2: cfg.num_spus = 1; break;
+        case 3: cfg.num_spus = 2; break;
+        case 4: cfg.ppu_thread_prio = 900; cfg.spu_thread_prio = 100; cfg.ppu_thread_stack_size = 0x10000; break;
+        case 5: cfg.num_spus = 6; break;
+        default: break;
+    }
+    logf_("vdec variante %u: mem %u (pedida %u) cmd_depth %u ver %u.%u spus %u prio ppu %u spu %u", g_variant, (unsigned)attr.mem_size, (unsigned)attr.mem_size,
+          (unsigned)attr.cmd_depth, (unsigned)attr.ver_major, (unsigned)attr.ver_minor, (unsigned)cfg.num_spus, (unsigned)cfg.ppu_thread_prio, (unsigned)cfg.spu_thread_prio);
     vdecClosure cl = { (u32)(uintptr_t)vdec_cb, 0 };
-    if (vdecOpen(&type, &cfg, &cl, &g_vdec) != 0) return -3;
-    g_vdec_open = 1; g_seq_started = 0; return 0;
+    int ro = vdecOpen(&type, &cfg, &cl, &g_vdec);
+    if (ro != 0) { logf_("vdecOpen devolvió 0x%x", (unsigned)ro); return -3; }
+    g_vdec_open = 1; g_seq_started = 0; g_variant_marked = 0; return 0;
 }
 static volatile int g_close_done;
 static void vdec_close_body(void) {
@@ -262,6 +292,7 @@ void ps3av_push_video(const uint8_t *d, size_t n, int64_t pts, int key) {
     if (g_au_inuse > 0 && g_last_progress_us && now_us() - g_last_progress_us > 1500000) vdec_recover("1,5 s sin avisos con unidades pendientes");
     if (!g_have_key) { if (!key) { g_st.video_dropped_nokey++; return; } g_have_key = 1; }
     release_done_aus();
+    if (g_variant_marked != 1 && (g_st.cb_audone || g_st.cb_picout)) { g_variant_marked = 1; variant_save(1); logf_("vdec variante %u: el decodificador respondió (AUDONE %u)", g_variant, g_st.cb_audone); }
     if (n > AU_SLOT_BYTES) { g_st.au_oversize++; if (g_st.au_oversize <= 3) logf_("unidad de video de %u bytes supera el tope de %u: se descarta", (unsigned)n, (unsigned)AU_SLOT_BYTES); g_st.video_dropped_busy++; g_have_key = 0; return; }
     if (g_au_inuse >= AU_SLOTS) { g_st.video_dropped_busy++; g_have_key = 0; return; } /* se pierde una unidad: esperar el próximo IDR */
     if (!g_seq_started) { if (vdecStartSequence(g_vdec) != 0) { g_st.decode_errors++; return; } g_seq_started = 1; }
@@ -273,7 +304,7 @@ void ps3av_push_video(const uint8_t *d, size_t n, int64_t pts, int key) {
     int r = 0;
     for (int tries = 0; tries < 20; tries++) { r = vdecDecodeAu(g_vdec, VDEC_DECODER_MODE_NORMAL, &au); if (r != (s32)VDEC_ERROR_BUSY) break; usleep(1000); }
     if (r != 0) { g_st.last_decode_rc = r; if (g_st.decode_errors < 5) logf_("vdecDecodeAu devolvió 0x%x", (unsigned)r); g_st.decode_errors++; if (r == (s32)VDEC_ERROR_BUSY) { g_st.video_dropped_busy++; g_have_key = 0; } return; }
-    g_au_head = (g_au_head + 1) % AU_SLOTS; g_au_inuse++; g_st.au_submitted++; if (!g_last_progress_us) g_last_progress_us = now_us();
+    g_au_head = (g_au_head + 1) % AU_SLOTS; g_au_inuse++; g_st.au_submitted++; if (g_st.au_submitted == 1 && g_variant_marked == 0) { g_variant_marked = 2; variant_save(2); } if (!g_last_progress_us) g_last_progress_us = now_us();
     g_last_vpts = pts; if (g_last_apts >= 0) g_st.av_skew_ms = (int)((g_last_vpts - g_last_apts) / 90);
     pump_pictures();
 }
@@ -369,7 +400,7 @@ int ps3av_init(void) {
     if ((r = display_init()) != 0) { printf("[opentv] display_init=%d\n", r); return -1; }
     g_pic = (uint8_t *)memalign(128, (size_t)MAX_W * MAX_H * 4); if (!g_pic) return -2;
     for (int i = 0; i < AU_SLOTS; i++) { g_au_buf[i] = (uint8_t *)memalign(128, AU_SLOT_BYTES); if (!g_au_buf[i]) return -3; }
-    sysModuleLoad(SYSMODULE_VDEC); sysModuleLoad(SYSMODULE_VDEC_H264);
+    { int m1 = sysModuleLoad(SYSMODULE_VDEC), m2 = sysModuleLoad(SYSMODULE_VDEC_H264); logf_("sysModuleLoad VDEC=%d VDEC_H264=%d", m1, m2); }
     if ((r = vdec_open()) != 0) { printf("[opentv] vdec_open=%d\n", r); ps3av_message("Decodificador H.264 no disponible"); return -4; }
     if ((r = audio_init()) != 0) { printf("[opentv] audio_init=%d (sin audio)\n", r); ps3av_message("Audio no disponible; solo video"); }
     ioPadInit(7);

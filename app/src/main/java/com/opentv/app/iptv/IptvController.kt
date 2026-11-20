@@ -66,6 +66,8 @@ sealed interface IptvState {
         val thermal: String? = null,
         /** Intervalos entre cuadros y entregas de segmentos: separan tirones de la captura, del codificador y del envío. */
         val timing: String? = null,
+        /** Aviso si el ahorro de energía del teléfono está activo (limita CPU/GPU y puede frenar el codificador); `null` = sin aviso. */
+        val powerSaveWarning: String? = null,
     ) : IptvState
     data class Failed(val message: String) : IptvState
 }
@@ -238,7 +240,7 @@ class IptvController private constructor(context: Context) {
         // En automático se baja a lo que el codificador declara soportar; si el usuario eligió el perfil a mano se intenta tal cual
         // (no hay límite artificial: el FPS codificado real se muestra y, si el codificador no puede, se informa el error).
         val choice = if (_auto.value) IptvProfilePicker.pick(requested) { w, h, f -> EncoderProbe.supports(w, h, f) }
-        else ProfileChoice(requested, "Perfil elegido a mano: se intentó ${requested.shortLabel} sin comprobar soporte previo.")
+        else ProfileChoice(requested, "Perfil inicial del canal elegido a mano: se arrancó con ${requested.shortLabel} sin comprobar soporte previo (DLNA y /tv pueden pedir otro formato después).")
         val preset = choice.preset
         IptvService.start(appContext)
         val hub = StreamHub(maxQueuedBytes = HubSizing.queueBytes(preset.bitrateBps))
@@ -292,6 +294,8 @@ class IptvController private constructor(context: Context) {
             val timer = java.util.Timer("opentv-iptv-stats", true)
             val lostRate = RateMeter(); val encRate = RateMeter(); val sentRate = RateMeter(); val servedRate = RateMeter(); val capRate = RateMeter(); val renRate = RateMeter()
             var lastEncoded = 0L
+            var lastLate = pipe.lateTicks
+            val pm = appContext.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
             var lastProgressMs = startedAt
             var fallbackDone = false
             var lastDeliveryMs = startedAt
@@ -341,11 +345,13 @@ class IptvController private constructor(context: Context) {
                         }
                     }
                     val lat = pipe.encodeLatencyStats()
+                    val lateTotal = pipe.lateTicks.toLong(); val lateNow = (lateTotal - lastLate).coerceAtLeast(0L).toInt(); lastLate = lateTotal
+                    val saver = PowerSaveJudge.warning(pm?.isPowerSaveMode == true, pipe.preset.fps, thermal)
                     if (pipe.pumpActive && _governor.value) {
                         val a = adapter.onSecond(
                             QualityAdapter.Sample(
                                 encFps, renFps, producedKbps, deliveredKbps, srv.activeClients, FpsGovernor.thermalLimited(thermal),
-                                backlog = pipe.backlog, encodeLatencyP95Ms = lat.p95, lostKbps = lostKbps,
+                                backlog = pipe.backlog, encodeLatencyP95Ms = lat.p95, lostKbps = lostKbps, lateTicks = lateNow,
                             ),
                         )
                         if (a.changed) {
@@ -373,6 +379,7 @@ class IptvController private constructor(context: Context) {
                         capturedFps = capFps, renderedFps = renFps, pumpActive = pipe.pumpActive, msSinceFrame = sinceFrame,
                         health = verdict.text, healthy = verdict.healthy, profileApplied = pipe.profileApplied, requestedLabel = cur.label,
                         targetFps = adapter.targetFps, bottleneck = adapter.lastCause.label, governorNote = governorNote, thermal = thermal,
+                        powerSaveWarning = saver,
                         timing = "Intervalo entre cuadros: ${pipe.frameIntervals().describe()} · tics atrasados: ${pipe.lateTicks}\n" +
                             "Codificador: tiempo por cuadro ${lat.describe()} · cola ${pipe.backlog} cuadro(s) · bajadas de resolución ${adapter.resolutionDrops}, subidas probadas ${adapter.resolutionProbes}\n" +
                             "${srv.deliveries.summary().describe()}" + (if (adaptNotes.isEmpty()) "" else "\nAdaptación: " + adaptNotes.joinToString(" · ")),

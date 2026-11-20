@@ -32,6 +32,9 @@ class QualityAdapter(
         val clients: Int, val thermalLimited: Boolean, val backlog: Long = 0, val encodeLatencyP95Ms: Double = 0.0,
         /** Video descartado por clientes lentos en el último segundo (kbit/s): pérdida real de transporte, más directa que comparar bytes. */
         val lostKbps: Int = 0,
+        /** Tics de la bomba de cuadros que llegaron tarde (> 1,5 intervalos) en el último segundo. Con apps pesadas en primer plano la GPU compite con la
+         *  bomba: los FPS promedio parecen bien pero el ritmo sale a tirones y el reproductor del televisor se queda sin datos a tiempo. */
+        val lateTicks: Int = 0,
     )
 
     private var ladder: List<IptvPreset> = buildLadder(requested, maxHeight)
@@ -50,6 +53,7 @@ class QualityAdapter(
     private val lossHistory = ArrayDeque<Pair<Int, Int>>() // (perdido, producido) en kbit/s, uno por segundo
     private var recoverAfterS = NET_UP_S
     private var backlogBad = 0
+    private var lateBad = 0
     private var stableSeconds = 0
     private var upBackoffS = UP_RES_AFTER_S
     private var failedIndex: Int? = null
@@ -72,7 +76,9 @@ class QualityAdapter(
         // Cola del codificador: si crece y se mantiene, el codificador se queda atrás aunque los FPS medidos aún parezcan bien;
         // en ese caso el gobernador recibe una muestra con la mitad de FPS codificados para que aplique su racha, escalones y memoria.
         backlogBad = if (s.backlog > BACKLOG_LIMIT) backlogBad + 1 else 0
-        val behind = backlogBad >= BACKLOG_STREAK_S
+        val lateLimit = maxOf(LATE_MIN_PER_S, governor.targetFps / 10)
+        lateBad = if (s.lateTicks >= lateLimit) lateBad + 1 else 0
+        val behind = backlogBad >= BACKLOG_STREAK_S || lateBad >= LATE_STREAK_S
         val encForGov = if (behind) minOf(s.encodedFps, governor.targetFps * 0.5) else s.encodedFps
         val g = governor.onSecond(
             // La red la trata este adaptador (solo bitrate): el gobernador no debe bajar FPS por ella.
@@ -131,7 +137,7 @@ class QualityAdapter(
         }
 
         // Subir de resolución: solo tras mucho tiempo estable, sin calor y sin tropiezos recientes.
-        val healthy = cause == FpsGovernor.Bottleneck.NONE && !s.thermalLimited && !starved && backlogBad == 0
+        val healthy = cause == FpsGovernor.Bottleneck.NONE && !s.thermalLimited && !starved && backlogBad == 0 && lateBad == 0
         stableSeconds = if (healthy) stableSeconds + 1 else 0
         if (index > 0 && stableSeconds >= upBackoffS && cooldown == 0 && governor.targetFps >= current.fps) {
             val upIdx = index - 1
@@ -164,6 +170,8 @@ class QualityAdapter(
         const val MIN_SCALE = 0.4
         const val BACKLOG_LIMIT = 6L
         const val BACKLOG_STREAK_S = 4
+        const val LATE_MIN_PER_S = 3
+        const val LATE_STREAK_S = 5
 
         /** Piso de FPS por resolución: en 1080p el piso es 30 (más abajo conviene bajar de resolución, no de fluidez). */
         fun floorFor(p: IptvPreset): Int = if (p.height >= 1080) 30 else if (p.height >= 720) 30 else 15

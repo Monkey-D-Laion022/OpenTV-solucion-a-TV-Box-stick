@@ -52,3 +52,15 @@ Tres lugares del hilo principal podían esperar para siempre, y ahí no se atien
 3. Esperas de GPU sin tope (`flip`, `wait_finish`).
 **Cambios:** el recovery quedó **solo de diagnóstico**; el cierre del decodificador se hace en un hilo aparte con tope de 4 s y, si no responde, se abandona (el video queda desactivado, el audio sigue); la salida al XMB ya no cierra el decodificador; esperas de GPU acotadas (1 s / 100 ms); contadores de decodificador atómicos. El PKG compila y verifica. **No resuelve la pantalla negra**: sigue sin causa confirmada. El `ECONNREFUSED` indica que la app dejó de escuchar (se colgó o terminó) y es consistente con lo anterior.
 **Telemetría del emisor:** a 1080p60 el codificador entregó ~230 kbit/s a 30 fps frente a 7–10 Mbit/s pedidos: con la pantalla casi estática un codificador CBR por hardware puede producir muy poco, así que no prueba un fallo por sí solo; conviene repetir con video en movimiento.
+
+## Actualización 2026-11-18 (informe de la ronda 4)
+| Módulo | Estado | Evidencia |
+|---|---|---|
+| IPTV/HLS | PARCIAL alto (10/10 informado; no APROBADA hasta compilar y repetir) | 1080p60, Stremio/Play TV, gobernador 42–76 % sin caídas |
+| Web Video Caster | PARCIAL (respaldo válido) | cierres con Xtreamer ante microcongestión (>500 ticks tardíos) |
+| DLNA | PARCIAL / inestable | sin respuesta a GetProtocolInfo → 1080p30 genérico, timeouts; versión del APK por confirmar |
+| Miracast / Wi-Fi Direct | PARCIAL | enlace y RTP verificados (>14 000 paquetes, 60 Hz aceptado); imagen y fps reales sin confirmar |
+| OpenTV Link / PS3 | **FALLIDA** | decodificador BUSY (0x80610103) tras 8 AU, AUDONE 0; congelamiento persiste |
+
+## Cambios de la ronda 5 (2026-11-19) — todos PENDIENTES DE HARDWARE
+Ver `CAMBIOS-RONDA5.md`: PS3 variantes de vdec; DLNA memoria de formato por TV y 2.º MIME HLS; Miracast 720p60 (el LG no declara 1080p60); gobernador por tics atrasados; aviso de ahorro de energía; Home v3 como prueba aislada. Ningún estado sube de categoría hasta la próxima ronda física.
