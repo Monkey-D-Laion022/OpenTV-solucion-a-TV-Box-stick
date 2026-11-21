@@ -135,4 +135,33 @@ class WfdSourceTest {
         val (c, why) = WfdFormatChooser.choose(m3("00000003")) // 640x480p60 y 720x480p60
         assertNull(c); assertTrue(why.contains("640x480p60") && why.contains("720x480p60"))
     }
+
+    private fun streamingFlow(): Pair<WfdSourceFlow, Int> {
+        val f = WfdSourceFlow("192.168.49.1")
+        var (n, _) = f.start(m3("000001C0"), 4)
+        var r = f.onMessage(resp(4), n); n = r.first
+        r = f.onMessage(resp(5), n); n = r.first
+        r = f.onMessage(req("SETUP", mapOf("transport" to "RTP/AVP/UDP;unicast;client_port=19004"), cseq = 3), n); n = r.first
+        r = f.onMessage(req("PLAY", cseq = 4), n)
+        return f to r.first
+    }
+    @Test fun elMantenimientoM16SoloSaleMientrasSeTransmiteYLlevaLaSesion() {
+        val idle = WfdSourceFlow("192.168.49.1")
+        assertTrue(idle.keepAlive(10).second.isEmpty())
+        val (f, n) = streamingFlow()
+        val (next, acts) = f.keepAlive(n)
+        assertEquals(n + 1, next)
+        val text = (acts.single() as WfdAction.Send).text
+        assertTrue(text.startsWith("GET_PARAMETER rtsp://localhost/wfd1.0 RTSP/1.0\r\nCSeq: $n"))
+        assertTrue(text.contains("Session: "))
+    }
+    @Test fun laRespuestaAlM16NoCambiaElEstadoNiGeneraEnvios() {
+        val (f, n) = streamingFlow()
+        val (next, _) = f.keepAlive(n)
+        val r = f.onMessage(resp(n), next)
+        assertEquals(WfdSourceFlow.State.STREAMING, f.state)
+        assertTrue(r.second.none { it is WfdAction.Send })
+        val bad = f.keepAlive(r.first).let { f.onMessage(resp(r.first, 500), it.first) }
+        assertEquals(WfdSourceFlow.State.STREAMING, f.state); assertTrue(bad.second.any { it is WfdAction.Log })
+    }
 }

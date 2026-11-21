@@ -1,8 +1,8 @@
-Ronda 5 (2026-11-19): 
+Ronda 5 (2026-11-21, segunda parte): JVM 532 OK (lógica pura, `runall.sh`; excluye archivos que importan Android) · PS3 `make pkg verify` OK (364912 B) · link y H.264 OK · Android NO compilado aquí.
 
 
-OK (505 tests)
+
 
 Pruebas JVM 2026-11-14: 517 OK (lógica pura; excluye OutputController.kt)
 Pruebas JVM 2026-11-14 (candidata): 530 OK (lógica pura; excluye OutputController.kt)
-Ronda 2026-11-14 (PC): JVM 532 OK · Link 14 OK (receptor C) · H264/TS OK · tv_sim 8/8 · PS3 make pkg verify OK (358496 B). Android NO compilado aquí.
+Ronda 2026-11-14 (PC): JVM 526 OK · Link 14 OK (receptor C) · H264/TS OK · tv_sim 8/8 · PS3 make pkg verify OK (358496 B). Android NO compilado aquí.

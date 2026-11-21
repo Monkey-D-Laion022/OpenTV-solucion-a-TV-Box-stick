@@ -41,6 +41,11 @@ class DlnaSession(
     private val rememberedKey: String? = null,
     /** Se llama cuando el televisor pasa a reproducir con una oferta: quien llama la recuerda. */
     private val onPlaying: (Offer) -> Unit = {},
+    /** Perfil con el que arrancó el canal; se prueba primero cuando el televisor no declara formatos. */
+    private val userProfile: ProfileSelector.UserProfile? = null,
+    /** Claves de formatos que este televisor ya rechazó antes (se omiten) y aviso cuando rechaza uno nuevo. */
+    private val rejectedKeys: Set<String> = emptySet(),
+    private val onRejected: (Offer) -> Unit = {},
 ) {
     private val _status = MutableStateFlow(DlnaStatus(renderer = renderer.friendlyName))
     val status: StateFlow<DlnaStatus> = _status
@@ -60,7 +65,7 @@ class DlnaSession(
     private suspend fun run() {
         log(DlnaPhase.READING_CAPS, "Leyendo los formatos que acepta ${renderer.friendlyName}…")
         val sink = client.readSink(renderer)
-        val selection = ProfileSelector.preferRemembered(ProfileSelector.select(sink), rememberedKey)
+        val selection = ProfileSelector.dropRejected(ProfileSelector.preferRemembered(ProfileSelector.select(sink, userProfile), rememberedKey), rejectedKeys)
         selection.reasons.forEach { log(DlnaPhase.READING_CAPS, it) }
         val sup = SessionSupervisor(selection.attempts.size, retriesFor = { i -> selection.attempts.getOrNull(i)?.let { if (!it.declaredByRenderer && it.hls && it.fps > 30) 0 else 2 } ?: 2 })
         _status.value = _status.value.copy(attempts = selection.attempts.size)
@@ -93,6 +98,7 @@ class DlnaSession(
         log(DlnaPhase.SENDING, "Enviando ${offer.label} ($why). ${offer.note}.", offer.label)
         onOffer(offer)
         val res = withContext(Dispatchers.IO) { client.setAndPlay(renderer, urlFor(offer), "OpenTV", offer.protocolInfo) }
+        if (!res.ok && (res.failure.orEmpty().let { it.contains("704") || it.contains("not supported", true) })) onRejected(offer)
         if (!res.ok) return sup.onCommandFailed(res.failure ?: "sin detalle", System.currentTimeMillis())
         sup.onSent(System.currentTimeMillis())
         return DlnaAction.None

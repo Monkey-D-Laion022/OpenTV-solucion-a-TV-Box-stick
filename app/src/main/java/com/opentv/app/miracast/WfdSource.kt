@@ -110,6 +110,9 @@ object WfdSourceRtsp {
     fun setupResponse(cseq: Int, session: String, clientPort: Int, serverPort: Int): String =
         "RTSP/1.0 200 OK\r\nCSeq: $cseq\r\nSession: $session;timeout=30\r\nTransport: RTP/AVP/UDP;unicast;client_port=$clientPort;server_port=$serverPort\r\n\r\n"
 
+    /** M16: mantenimiento enviado por la FUENTE (como hace AOSP). El «Session: …;timeout=30» del SETUP significa que el receptor cierra si no hay actividad. */
+    fun m16(cseq: Int, session: String): String = "GET_PARAMETER rtsp://localhost/wfd1.0 RTSP/1.0\r\nCSeq: $cseq\r\nSession: $session\r\n\r\n"
+
     fun withSession(cseq: Int, session: String): String = "RTSP/1.0 200 OK\r\nCSeq: $cseq\r\nSession: $session\r\n\r\n"
 }
 
@@ -138,6 +141,7 @@ class WfdSourceFlow(private val localIp: String, private val maxPreset: IptvPres
     private var m5Cseq = -1
     private var clientPort = 0
     private val session = "6a1b2c3d"
+
 
     fun start(m3: Map<String, String>, nextCseq: Int): Pair<Int, List<WfdAction>> {
         val (c, why) = WfdFormatChooser.choose(m3, maxPreset, preferFluidity)
@@ -175,8 +179,21 @@ class WfdSourceFlow(private val localIp: String, private val maxPreset: IptvPres
         }
     }
 
+    private val m16Pending = HashSet<Int>()
+
+    /**
+     * Mantenimiento de la sesión: el LG cerró la conexión a los ~30 s de transmitir, que es justo el `timeout=30` que anunciamos en el SETUP y sin
+     * que la fuente enviara nada. Llamar cada [KEEPALIVE_MS] mientras se transmite; devuelve el siguiente CSeq y la acción de envío (o ninguna).
+     */
+    fun keepAlive(nextCseq: Int): Pair<Int, List<WfdAction>> {
+        if (state != State.STREAMING) return nextCseq to emptyList()
+        m16Pending += nextCseq
+        return nextCseq + 1 to listOf(WfdAction.Send(WfdSourceRtsp.m16(nextCseq, session)))
+    }
+
     private fun responseTo(msg: RtspMessage, nextCseq: Int): Pair<Int, List<WfdAction>> {
         val ok = msg.statusCode == 200
+        if (msg.cseq != null && m16Pending.remove(msg.cseq)) return nextCseq to (if (ok) emptyList() else listOf(WfdAction.Log("El televisor respondió ${msg.statusCode} al mantenimiento M16.")))
         return when (msg.cseq) {
             m4Cseq -> if (!ok) fail(nextCseq, "El televisor rechazó M4 (RTSP ${msg.statusCode}): no acepta el formato elegido ${choice?.mode?.label}.")
             else { m5Cseq = nextCseq; state = State.WAIT_M5; nextCseq + 1 to listOf(WfdAction.Log("M4 aceptado."), WfdAction.Send(WfdSourceRtsp.m5(m5Cseq))) }
@@ -188,7 +205,7 @@ class WfdSourceFlow(private val localIp: String, private val maxPreset: IptvPres
 
     private fun fail(next: Int, why: String): Pair<Int, List<WfdAction>> { state = State.FAILED; return next to listOf(WfdAction.Fail(why)) }
 
-    companion object { const val SERVER_RTP_PORT = 19000 }
+    companion object { const val SERVER_RTP_PORT = 19000; const val KEEPALIVE_MS = 10_000L }
 }
 
 /**

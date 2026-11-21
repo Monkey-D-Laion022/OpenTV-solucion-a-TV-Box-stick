@@ -86,7 +86,18 @@ object ProfileSelector {
         return if (pn.contains("_SD_")) Triple(854, 480, "COMPAT_480") else Triple(1920, 1080, "FULL_HD")
     }
 
-    fun select(sink: List<ProtocolInfo>?): Selection {
+    /** Quita los formatos que ESTE televisor ya rechazó antes (HTTP 500 / error 704), sin dejar la lista vacía. */
+    fun dropRejected(sel: Selection, rejected: Set<String>): Selection {
+        if (rejected.isEmpty()) return sel
+        val kept = sel.attempts.filter { it.key !in rejected }
+        if (kept.isEmpty() || kept.size == sel.attempts.size) return sel
+        return Selection(kept, sel.reasons + "Se omiten ${sel.attempts.size - kept.size} formato(s) que este televisor ya rechazó (error 704 / no soportado).")
+    }
+
+    /** Perfil con el que el usuario (o el modo automático) arrancó el canal. */
+    data class UserProfile(val width: Int, val height: Int, val fps: Int, val presetName: String, val label: String)
+
+    fun select(sink: List<ProtocolInfo>?, user: UserProfile? = null): Selection {
         val reasons = mutableListOf<String>()
         val attempts = mutableListOf<Offer>()
         if (sink.isNullOrEmpty()) {
@@ -94,6 +105,13 @@ object ProfileSelector {
             // Evidencia física (no una suposición sobre el receptor): en este LG, HLS 1080p60 de OpenTV se reprodujo bien con el reproductor nativo
             // (por Web Video Caster y directo). Por eso, SOLO cuando el televisor no declaró nada, se intenta primero HLS 1080p60; si no reproduce,
             // se cae al TS genérico 1080p30 que ya funcionaba.
+            // Evidencia de la ronda 5: el LG rechazó HLS por DLNA (HTTP 500, error 704 «Format not supported») y solo reprodujo TS. Por eso el primer
+            // intento es TS con el perfil del usuario (antes se ignoraba y arrancaba siempre en 1080p30); HLS queda después como alternativa.
+            if (user != null && user.height >= 480) {
+                attempts += Offer("MPEG‑TS · tu perfil ${user.label}", GENERIC_PROTOCOL_INFO, "MPEG_TS_HD_NA_ISO", user.width, user.height, user.fps, user.presetName, false,
+                    "TS con el perfil con el que arrancó el canal; el televisor decide si lo reproduce")
+                reasons += "Primer intento: el perfil del canal (${user.label}) por TS, que es lo único que este LG aceptó por DLNA."
+            }
             attempts += Offer("HLS · 1080p60 (el televisor no declaró formatos; HLS ya funcionó en este LG)", HLS_PROTOCOL_INFO, null, 1920, 1080, 60, "FULL_HD_60", false,
                 "intento a 60 fps por HLS basado en una prueba física previa, no en lo que el televisor declara", hls = true)
             attempts += Offer("HLS · 1080p60 · MIME x-mpegURL", HLS_PROTOCOL_INFO_ALT, null, 1920, 1080, 60, "FULL_HD_60", false,

@@ -64,3 +64,13 @@ Tres lugares del hilo principal podían esperar para siempre, y ahí no se atien
 
 ## Cambios de la ronda 5 (2026-11-19) — todos PENDIENTES DE HARDWARE
 Ver `CAMBIOS-RONDA5.md`: PS3 variantes de vdec; DLNA memoria de formato por TV y 2.º MIME HLS; Miracast 720p60 (el LG no declara 1080p60); gobernador por tics atrasados; aviso de ahorro de energía; Home v3 como prueba aislada. Ningún estado sube de categoría hasta la próxima ronda física.
+
+## Actualización ronda 5 (informe físico 2026-11-20)
+| Ruta | Resultado informado | Estado |
+|---|---|---|
+| IPTV (con y sin ahorro) | estable, sin cortes | APROBADA |
+| Miracast LG 720p60 | negocia y envía ~61 fps, 0 errores; el LG cierra a los ~52 s | PARCIAL (M16 keepalive agregado: PENDIENTE DE HARDWARE) |
+| DLNA LG | reproduce TS; rendimiento malo con apps pesadas; ignoraba el perfil elegido | PARCIAL (perfil del usuario primero: PENDIENTE DE HARDWARE) |
+| Web Video Caster 1080p60 | sin cierre de Stremio; no sostiene 60 fps con apps pesadas | PARCIAL |
+| PS3 | sin imagen (`var 0`, BUSY) | FALLIDA (variantes + log nuevos: PENDIENTE DE HARDWARE) |
+| Home v3 | compila y se ve; faltaba táctil | PARCIAL (táctil agregado: no compilado) |

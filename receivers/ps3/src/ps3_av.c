@@ -182,11 +182,20 @@ static u32 vdec_cb(u32 handle, u32 msg, u32 data, u32 arg) {
  * la causa no es el nivel. Como no se pudo confirmar cuál parámetro de vdecOpen/SPU falla, la app prueba una variante distinta en cada arranque
  * mientras la anterior no haya producido nunca un AUDONE. Estado en USRDIR/vdec_variant.txt: "N E" (E: 0 abierta, 2 recibió unidades sin respuesta, 1 funcionó). */
 #define VDEC_VARIANTS 6
-#define VDEC_STATE_FILE "/dev_hdd0/game/OPENTV001/USRDIR/vdec_variant.txt"
+static char g_datadir[192] = "/dev_hdd0/game/OPENTV001/USRDIR/";
+void ps3av_set_datadir(const char *dir) { if (dir && strlen(dir) < sizeof g_datadir - 32) strcpy(g_datadir, dir); }
+#define VDEC_TMP_FILE "/dev_hdd0/tmp/opentv_variant.txt"
 static unsigned g_variant;
-static void variant_save(int st) { FILE *f = fopen(VDEC_STATE_FILE, "w"); if (f) { fprintf(f, "%u %d\n", g_variant, st); fclose(f); } }
+/* Se guarda en la carpeta de datos Y en /dev_hdd0/tmp: si una de las dos no se puede escribir, la rotación igual avanza. */
+static void variant_save(int st) {
+    char p[256]; snprintf(p, sizeof p, "%svdec_variant.txt", g_datadir);
+    const char *paths[2] = { p, VDEC_TMP_FILE }; int okn = 0;
+    for (int i = 0; i < 2; i++) { FILE *f = fopen(paths[i], "w"); if (f) { fprintf(f, "%u %d\n", g_variant, st); fclose(f); okn++; } }
+    if (okn == 0) logf_("AVISO: no se pudo guardar vdec_variant.txt en ningún lado; la variante no rotará");
+}
 static void variant_load(void) {
-    unsigned n = 0; int st = 0; FILE *f = fopen(VDEC_STATE_FILE, "r");
+    unsigned n = 0; int st = 0; char p[256]; snprintf(p, sizeof p, "%svdec_variant.txt", g_datadir);
+    FILE *f = fopen(p, "r"); if (!f) f = fopen(VDEC_TMP_FILE, "r");
     if (f) { if (fscanf(f, "%u %d", &n, &st) != 2) { n = 0; st = 0; } fclose(f); }
     if (n >= VDEC_VARIANTS) n = 0;
     if (st == 2) n = (n + 1) % VDEC_VARIANTS;            /* la anterior recibió video y nunca respondió: probar la siguiente */

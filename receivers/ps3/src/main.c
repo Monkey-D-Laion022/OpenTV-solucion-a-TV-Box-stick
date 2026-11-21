@@ -26,10 +26,17 @@
 #include "../core/ot_mdns.h"
 #include "ps3_av.h"
 
-#define DIR   "/dev_hdd0/game/OPENTV001/USRDIR/"
-#define CFG   DIR "opentv.cfg"
-#define PEERS DIR "peers.dat"
-#define DEVID DIR "device.id"
+/* Carpeta de datos: se toma de la ruta real del ejecutable (argv[0]) para no depender de que el ID del juego instalado sea OPENTV001;
+ * si no se puede, queda la ruta de fábrica. El registro además se copia a /dev_hdd0/tmp/ (siempre existe y es fácil de leer por FTP/webMAN). */
+static char g_dir[192] = "/dev_hdd0/game/OPENTV001/USRDIR/";
+static const char *P(const char *name) {
+    static char ring[4][256]; static int k; char *b = ring[k++ & 3];
+    snprintf(b, 256, "%s%s", g_dir, name); return b;
+}
+#define CFG   P("opentv.cfg")
+#define PEERS P("peers.dat")
+#define DEVID P("device.id")
+#define TMPLOG "/dev_hdd0/tmp/opentv.log"
 #define LINK_PORT 8766
 SYS_PROCESS_PARAM(1001, 0x100000)
 
@@ -83,7 +90,8 @@ static char g_crypto[128] = "";
 static void trace(const char *fmt, ...) {
     char l[224]; va_list ap; va_start(ap, fmt); vsnprintf(l, sizeof l, fmt, ap); va_end(ap);
     printf("[opentv] %s\n", l);
-    FILE *f = fopen("/dev_hdd0/game/OPENTV001/USRDIR/opentv.log", "a"); if (f) { fprintf(f, "%lld %s\n", (long long)(now_ms64() / 1000), l); fclose(f); }
+    const char *paths[2] = { P("opentv.log"), TMPLOG };
+    for (int i = 0; i < 2; i++) { FILE *f = fopen(paths[i], "a"); if (f) { fprintf(f, "%lld %s\n", (long long)(now_ms64() / 1000), l); fclose(f); } }
 }
 static void log_line(const char *l) { trace("%s", l); }
 static uint32_t g_ts_bytes, g_ts_frames;
@@ -168,9 +176,15 @@ static int run_http(const cfg_t *c) {
     }
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    if (argc > 0 && argv && argv[0]) {
+        const char *u = strstr(argv[0], "/USRDIR/");
+        if (u && (size_t)(u - argv[0]) + 8 < sizeof g_dir) { size_t n = (size_t)(u - argv[0]) + 8; memcpy(g_dir, argv[0], n); g_dir[n] = 0; }
+    }
     netInitialize();
+    ps3av_set_datadir(g_dir);
     ps3av_set_logger(log_line);
+    trace("carpeta de datos: %s (argv[0]=%s) · el registro se copia también a %s", g_dir, (argc > 0 && argv && argv[0]) ? argv[0] : "?", TMPLOG);
     if (ps3av_init() != 0) { printf("[opentv] no se pudo iniciar video/audio\n"); return 1; }
     cfg_t cfg; read_cfg(&cfg); net_info();
     { char why[96]; int st = ot_selftest(why, sizeof why); snprintf(g_crypto, sizeof g_crypto, st ? "CRIPTO FALLA: %s" : "Cripto OK", why);

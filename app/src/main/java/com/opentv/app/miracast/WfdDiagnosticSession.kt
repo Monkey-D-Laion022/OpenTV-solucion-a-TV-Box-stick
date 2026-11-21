@@ -488,6 +488,7 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
         var flowEnded = false
         var streaming = false
         var lastRtpLog = 0L
+        var lastKeepAlive = SystemClock.elapsedRealtime()
 
         try {
             client.soTimeout = 1000
@@ -586,6 +587,12 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
             while (!cancelRequested && (!m3Done || (flow != null && !flowEnded)) && (streaming || SystemClock.elapsedRealtime() < deadline)) {
                 val st = streamer
                 if (streaming && st != null && SystemClock.elapsedRealtime() - lastRtpLog > 5000) { lastRtpLog = SystemClock.elapsedRealtime(); log(st.summary()) }
+                val fl = flow
+                if (streaming && fl != null && SystemClock.elapsedRealtime() - lastKeepAlive >= WfdSourceFlow.KEEPALIVE_MS) {
+                    lastKeepAlive = SystemClock.elapsedRealtime()
+                    val (n2, acts2) = fl.keepAlive(nextCseq); nextCseq = n2
+                    for (a in acts2) if (a is WfdAction.Send) send(a.text)
+                }
                 val n = try {
                     input.read(buffer)
                 } catch (e: SocketTimeoutException) {

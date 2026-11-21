@@ -76,4 +76,29 @@ class Ronda4Test {
         assertTrue(PowerSaveJudge.warning(true, 60, "ninguno")!!.contains("60 fps"))
         assertTrue(!PowerSaveJudge.warning(true, 30, null)!!.contains("60 fps"))
     }
+
+    @Test fun sinListaDelTvElPrimerIntentoEsTsConElPerfilDelUsuario() {
+        val u = ProfileSelector.UserProfile(1280, 720, 60, "HD_60", "720p60")
+        val sel = ProfileSelector.select(null, u)
+        val first = sel.attempts.first()
+        assertTrue(!first.hls); assertEquals(720, first.height); assertEquals(60, first.fps); assertEquals("HD_60", first.presetName)
+        assertTrue(sel.attempts.any { it.hls })
+    }
+    @Test fun sinPerfilDeUsuarioElComportamientoAnteriorNoCambia() {
+        assertEquals(ProfileSelector.select(null).attempts, ProfileSelector.select(null, null).attempts)
+    }
+    @Test fun losFormatosRechazadosSeOmitenPeroLaListaNuncaQuedaVacia() {
+        val sel = ProfileSelector.select(null)
+        val hlsKeys = sel.attempts.filter { it.hls }.map { it.key }.toSet()
+        val dropped = ProfileSelector.dropRejected(sel, hlsKeys)
+        assertTrue(dropped.attempts.none { it.hls }); assertTrue(dropped.attempts.isNotEmpty())
+        val all = ProfileSelector.dropRejected(sel, sel.attempts.map { it.key }.toSet())
+        assertEquals(sel.attempts, all.attempts)
+    }
+    @Test fun elAhorroSeDetectaPorAndroidOPorLosInterruptoresDeXiaomi() {
+        assertTrue(PowerSaveJudge.active(true, false, false))
+        assertTrue(PowerSaveJudge.active(false, true, false))
+        assertTrue(PowerSaveJudge.active(false, false, true))
+        assertTrue(!PowerSaveJudge.active(false, false, false))
+    }
 }

@@ -196,6 +196,7 @@ fun IptvScreen(onBack: () -> Unit, viewModel: IptvViewModel = viewModel(), dlnaM
                         s.timing,
                         style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.OnBackground,
                     )
+                    if (s.powerSaveWarning != null) Text(s.powerSaveWarning, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning)
                     if (s.fpsWarning != null) Text(s.fpsWarning, style = MaterialTheme.typography.bodyMedium, color = OpenTvColors.Warning)
                     Text(
                         "Página para navegadores viejos (TV): escribí http://" + s.hlsUrl.substringAfter("http://").substringBefore("/") + "/ " +

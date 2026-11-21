@@ -145,6 +145,12 @@ class IptvController private constructor(context: Context) {
     }
 
     @Volatile private var pendingPreset: IptvPreset? = null
+    /** Perfil con el que arrancó el canal (el elegido a mano o el automático). DLNA lo usa como primer intento para no ignorar la elección. */
+    @Volatile var startPresetName: String? = null
+
+    /** Ahorro de energía propio de Xiaomi/MIUI/HyperOS: no siempre activa `PowerManager.isPowerSaveMode`. Lectura de solo consulta; si la clave no existe da 0. */
+    private fun oemFlag(c: android.content.Context, key: String): Boolean =
+        runCatching { android.provider.Settings.System.getInt(c.contentResolver, key, 0) == 1 }.getOrDefault(false)
 
     /** Pide cambiar el perfil de la emisión en marcha (p. ej. DLNA al probar un formato de respaldo). Se aplica en el siguiente segundo. */
     fun requestPreset(name: String) { IptvPreset.values().firstOrNull { it.name == name }?.let { pendingPreset = it } }
@@ -242,6 +248,7 @@ class IptvController private constructor(context: Context) {
         val choice = if (_auto.value) IptvProfilePicker.pick(requested) { w, h, f -> EncoderProbe.supports(w, h, f) }
         else ProfileChoice(requested, "Perfil inicial del canal elegido a mano: se arrancó con ${requested.shortLabel} sin comprobar soporte previo (DLNA y /tv pueden pedir otro formato después).")
         val preset = choice.preset
+        startPresetName = preset.name
         IptvService.start(appContext)
         val hub = StreamHub(maxQueuedBytes = HubSizing.queueBytes(preset.bitrateBps))
         val segmenter = HlsSegmenter(preset.hlsConfig())
@@ -346,7 +353,7 @@ class IptvController private constructor(context: Context) {
                     }
                     val lat = pipe.encodeLatencyStats()
                     val lateTotal = pipe.lateTicks.toLong(); val lateNow = (lateTotal - lastLate).coerceAtLeast(0L).toInt(); lastLate = lateTotal
-                    val saver = PowerSaveJudge.warning(pm?.isPowerSaveMode == true, pipe.preset.fps, thermal)
+                    val saver = PowerSaveJudge.warning(PowerSaveJudge.active(pm?.isPowerSaveMode == true, oemFlag(appContext, "POWER_SAVE_MODE_OPEN"), oemFlag(appContext, "power_supersave_mode_open")), pipe.preset.fps, thermal)
                     if (pipe.pumpActive && _governor.value) {
                         val a = adapter.onSecond(
                             QualityAdapter.Sample(

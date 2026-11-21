@@ -21,6 +21,8 @@ typedef struct {
 
 /* Registro de eventos importantes (lo conecta main.c al archivo opentv.log). */
 void ps3av_set_logger(void (*fn)(const char *line));
+/* Carpeta (con barra final) donde se guarda el estado de la variante del decodificador. */
+void ps3av_set_datadir(const char *dir);
 
 int  ps3av_init(void);
 void ps3av_shutdown(void);

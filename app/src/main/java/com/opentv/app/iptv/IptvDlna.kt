@@ -6,6 +6,7 @@ import com.opentv.app.media.dlna.DlnaSession
 import com.opentv.app.media.dlna.DlnaStatus
 import com.opentv.app.media.dlna.Renderer
 import com.opentv.app.media.dlna.key
+import com.opentv.app.media.dlna.ProfileSelector
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,6 +33,7 @@ object IptvDlna {
     /** Formato que funcionó, por televisor (UDN): la próxima vez se prueba primero y no se repiten los intentos fallidos. */
     private lateinit var prefs: android.content.SharedPreferences
     private fun prefKey(r: Renderer) = "ok_" + r.udn
+    private fun badKey(r: Renderer) = "bad_" + r.udn
 
     @Synchronized
     fun send(context: Context, renderer: Renderer) {
@@ -44,6 +46,10 @@ object IptvDlna {
             urlFor = { offer -> if (offer.hls) live.hlsUrl else live.tsUrl },
             onOffer = { controller.requestPreset(it.presetName) },
             streamAlive = { ((controller.state.value as? IptvState.Live)?.clients ?: 0) > 0 },
+            userProfile = controller.startPresetName?.let { n -> com.opentv.app.iptv.IptvPreset.values().firstOrNull { it.name == n } }
+                ?.let { ProfileSelector.UserProfile(it.width, it.height, it.fps, it.name, it.shortLabel) },
+            rejectedKeys = runCatching { prefs.getStringSet(badKey(renderer), emptySet())?.toSet() }.getOrNull() ?: emptySet(),
+            onRejected = { offer -> runCatching { prefs.edit().putStringSet(badKey(renderer), (prefs.getStringSet(badKey(renderer), emptySet()).orEmpty() + offer.key)).apply() } },
             rememberedKey = runCatching { prefs.getString(prefKey(renderer), null) }.getOrNull(),
             onPlaying = { offer -> runCatching { prefs.edit().putString(prefKey(renderer), offer.key).apply() } },
         )
