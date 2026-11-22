@@ -1,0 +1,25 @@
+name: Home 2 (prueba)
+on:
+  workflow_dispatch:
+jobs:
+  build-home2:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Dar permiso a gradlew
+        run: chmod +x gradlew
+      - name: Aceptar licencias del SDK de Android
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      - name: Pruebas del Home 2 y APK de OpenTV con Home 2 incluido
+        run: ./gradlew :homenova:testDebugUnitTest :app:assembleDebug -PwithNova=true --stacktrace
+      - name: Guardar APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenTV-con-Home2-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
