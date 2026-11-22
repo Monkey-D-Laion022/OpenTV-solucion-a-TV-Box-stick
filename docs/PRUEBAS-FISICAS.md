@@ -60,3 +60,11 @@ Emisor Redmi 14C (c2.mtk.avc.encoder); receptores LG 42LB5800-SB y PS3.
 - **Desconocido:** qué parámetro de `vdecOpen`/SPU/memoria o qué módulo lo causa. Hipótesis: SPU sin inicializar, `num_spus`/prioridades, alineación de la memoria del decodificador.
 - **Cambio (PKG compila y verifica; sin probar en consola):** el receptor ahora prueba una **variante distinta en cada arranque** mientras la anterior haya recibido video sin producir nunca un AUDONE. Variantes: 0 actual; 1 `sysSpuInitialize(6,0)`; 2 un SPU; 3 dos SPU; 4 prioridades/pila distintas; 5 seis SPU. Estado en `USRDIR/vdec_variant.txt`; HUD «SIN IMAGEN» muestra `var N`. La memoria del decodificador se pide alineada a 1 MiB (con respaldo). El log ahora registra `sysModuleLoad`, `cmd_depth`, versión y parámetros.
 - **Cómo probar:** abrir la app, transmitir 720p30 ~20 s, salir con START (o apagar), repetir. En cada vuelta mirar `var N` en pantalla. Cuando alguna imagen aparezca, el log dirá «variante N: el decodificador respondió» y esa queda fija.
+
+
+## Ronda 5 — informe físico (2026-11-20/22), resumen
+- Miracast LG 720p60: +208,5 s sin cortes, keepalive M16 cada ~10 s con 200 OK, 87.401 paquetes RTP, 0 errores de envío, ~60 fps, imagen en el televisor.
+- DLNA LG: pidiendo 720p arranca en 1080p30 y baja sin lograr conectar en varios intentos; 1080p60 por MPEG-TS con imagen firme pero con bajones/cortes bajo carga pesada (Play TV Premium). Otro Smart TV viejo: DLNA muy bien incluso con apps pesadas.
+- IPTV con Stremio: excelente; cartel de ahorro de energía visible. Retardo: a revisar a futuro.
+- WVC 720p60 6000 kbit/s con Stremio: excelente.
+- PS3: pantalla negra. Log: `sysModuleLoad VDEC=0 VDEC_H264=0`, variante 0, emparejamiento OK, OFFER 1280x720 30 fps 3000 kbps aceptada, SPS perfil 77 nivel 3.1 compatible; `vdecDecodeAu` = 0x80610103 (BUSY), «decodificador sin respuesta (1,5 s…)», hasta 13 reinicios; al reconectar «no respondió al cierre (4 s): se abandona» y queda bloqueado. Log en `/dev_hdd0/game/OPENTV001/USRDIR/` y `/dev_hdd0/tmp/opentv.log`.

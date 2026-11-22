@@ -74,3 +74,13 @@ Ver `CAMBIOS-RONDA5.md`: PS3 variantes de vdec; DLNA memoria de formato por TV y
 | Web Video Caster 1080p60 | sin cierre de Stremio; no sostiene 60 fps con apps pesadas | PARCIAL |
 | PS3 | sin imagen (`var 0`, BUSY) | FALLIDA (variantes + log nuevos: PENDIENTE DE HARDWARE) |
 | Home v3 | compila y se ve; faltaba táctil | PARCIAL (táctil agregado: no compilado) |
+
+## Cierre de la ronda 5 (informe físico completo, 2026-11-22)
+| Ruta | Resultado | Estado |
+|---|---|---|
+| Miracast LG 1280x720p60 | negoció M1–M5, PLAY OK, RTP/MPEG-TS con AAC; 87.401 paquetes, 0 errores, ~60 fps, GET_PARAMETER cada ~10 s con 200 OK; **+208,5 s sin cortes** (se cortó a mano) con imagen en el LG | APROBADA (720p60, LG 42LB5800-SB) |
+| IPTV (LG) | Stremio excelente y estable; cartel de ahorro de energía visible | APROBADA |
+| Web Video Caster | 720p60 / 6000 kbit/s con Stremio excelente; 1080p60 sigue costando | APROBADA a 720p60 · PARCIAL a 1080p60 |
+| DLNA (LG) | 1080p60 TS con imagen firme; bajones y cortes bajo carga; al pedir 720p arranca en 1080p30 y baja (otro Smart TV viejo anda muy bien) | PARCIAL |
+| PS3 | pantalla negra; decodificador no responde (BUSY); autotest del decodificador agregado | FALLIDA · autotest PENDIENTE DE HARDWARE |
+| Home v3 / Home 2 | v3 anda y le falta ser horizontal (corregido); Home 2 integrado como módulo opcional | v3 PARCIAL · Home 2 PENDIENTE DE HARDWARE (no compilado) |

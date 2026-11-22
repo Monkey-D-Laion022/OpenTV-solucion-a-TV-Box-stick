@@ -1,4 +1,5 @@
-# Cambios de la ronda 5 (2026-11-19) — qué es verificado y qué no
+# Cambios de la ronda 5 → entrega ronda 6 (2026-11-19 a 11-22) — qué es verificado y qué no
+> Este archivo acumula las tres partes. La entrega actual es `OpenTV-unificada-ronda6.zip`: autotest PS3 + Home 2 opcional + resultados cerrados de la ronda 5.
 Base: informe de pruebas de la ronda 4. Los tests JVM (532, OK) cubren la lógica pura; **nada de lo de abajo está probado en hardware ni compilado como APK** (el APK solo se compila en GitHub Actions).
 
 | Área | Cambio | Verificado | Pendiente de hardware |
@@ -39,3 +40,21 @@ Todo lo de esta sección es **PENDIENTE DE HARDWARE** y no está compilado como 
 ## Lo que sigue abierto
 - Causa raíz del decodificador de la PS3 (BUSY sin callbacks en 720p30 y 1080p60): sin identificar.
 - Retardo HLS del IPTV: sin cambios.
+
+## Home v3: orientación fija (2026-11-22)
+`OpenTvHomeActivity` ahora es `sensorLandscape` con los mismos `configChanges` que `MainActivity` (no rota ni se recrea). Solo manifest. Análisis del Nova launcher: `ANALISIS-NOVA-LAUNCHER.md`.
+
+## Ronda 5 — resultados del informe físico y cambios de la tercera parte (2026-11-22)
+Resultados: Miracast LG 720p60 estable 208 s (keepalive M16 funcionó, aprobado en esa prueba); IPTV con Stremio excelente y ahorro de energía con cartel; WVC 720p60 excelente; DLNA LG sin cambios de fondo; PS3 sigue sin imagen.
+
+### PS3: autotest del decodificador (PENDIENTE DE HARDWARE)
+Causa raíz **sin identificar** (decodificador acepta unidades y nunca avisa). En vez de rotar variantes con reinicios de la app, ahora **al arrancar** la app:
+1. Abre un decodificador por cada una de 4 configuraciones (4 SPU estándar; 1 SPU pila 64 KiB prioridades altas; 1 SPU con memoria en páginas de 1 MiB; 2 SPU).
+2. Le entrega una **unidad H.264 de prueba incrustada** (320x240 Baseline, SPS+PPS+IDR, generada con x264) con 3 formatos: tal cual / sin marcas de tiempo / sin marcas de tiempo + AUD delante.
+3. La primera combinación que responde (AUDONE/PICOUT en 0,7 s) se usa para el video real; el HUD muestra `var CF` (C = configuración, F = formato; `var 99` = ninguna respondió). Resultado en `opentv.log` y en `vdec_autotest.txt` (carpeta de la app y `/dev_hdd0/tmp/opentv_autotest.txt`).
+4. Se registran los tipos de NAL y los primeros bytes de las primeras unidades reales del teléfono, para compararlos con la de prueba.
+Cómo interpretar: si **ninguna** responde con el video de prueba, el problema es del decodificador/entorno de la PS3 (no del video del teléfono); si **alguna** responde y el video real sigue sin imagen, el problema está en el video real y el log de NAL lo muestra. Los decodificadores que no responden se abandonan sin cerrarlos (cerrarlos congelaba la consola).
+Sospechas cubiertas: formato de marcas de tiempo (el encabezado de PSL1GHT declara `{low, hi}` y Sony `{upper, lower}`), AUD, número de SPU, pila/prioridades de los hilos, tipo de página de memoria.
+
+### Home 2 de prueba
+Ver `HOME2-NOVA.md` (módulo opcional, no incluido en el build por defecto).

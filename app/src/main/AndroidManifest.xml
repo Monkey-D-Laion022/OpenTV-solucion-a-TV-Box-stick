@@ -102,6 +102,8 @@
             android:name="com.opentv.home.OpenTvHomeActivity"
             android:exported="true"
             android:label="OpenTV Home (prueba)"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden|uiMode"
+            android:screenOrientation="sensorLandscape"
             android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

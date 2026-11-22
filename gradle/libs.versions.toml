@@ -19,6 +19,8 @@ media3 = "1.4.1"
 shizuku = "13.1.5"
 # Prueba de Home v3 (aislada; ver docs/HOME-V3-QUITAR.txt). 1.0.0 = última compilada contra compileSdk 34 / Compose 1.6; SIN verificar contra el repositorio.
 tvMaterial = "1.0.0"
+# Home 2 de prueba (módulo homenova, solo con -PwithNova=true). Versión sin verificar contra el repositorio.
+datastore = "1.1.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -40,9 +42,12 @@ androidx-media3-exoplayer-dash = { group = "androidx.media3", name = "media3-exo
 androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 shizuku-api = { group = "dev.rikka.shizuku", name = "api", version.ref = "shizuku" }
 shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref = "shizuku" }
+androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 androidx-tv-material = { group = "androidx.tv", name = "tv-material", version.ref = "tvMaterial" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 [plugins]
+android-library = { id = "com.android.library", version.ref = "agp" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
