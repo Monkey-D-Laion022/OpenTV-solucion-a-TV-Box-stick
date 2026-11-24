@@ -12,8 +12,21 @@ android {
         // Android 7.0. Decisión de la Fase 0: Media3, Compose y Nearby Connections lo admiten.
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
+        // Creciente entre builds Y entre workflows (el número de ejecución de GitHub es distinto en cada workflow): minutos desde 1970.
+        // Así un APK nuevo siempre se instala ENCIMA del anterior («Actualizar») sin desinstalar. Ver docs/ACTUALIZAR-ENCIMA.md.
+        versionCode = (System.currentTimeMillis() / 60_000L).toInt()
         versionName = "0.1.0"
+    }
+
+    // Firma de depuración FIJA y versionada (app/opentv-debug.keystore, clave pública de pruebas «android»): todos los workflows firman igual,
+    // requisito de Android para actualizar encima. NO sirve para publicar en una tienda.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("opentv-debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {

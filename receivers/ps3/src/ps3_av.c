@@ -13,6 +13,7 @@
 #include <malloc.h>
 #include <unistd.h>
 #include <ppu-types.h>
+#include <ppu-asm.h>
 #include <sys/thread.h>
 #include <sys/spu.h>
 #include <sys/systime.h>
@@ -188,10 +189,9 @@ static u32 vdec_cb(u32 handle, u32 msg, u32 data, u32 arg) {
 #include "ot_testau.h"
 typedef struct { const char *name; u32 spus, pprio, stack, sprio; int mem1m; } vcfg;
 static const vcfg VCFGS[] = {
+    { "3 SPU, hilo PPU prio 500 pila 256 KiB (la de un reproductor que funciona en consola)", 3, 500, 0x40000, 250, 0 },
     { "4 SPU, prioridades estandar", 4, 1001, 0x4000, 250, 0 },
-    { "1 SPU, pila 64 KiB, prioridades altas", 1, 900, 0x10000, 100, 0 },
-    { "1 SPU, memoria en paginas de 1 MiB", 1, 1001, 0x10000, 250, 1 },
-    { "2 SPU, pila 64 KiB", 2, 1001, 0x10000, 250, 0 },
+    { "1 SPU, pila 64 KiB", 1, 1001, 0x10000, 250, 0 },
 };
 #define NVCFG ((int)(sizeof VCFGS / sizeof VCFGS[0]))
 #define NFMT 3          /* 0: tal cual llega; 1: sin marcas de tiempo; 2: sin marcas de tiempo + delimitador de unidad (AUD) delante */
@@ -216,7 +216,12 @@ static int vdec_open_cfg(int ci) {
     cfg.mem_addr = (u32)(uintptr_t)g_vmem; cfg.mem_size = attr.mem_size;
     cfg.ppu_thread_prio = c->pprio; cfg.ppu_thread_stack_size = c->stack; cfg.spu_thread_prio = c->sprio; cfg.num_spus = c->spus;
     logf_("vdec config %d (%s): mem %u cmd_depth %u ver %u.%u", ci, c->name, (unsigned)attr.mem_size, (unsigned)attr.cmd_depth, (unsigned)attr.ver_major, (unsigned)attr.ver_minor);
-    vdecClosure cl = { (u32)(uintptr_t)vdec_cb, 0 };
+    /* CAUSA RAIZ del fallo de rondas 1-6: la libreria (sprx de 32 bits) espera en `fn` la direccion de un descriptor de funcion de 32 bits
+     * {codigo, toc}. Un puntero a funcion normal apunta a un descriptor de 64 bits; leido como de 32, el codigo era 0 y el decodificador jamas
+     * podia avisar AUDONE/PICOUT. __build_opd32 construye el descriptor correcto (como hace un reproductor de PS3 que si funciona). */
+    static opd32 s_cb_opd32;
+    vdecClosure cl; cl.fn = __build_opd32((opd64 *)(uintptr_t)(vdecCallback)vdec_cb, &s_cb_opd32); cl.arg = 0;
+    logf_("callback: descriptor 32 bits codigo=0x%08x toc=0x%08x fn=0x%08x", (unsigned)s_cb_opd32.func, (unsigned)s_cb_opd32.rtoc, (unsigned)cl.fn);
     int ro = vdecOpen(&type, &cfg, &cl, &g_vdec);
     if (ro != 0) { logf_("vdecOpen devolvio 0x%x", (unsigned)ro); if (g_vmem_sys) sysMemoryFree((sys_mem_addr_t)(uintptr_t)g_vmem); else free(g_vmem); g_vmem = NULL; return -3; }
     g_vdec_open = 1; g_seq_started = 0; return 0;
@@ -229,8 +234,8 @@ static void fill_au(vdecAU *au, uint8_t *slot, const uint8_t *d, size_t n, int64
     memcpy(slot + off, d, n);
     memset(au, 0, sizeof *au);
     au->packet_addr = (u32)(uintptr_t)slot; au->packet_size = (u32)(n + off);
-    if (fmt == 0) { au->pts.hi = (u32)((pts >> 32) & 1); au->pts.low = (u32)pts; } else au->pts.hi = au->pts.low = VDEC_TS_INVALID;
-    au->dts.hi = VDEC_TS_INVALID; au->dts.low = VDEC_TS_INVALID;
+    if (fmt == 0) { u64 us = ((u64)pts * 100ULL) / 9ULL; us = (us / 1000ULL) * 1000ULL; au->pts.hi = (u32)(us >> 32); au->pts.low = (u32)us; au->dts.hi = au->pts.hi; au->dts.low = au->pts.low; }   /* microsegundos, como Movian */
+    else { au->pts.hi = au->pts.low = VDEC_TS_INVALID; au->dts.hi = au->dts.low = VDEC_TS_INVALID; }
     au->userdata = (u64)now_us();
 }
 /* Devuelve el formato con el que el decodificador respondió, o <0 si no respondió con ninguno. */

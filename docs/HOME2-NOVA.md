@@ -55,3 +55,12 @@ Si el Home 2 compila bien, cambiar `withNova=false` a `true` en `gradle.properti
 
 ## Próximos pasos (después de cerrar conectividad)
 Quedarse con una sola base. Candidatos a unir: Home v3 (notificaciones reales, «seguir viendo», perfiles, Google Assistant/voz) + del Home 2 el rail lateral, ajustes por categorías, teclado de búsqueda con D-pad, panel de entradas y la corrección del OK largo. Cambiar el contenido demo por datos reales.
+
+## Home unificado (ronda 7)
+Base estética: Home 2 (horizontal fija). Integrado:
+- De Home v3: asistente de voz (por defecto abre el asistente del sistema; si no hay, la pantalla de voz propia), botón Asistente/Búsqueda del control (MainActivity → `voiceRequests`), fila "Sistema" (Wi-Fi, Bluetooth, Sonido, Pantalla, Transmitir, Fecha, Apps, Ajustes).
+- Del Home original de OpenTV: fila "OpenTV" (IPTV, DLNA, Conexiones, Multimedia, Apps, Control remoto, Ajustes) vía `OpenTvLink` → `RouteRequest` (lista blanca en :app).
+- Toque: `tvFocusable` ya no reinicia el detector de toques en cada recomposición (corrige el doble toque).
+No portado de v3: perfiles, "reproduciendo ahora"/notificaciones (requieren servicio de escucha no registrado), protector de pantalla.
+Puntos de enganche para el Nova terminado: `NovaTvApp(voiceRequests)`, `HomeScreen(openTvShortcuts, systemShortcuts)`, `extras/*`, `Focus.kt`, `useSystemAssistant=true`.
+Nada de esto está compilado en este entorno (sin Android SDK): compilar con el workflow home2.yml.

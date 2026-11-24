@@ -37,6 +37,8 @@ import com.opentv.homenova.ui.components.EmptyState
 import com.opentv.homenova.ui.components.FeaturedHero
 import com.opentv.homenova.ui.components.FocusableCard
 import com.opentv.homenova.ui.components.NovaButton
+import com.opentv.homenova.ui.components.ShortcutItem
+import com.opentv.homenova.ui.components.ShortcutRow
 import com.opentv.homenova.ui.theme.LocalNovaPalette
 import kotlinx.coroutines.delay
 
@@ -59,6 +61,8 @@ fun HomeScreen(
     onOpenLive: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    openTvShortcuts: List<ShortcutItem> = emptyList(),
+    systemShortcuts: List<ShortcutItem> = emptyList(),
 ) {
     val palette = LocalNovaPalette.current
     val listState = rememberLazyListState()
@@ -107,6 +111,16 @@ fun HomeScreen(
             )
         }
 
+        if (openTvShortcuts.isNotEmpty()) {
+            item(key = "opentv-shortcuts") {
+                ShortcutRow(
+                    title = "OpenTV",
+                    subtitle = "Transmitir a la TV, conexiones y herramientas",
+                    items = openTvShortcuts,
+                )
+            }
+        }
+
         if (trending.isNotEmpty()) {
             item(key = "trending") {
                 ContentRow(
@@ -152,6 +166,16 @@ fun HomeScreen(
                     actionLabel = "Abrir ajustes",
                     onAction = onOpenSettings,
                     modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+
+        if (systemShortcuts.isNotEmpty()) {
+            item(key = "system-shortcuts") {
+                ShortcutRow(
+                    title = "Sistema",
+                    subtitle = "Accesos directos a los ajustes de Android",
+                    items = systemShortcuts,
                 )
             }
         }

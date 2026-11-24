@@ -6,8 +6,10 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import android.view.KeyEvent
 import androidx.activity.compose.setContent
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -17,6 +19,9 @@ import androidx.core.view.WindowInsetsControllerCompat
  * `.HomeAlias` de OpenTV ni cambia el launcher del dispositivo.
  */
 class MainActivity : ComponentActivity() {
+
+    /** Sube cuando se pulsa el botón de Asistente/Voz del control remoto. */
+    private val voiceRequests = MutableStateFlow(0)
 
     private val packageReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -38,8 +43,16 @@ class MainActivity : ComponentActivity() {
         }
         ContextCompat.registerReceiver(this, packageReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         setContent {
-            NovaTvApp()
+            NovaTvApp(voiceRequests = voiceRequests)
         }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOICE_ASSIST || keyCode == KeyEvent.KEYCODE_SEARCH) {
+            voiceRequests.value = voiceRequests.value + 1
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     override fun onDestroy() {

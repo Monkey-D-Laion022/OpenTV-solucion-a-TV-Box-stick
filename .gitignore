@@ -12,3 +12,6 @@
 *.aab
 *.jks
 *.keystore
+
+# Firma de depuración fija de OpenTV (sin secreto: clave pública de pruebas). Necesaria para que los APK se actualicen encima.
+!/app/opentv-debug.keystore

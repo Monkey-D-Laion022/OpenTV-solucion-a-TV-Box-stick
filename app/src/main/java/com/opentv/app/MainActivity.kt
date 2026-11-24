@@ -11,6 +11,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.opentv.app.navigation.OpenTvNavHost
+import com.opentv.app.navigation.RouteRequest
 import com.opentv.app.ui.theme.OpenTvTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -19,6 +20,9 @@ class MainActivity : ComponentActivity() {
 
     /** Sube cada vez que llega el botón Inicio con OpenTV como launcher (ver HomeAlias). */
     private val homeRequests = MutableStateFlow(0)
+
+    /** Pedidos de abrir una pantalla concreta (extra [RouteRequest.EXTRA]); lo usa el Home 2 de prueba. */
+    private val routeRequests = MutableStateFlow(RouteRequest(0, null))
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,13 +41,20 @@ class MainActivity : ComponentActivity() {
         // Con launchMode singleTask, el botón Inicio llega como un intent nuevo a esta Activity.
         addOnNewIntentListener { intent ->
             if (intent.hasCategory(Intent.CATEGORY_HOME)) homeRequests.update { it + 1 }
+            acceptRoute(intent)
         }
+        acceptRoute(intent)
 
         setContent {
             OpenTvTheme {
-                OpenTvNavHost(homeRequests = homeRequests)
+                OpenTvNavHost(homeRequests = homeRequests, routeRequests = routeRequests)
             }
         }
+    }
+
+    private fun acceptRoute(intent: Intent?) {
+        val route = RouteRequest.accept(intent?.getStringExtra(RouteRequest.EXTRA)) ?: return
+        routeRequests.update { RouteRequest(it.id + 1, route) }
     }
 
     override fun onDestroy() {

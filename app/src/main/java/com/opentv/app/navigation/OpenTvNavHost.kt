@@ -34,12 +34,22 @@ import kotlinx.coroutines.flow.emptyFlow
 fun OpenTvNavHost(
     navController: NavHostController = rememberNavController(),
     homeRequests: Flow<Int> = emptyFlow(),
+    routeRequests: Flow<RouteRequest> = emptyFlow(),
 ) {
     val goBack: () -> Unit = { navController.popBackStack() }
 
     LaunchedEffect(navController, homeRequests) {
         homeRequests.collect { count ->
             if (count > 0) navController.popBackStack(Routes.HOME, inclusive = false)
+        }
+    }
+
+    // Pedidos de abrir una pantalla concreta desde otra parte (Home 2 de prueba). Solo rutas permitidas; si el grafo aún no existe, espera un instante.
+    LaunchedEffect(navController, routeRequests) {
+        routeRequests.collect { request ->
+            val route = request.route ?: return@collect
+            if (navController.currentDestination == null) kotlinx.coroutines.delay(250)
+            runCatching { navController.navigate(route) { launchSingleTop = true } }
         }
     }
 

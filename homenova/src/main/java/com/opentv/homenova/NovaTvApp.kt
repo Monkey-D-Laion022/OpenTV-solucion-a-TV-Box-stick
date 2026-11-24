@@ -12,6 +12,20 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.Bluetooth
+import androidx.compose.material.icons.rounded.Brightness6
+import androidx.compose.material.icons.rounded.Cast
+import androidx.compose.material.icons.rounded.LiveTv
+import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SettingsInputAntenna
+import androidx.compose.material.icons.rounded.SettingsInputComponent
+import androidx.compose.material.icons.rounded.Tv
+import androidx.compose.material.icons.rounded.VolumeUp
+import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,6 +49,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.opentv.homenova.data.LauncherSettings
+import com.opentv.homenova.extras.OpenTvLink
+import com.opentv.homenova.extras.SystemShortcut
+import com.opentv.homenova.ui.components.ShortcutItem
 import com.opentv.homenova.navigation.Routes
 import com.opentv.homenova.navigation.mainNavItems
 import com.opentv.homenova.ui.components.AmbientBackground
@@ -67,9 +84,11 @@ import com.opentv.homenova.voice.VoiceMedia
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 
 @Composable
-fun NovaTvApp(viewModel: LauncherViewModel = viewModel()) {
+fun NovaTvApp(voiceRequests: Flow<Int> = emptyFlow(), viewModel: LauncherViewModel = viewModel()) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val prefs = settings
     val accent = accentStyleFor(prefs?.accent ?: AccentStyle.AURORA.key)
@@ -79,7 +98,7 @@ fun NovaTvApp(viewModel: LauncherViewModel = viewModel()) {
             if (prefs == null) {
                 LoadingScreen()
             } else {
-                LauncherContent(viewModel = viewModel, prefs = prefs)
+                LauncherContent(viewModel = viewModel, prefs = prefs, voiceRequests = voiceRequests)
             }
         }
     }
@@ -106,7 +125,7 @@ private fun LoadingScreen() {
 }
 
 @Composable
-private fun LauncherContent(viewModel: LauncherViewModel, prefs: LauncherSettings) {
+private fun LauncherContent(viewModel: LauncherViewModel, prefs: LauncherSettings, voiceRequests: Flow<Int>) {
     val context = LocalContext.current
     val palette = LocalNovaPalette.current
     val navController = rememberNavController()
@@ -180,6 +199,35 @@ private fun LauncherContent(viewModel: LauncherViewModel, prefs: LauncherSetting
     fun openVoice() {
         if (prefs.useSystemAssistant && VoiceAssistant.launchSystemAssistant(context)) return
         navController.navigate(Routes.VOICE)
+    }
+
+    // Botón de Asistente/Voz del control remoto (lo reenvía la actividad): abre el asistente igual que el micrófono de la barra.
+    LaunchedEffect(voiceRequests) {
+        voiceRequests.collect { count -> if (count > 0) openVoice() }
+    }
+
+    val openTvShortcuts = remember(context) {
+        listOf(
+            ShortcutItem(OpenTvLink.Iptv.title, OpenTvLink.Iptv.subtitle, Icons.Rounded.Tv) { OpenTvLink.Iptv.launch(context) },
+            ShortcutItem(OpenTvLink.Dlna.title, OpenTvLink.Dlna.subtitle, Icons.Rounded.Cast) { OpenTvLink.Dlna.launch(context) },
+            ShortcutItem(OpenTvLink.Connections.title, OpenTvLink.Connections.subtitle, Icons.Rounded.SettingsInputAntenna) { OpenTvLink.Connections.launch(context) },
+            ShortcutItem(OpenTvLink.Media.title, OpenTvLink.Media.subtitle, Icons.Rounded.Movie) { OpenTvLink.Media.launch(context) },
+            ShortcutItem(OpenTvLink.Apps.title, OpenTvLink.Apps.subtitle, Icons.Rounded.Apps) { OpenTvLink.Apps.launch(context) },
+            ShortcutItem(OpenTvLink.Remote.title, OpenTvLink.Remote.subtitle, Icons.Rounded.SettingsInputComponent) { OpenTvLink.Remote.launch(context) },
+            ShortcutItem(OpenTvLink.Settings.title, OpenTvLink.Settings.subtitle, Icons.Rounded.Settings) { OpenTvLink.Settings.launch(context) },
+        )
+    }
+    val systemShortcuts = remember(context) {
+        listOf(
+            ShortcutItem(SystemShortcut.Wifi.title, SystemShortcut.Wifi.subtitle, Icons.Rounded.Wifi) { SystemShortcut.Wifi.launch(context) },
+            ShortcutItem(SystemShortcut.Bluetooth.title, SystemShortcut.Bluetooth.subtitle, Icons.Rounded.Bluetooth) { SystemShortcut.Bluetooth.launch(context) },
+            ShortcutItem(SystemShortcut.Sound.title, SystemShortcut.Sound.subtitle, Icons.Rounded.VolumeUp) { SystemShortcut.Sound.launch(context) },
+            ShortcutItem(SystemShortcut.Display.title, SystemShortcut.Display.subtitle, Icons.Rounded.Brightness6) { SystemShortcut.Display.launch(context) },
+            ShortcutItem(SystemShortcut.Cast.title, SystemShortcut.Cast.subtitle, Icons.Rounded.Cast) { SystemShortcut.Cast.launch(context) },
+            ShortcutItem(SystemShortcut.DateTime.title, SystemShortcut.DateTime.subtitle, Icons.Rounded.Schedule) { SystemShortcut.DateTime.launch(context) },
+            ShortcutItem(SystemShortcut.Apps.title, SystemShortcut.Apps.subtitle, Icons.Rounded.Apps) { SystemShortcut.Apps.launch(context) },
+            ShortcutItem(SystemShortcut.All.title, SystemShortcut.All.subtitle, Icons.Rounded.Settings) { SystemShortcut.All.launch(context) },
+        )
     }
 
     fun openHomeSettings() {
@@ -318,6 +366,8 @@ private fun LauncherContent(viewModel: LauncherViewModel, prefs: LauncherSetting
                             onOpenDiscover = { navigateTop(Routes.DISCOVER) },
                             onOpenLive = { navigateTop(Routes.LIVE) },
                             onOpenSettings = { navigateTop(Routes.SETTINGS) },
+                            openTvShortcuts = openTvShortcuts,
+                            systemShortcuts = systemShortcuts,
                         )
                     }
 
