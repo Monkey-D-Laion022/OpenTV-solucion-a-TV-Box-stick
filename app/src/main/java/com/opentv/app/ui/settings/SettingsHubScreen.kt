@@ -174,6 +174,7 @@ private fun AppsPane(onNavigate: (String) -> Unit) {
 private fun SystemPane(onNavigate: (String) -> Unit, onGoDiagnostics: () -> Unit) {
     val info = rememberDeviceInfo()
     InfoRow("Versión de OpenTV", info.appVersionName)
+    if (info.appBuildInfo.isNotBlank()) InfoRow("Compilación y firma", info.appBuildInfo)
     InfoRow("Equipo", "${info.manufacturer} ${info.model}")
     InfoRow("Android", "${info.androidRelease} (API ${info.sdkInt})")
     InfoRow("Memoria", "${info.totalRamBytes / (1024 * 1024)} MB" + if (info.isLowRamDevice) " · equipo de poca memoria" else "")

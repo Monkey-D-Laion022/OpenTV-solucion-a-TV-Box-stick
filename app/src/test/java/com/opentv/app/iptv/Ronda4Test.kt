@@ -71,6 +71,13 @@ class Ronda4Test {
         assertTrue(acts.none { it.changed && it.kind != QualityAdapter.Kind.NONE })
     }
 
+    @Test fun ticsAtrasadosAlternadosPorRafagasTambienBajanLosFps() {
+        // app pesada: un segundo malo, uno bueno. Con la racha consecutiva anterior nunca actuaba.
+        val a = QualityAdapter(IptvPreset.FULL_HD_60, maxHeight = 1080)
+        val acts = (1..60).map { i -> a.onSecond(QualityAdapter.Sample(60.0, 60.0, 8000, 8000, 1, false, lateTicks = if (i % 2 == 0) 14 else 0)) }
+        assertTrue(acts.any { it.kind == QualityAdapter.Kind.FPS && it.fps < 60 })
+    }
+
     @Test fun avisoDeAhorroDeEnergiaSoloSiEstaActivo() {
         assertNull(PowerSaveJudge.warning(false, 60, null))
         assertTrue(PowerSaveJudge.warning(true, 60, "ninguno")!!.contains("60 fps"))

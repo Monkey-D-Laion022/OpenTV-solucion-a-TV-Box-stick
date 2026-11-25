@@ -54,6 +54,7 @@ class QualityAdapter(
     private var recoverAfterS = NET_UP_S
     private var backlogBad = 0
     private var lateBad = 0
+    private val lateWindow = ArrayDeque<Boolean>() // un valor por segundo: ¿hubo tics atrasados de más?
     private var stableSeconds = 0
     private var upBackoffS = UP_RES_AFTER_S
     private var failedIndex: Int? = null
@@ -66,7 +67,7 @@ class QualityAdapter(
         val l = buildLadder(preset, maxHeight)
         ladder = l; index = 0; current = l[0]
         governor = FpsGovernor(current.fps, floorFor(current)); bitrateScale = 1.0
-        failedIndex = null; failedTtl = 0; stableSeconds = 0; upBackoffS = UP_RES_AFTER_S; cooldown = 0
+        failedIndex = null; failedTtl = 0; stableSeconds = 0; upBackoffS = UP_RES_AFTER_S; cooldown = 0; lateWindow.clear(); lateBad = 0
         lossHistory.clear(); recoverAfterS = NET_UP_S
     }
 
@@ -77,8 +78,12 @@ class QualityAdapter(
         // en ese caso el gobernador recibe una muestra con la mitad de FPS codificados para que aplique su racha, escalones y memoria.
         backlogBad = if (s.backlog > BACKLOG_LIMIT) backlogBad + 1 else 0
         val lateLimit = maxOf(LATE_MIN_PER_S, governor.targetFps / 10)
-        lateBad = if (s.lateTicks >= lateLimit) lateBad + 1 else 0
-        val behind = backlogBad >= BACKLOG_STREAK_S || lateBad >= LATE_STREAK_S
+        // Ventana en vez de racha: con una app pesada en primer plano la GPU compite con la bomba a ráfagas (un segundo mal, uno bien). Con la racha
+        // consecutiva el contador se reiniciaba en cada segundo bueno y la adaptación nunca actuaba (ronda 7: 74 tics atrasados en 720p60 y más de
+        // 200 en 1080p60 sin ningún ajuste). Ahora cuenta cuántos de los últimos LATE_WINDOW_S segundos fueron malos; los hechos aislados siguen sin contar.
+        lateWindow.addLast(s.lateTicks >= lateLimit); while (lateWindow.size > LATE_WINDOW_S) lateWindow.removeFirst()
+        lateBad = lateWindow.count { it }
+        val behind = backlogBad >= BACKLOG_STREAK_S || lateBad >= LATE_HITS
         val encForGov = if (behind) minOf(s.encodedFps, governor.targetFps * 0.5) else s.encodedFps
         val g = governor.onSecond(
             // La red la trata este adaptador (solo bitrate): el gobernador no debe bajar FPS por ella.
@@ -87,7 +92,7 @@ class QualityAdapter(
         val cause = g.bottleneck
 
         if (g.changed) {
-            stableSeconds = 0
+            stableSeconds = 0; lateWindow.clear()
             val bps = bitrateFor(g.targetFps)
             return Action(Kind.FPS, current, g.targetFps, bps, cause, g.note)
         }
@@ -96,7 +101,7 @@ class QualityAdapter(
             if (lower != null) {
                 failedIndex = index; failedTtl = upBackoffS; upBackoffS = (upBackoffS * 2).coerceAtMost(MAX_BACKOFF_S)
                 val was = current
-                index++; current = lower; resolutionDrops++; backlogBad = 0; stableSeconds = 0; cooldown = SETTLE_S
+                index++; current = lower; resolutionDrops++; backlogBad = 0; lateWindow.clear(); lateBad = 0; stableSeconds = 0; cooldown = SETTLE_S
                 governor = FpsGovernor(current.fps, floorFor(current)); bitrateScale = 1.0
                 return Action(
                     Kind.RESOLUTION, current, current.fps, current.bitrateBps, cause,
@@ -171,7 +176,8 @@ class QualityAdapter(
         const val BACKLOG_LIMIT = 6L
         const val BACKLOG_STREAK_S = 4
         const val LATE_MIN_PER_S = 3
-        const val LATE_STREAK_S = 5
+        const val LATE_WINDOW_S = 10
+        const val LATE_HITS = 4
 
         /** Piso de FPS por resolución: en 1080p el piso es 30 (más abajo conviene bajar de resolución, no de fluidez). */
         fun floorFor(p: IptvPreset): Int = if (p.height >= 1080) 30 else if (p.height >= 720) 30 else 15

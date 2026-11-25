@@ -22,6 +22,8 @@ data class DeviceInfo(
     val totalRamBytes: Long,
     val isLowRamDevice: Boolean,
     val appVersionName: String,
+    /** «compilación N · firma XXXXXXXXXXXX»: sirve para comprobar por qué un APK no se instala encima (firma o número distintos). */
+    val appBuildInfo: String = "",
 )
 
 /**
@@ -54,7 +56,24 @@ class DeviceInfoProvider(private val context: Context) {
             totalRamBytes = memoryInfo.totalMem,
             isLowRamDevice = activityManager.isLowRamDevice,
             appVersionName = readVersionName(),
+            appBuildInfo = readBuildInfo(),
         )
+    }
+
+    /** Número de compilación (versionCode) y huella corta de la firma del APK instalado. Dos APK se actualizan uno encima del otro solo si la firma es igual y el número no baja. */
+    @Suppress("DEPRECATION")
+    private fun readBuildInfo(): String = try {
+        val pm = context.packageManager
+        val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
+        val pi = pm.getPackageInfo(context.packageName, flags)
+        val sigs = if (Build.VERSION.SDK_INT >= 28) pi.signingInfo?.apkContentsSigners else pi.signatures
+        val fp = sigs?.firstOrNull()?.toByteArray()?.let { b ->
+            java.security.MessageDigest.getInstance("SHA-256").digest(b).take(6).joinToString("") { "%02X".format(it) }
+        } ?: "?"
+        val code = if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode else pi.versionCode.toLong()
+        "compilación $code · firma $fp"
+    } catch (e: Exception) {
+        ""
     }
 
     @Suppress("DEPRECATION")

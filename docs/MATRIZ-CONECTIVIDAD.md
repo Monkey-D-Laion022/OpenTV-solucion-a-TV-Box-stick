@@ -84,3 +84,14 @@ Ver `CAMBIOS-RONDA5.md`: PS3 variantes de vdec; DLNA memoria de formato por TV y
 | DLNA (LG) | 1080p60 TS con imagen firme; bajones y cortes bajo carga; al pedir 720p arranca en 1080p30 y baja (otro Smart TV viejo anda muy bien) | PARCIAL |
 | PS3 | pantalla negra; decodificador no responde (BUSY); autotest del decodificador agregado | FALLIDA · autotest PENDIENTE DE HARDWARE |
 | Home v3 / Home 2 | v3 anda y le falta ser horizontal (corregido); Home 2 integrado como módulo opcional | v3 PARCIAL · Home 2 PENDIENTE DE HARDWARE (no compilado) |
+
+
+## Ronda 7 (físico, 2026-11-24)
+| Tecnología | Estado | Nota |
+|---|---|---|
+| PS3 | **PARCIAL (imagen OK)** | Decodifica 720p sin errores; ~20 fps mostrados (presentación en el hilo de red), pausas del flujo cada ~20 s, imagen pixelada por el piso de bitrate (ronda 8: corregido, SIN verificar en consola) |
+| Miracast / Wi‑Fi Direct | APROBADA (720p60) | Sin cambios |
+| DLNA LG 42LB5800 | PARCIAL | 1080p60/720p60 con app pesada: lag, tics atrasados; ronda 8 adapta por ventana (SIN verificar) |
+| IPTV | APROBADA | Sin cambios |
+| WVC 1080p60 | APROBADA con microcortes | Sin cambios propios |
+| Actualizar encima | FALLÓ | Causa no confirmada; diagnóstico en Ajustes → Sistema |

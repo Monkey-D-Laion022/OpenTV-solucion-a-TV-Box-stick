@@ -38,7 +38,7 @@
 
 #define CB_SIZE        0x100000
 #define HOST_SIZE      (32 * 1024 * 1024)
-#define AU_SLOTS       24
+#define AU_SLOTS       16
 #define AU_SLOT_BYTES  (768 * 1024)
 #define MAX_W          1920
 #define MAX_H          1088
@@ -56,7 +56,15 @@ static char g_msg[160], g_big[3][64];
 static gcmContextData *g_ctx;
 static u32 *g_fb[2]; static u32 g_fb_off[2]; static int g_fb_cur, g_first_flip = 1;
 static int g_dw, g_dh; static u32 g_pitch;
-static uint8_t *g_pic;                        /* salida ARGB32 del decodificador */
+#define NPIC 3
+static uint8_t *g_pic_buf[NPIC];              /* salida ARGB32 del decodificador: 3 buffers (uno se escribe, uno espera, uno lo está leyendo el hilo de presentación) */
+static int g_buf_w[NPIC], g_buf_h[NPIC];
+static volatile int g_pub_idx = -1, g_busy_idx = -1;   /* última imagen publicada / la que el presentador está leyendo */
+static volatile uint32_t g_pub_seq, g_shown_seq;
+static volatile int g_redraw, g_prun;
+static sys_ppu_thread_t g_pthread; static int g_pthread_ok;
+static volatile int64_t g_last_audio_in_us;
+static int64_t g_last_in_us;
 #define GCM_LABEL_INDEX 255
 static u32 g_label = 1;
 
@@ -136,27 +144,73 @@ static void draw_overlay(u32 *fb) {
     }
     if (g_msg[0]) { int w = (int)strlen(g_msg) * 16; if (w > g_dw) w = g_dw; draw_text(fb, 16, g_dh - 48, g_msg, 2, 0x00FFE060, 0x00101010); }
 }
-/* Copia el último fotograma al buffer trasero con escala "contener" (vecino más cercano). */
-static void present(int have_pic) {
-    u32 *fb = g_fb[g_fb_cur];
-    if (have_pic && g_st.width > 0) {
-        int sw = g_st.width, sh = g_st.height;
-        if (sw == g_dw && sh == g_dh) memcpy(fb, g_pic, (size_t)sw * sh * 4);
-        else {
-            int dw = g_dw, dh = (int)((int64_t)sh * g_dw / sw);
-            if (dh > g_dh) { dh = g_dh; dw = (int)((int64_t)sw * g_dh / sh); }
-            int ox = (g_dw - dw) / 2, oy = (g_dh - dh) / 2;
-            memset(fb, 0, (size_t)g_dh * g_pitch);
-            const u32 *src = (const u32 *)g_pic;
-            for (int y = 0; y < dh; y++) {
-                const u32 *row = src + (size_t)(y * sh / dh) * sw; u32 *d = fb + (size_t)(oy + y) * g_dw + ox;
-                for (int x = 0; x < dw; x++) d[x] = row[x * sw / dw];
-            }
+/* ───────── presentación ─────────
+ * Antes todo ocurría en el hilo de red: recibir -> decodificar -> escalar píxel a píxel (con divisiones) -> copiar a la memoria de video -> esperar el
+ * vsync. En la ronda 7 la PS3 mostró ~20 de 30 fps y, mientras presentaba, no leía el socket: el teléfono veía su cola de envío subir a 1,5 MB y bajaba
+ * el bitrate. Ahora la presentación vive en su propio hilo y el hilo de red solo recibe y entrega al decodificador. */
+static uint16_t *g_xmap, *g_ymap; static int g_map_sw, g_map_sh, g_map_dw, g_map_dh; static u32 *g_line;
+static void scale_blit(u32 *fb, const u32 *src, int sw, int sh) {
+    if (sw == g_dw && sh == g_dh) { memcpy(fb, src, (size_t)sw * sh * 4); return; }
+    int dw = g_dw, dh = (int)((int64_t)sh * g_dw / sw);
+    if (dh > g_dh) { dh = g_dh; dw = (int)((int64_t)sw * g_dh / sh); }
+    if (dw < 1 || dh < 1) return;
+    int ox = (g_dw - dw) / 2, oy = (g_dh - dh) / 2;
+    if (!g_line) g_line = (u32 *)memalign(128, (size_t)g_dw * 4);
+    if (!g_xmap) g_xmap = (uint16_t *)malloc(sizeof(uint16_t) * (size_t)(g_dw + 1));
+    if (!g_ymap) g_ymap = (uint16_t *)malloc(sizeof(uint16_t) * (size_t)(g_dh + 1));
+    if (!g_line || !g_xmap || !g_ymap) return;
+    if (g_map_sw != sw || g_map_sh != sh || g_map_dw != dw || g_map_dh != dh) {        /* tablas de coordenadas: sin divisiones por píxel */
+        for (int x = 0; x < dw; x++) g_xmap[x] = (uint16_t)((int64_t)x * sw / dw);
+        for (int y = 0; y < dh; y++) g_ymap[y] = (uint16_t)((int64_t)y * sh / dh);
+        memset(g_line, 0, (size_t)g_dw * 4);
+        g_map_sw = sw; g_map_sh = sh; g_map_dw = dw; g_map_dh = dh;
+    }
+    if (oy > 0) memset(fb, 0, (size_t)oy * g_pitch);
+    int last_sy = -1;
+    for (int y = 0; y < dh; y++) {
+        int sy = g_ymap[y];
+        if (sy != last_sy) {                        /* la línea escalada se arma una vez y se copia en bloque (la memoria de video es lenta por píxel) */
+            const u32 *row = src + (size_t)sy * sw; u32 *l = g_line + ox;
+            for (int x = 0; x < dw; x++) l[x] = row[g_xmap[x]];
+            last_sy = sy;
         }
-    } else memset(fb, 0, (size_t)g_dh * g_pitch);
+        memcpy(fb + (size_t)(oy + y) * g_dw, g_line, g_pitch);
+    }
+    int bottom = g_dh - oy - dh; if (bottom > 0) memset(fb + (size_t)(oy + dh) * g_dw, 0, (size_t)bottom * g_pitch);
+}
+static void present_img(const uint8_t *img, int sw, int sh) {
+    u32 *fb = g_fb[g_fb_cur];
+    if (img && sw > 0 && sh > 0) scale_blit(fb, (const u32 *)img, sw, sh); else memset(fb, 0, (size_t)g_dh * g_pitch);
     draw_overlay(fb);
     flip();
 }
+static int64_t now_us(void);
+static int64_t g_fps_t0; static int g_fps_n;
+static void present_thread(void *arg) {
+    (void)arg;
+    while (g_prun) {
+        int idx = -1, fresh = 0;
+        if (g_pub_idx >= 0) {
+            do { idx = g_pub_idx; g_busy_idx = idx; __sync_synchronize(); } while (idx != g_pub_idx && g_pub_idx >= 0);
+            fresh = (g_pub_seq != g_shown_seq);
+        }
+        if (!fresh && !g_redraw) { g_busy_idx = -1; usleep(2000); continue; }
+        g_redraw = 0;
+        uint32_t seq = g_pub_seq; int64_t t0 = now_us();
+        if (idx >= 0 && g_pub_idx >= 0) present_img(g_pic_buf[idx], g_buf_w[idx], g_buf_h[idx]); else present_img(NULL, 0, 0);
+        g_busy_idx = -1;
+        int64_t t1 = now_us(); uint32_t dt = (uint32_t)(t1 - t0);
+        g_st.present_us = g_st.present_us ? (g_st.present_us * 7 + dt) / 8 : dt;
+        if (fresh) {
+            g_shown_seq = seq; g_st.pics_shown++; g_fps_n++;
+            if (!g_fps_t0) g_fps_t0 = t1;
+            if (t1 - g_fps_t0 >= 1000000) { g_st.shown_fps_x10 = (uint32_t)((int64_t)g_fps_n * 10000000 / (t1 - g_fps_t0)); g_fps_n = 0; g_fps_t0 = t1; }
+        }
+    }
+    sysThreadExit(0);
+}
+static void request_redraw(void) { if (g_prun) g_redraw = 1; else if (g_fb[0]) present_img(NULL, 0, 0); }
+static int pick_free_buf(void) { for (int i = 0; i < NPIC; i++) if (i != g_pub_idx && i != g_busy_idx) return i; return 0; }
 
 /* ───────── video (cellVdec) ───────── */
 static u32 g_vdec; static int g_vdec_open; static volatile int g_vdec_wedged;
@@ -165,9 +219,8 @@ static void *g_vmem; static uint8_t *g_au_buf[AU_SLOTS];
 #define ATOMIC_DEC(x) __sync_fetch_and_sub(&(x), 1)
 static volatile int g_pic_ready, g_au_done, g_seq_done; static volatile int g_seq_started;
 static int g_au_head, g_au_tail, g_au_inuse;  /* anillo de buffers de unidades de acceso */
-static int g_have_key, g_have_shown;
+static int g_have_key;
 static int64_t g_last_vpts = -1, g_last_apts = -1;
-static int64_t g_fps_t0; static int g_fps_n;
 
 static u32 vdec_cb(u32 handle, u32 msg, u32 data, u32 arg) {
     (void)handle; (void)arg;
@@ -228,7 +281,6 @@ static int vdec_open_cfg(int ci) {
 }
 /* Abandona un decodificador que no responde (sin cerrarlo; su memoria no se libera porque las SPU podrían seguir usándola). */
 static void vdec_abandon(void) { g_vdec_open = 0; g_seq_started = 0; g_vmem = NULL; g_pic_ready = g_au_done = 0; g_au_head = g_au_tail = g_au_inuse = 0; }
-static int64_t now_us(void);
 static void fill_au(vdecAU *au, uint8_t *slot, const uint8_t *d, size_t n, int64_t pts, int fmt) {
     size_t off = 0; if (fmt == 2) { memcpy(slot, k_aud, sizeof k_aud); off = sizeof k_aud; }
     memcpy(slot + off, d, n);
@@ -313,7 +365,6 @@ static int64_t now_us(void) { return (int64_t)sysGetSystemTime(); }
 static void pump_pictures(void) {
     vdecPictureFormat fmt; memset(&fmt, 0, sizeof fmt);
     fmt.format_type = VDEC_PICFMT_ARGB32; fmt.color_matrix = VDEC_COLOR_MATRIX_BT709; fmt.alpha = 0xff;
-    int shown = 0;
     while (g_pic_ready > 0) {
         u32 item = 0;
         if (vdecGetPicItem(g_vdec, &item) != 0 || !item) { ATOMIC_DEC(g_pic_ready); g_st.decode_errors++; continue; }
@@ -322,15 +373,14 @@ static void pump_pictures(void) {
         int w = hi ? hi->width : 0, h = hi ? hi->height : 0;
         int64_t t_in = (int64_t)p->userdata[0];
         if (w <= 0 || h <= 0 || w > MAX_W || h > MAX_H) { ATOMIC_DEC(g_pic_ready); g_st.decode_errors++; vdecGetPicture(g_vdec, &fmt, NULL); continue; }
-        if (vdecGetPicture(g_vdec, &fmt, g_pic) != 0) { ATOMIC_DEC(g_pic_ready); g_st.decode_errors++; continue; }
-        ATOMIC_DEC(g_pic_ready); g_st.pics_out++; if (g_st.pics_out == 1) logf_("primera imagen decodificada: %dx%d", w, h); g_st.width = w; g_st.height = h;
+        /* Si el presentador aún no mostró la imagen anterior y ya hay otra detrás, esta se descarta SIN convertir a ARGB (la conversión es el gasto). */
+        if (g_pic_ready > 1 && g_pub_seq != g_shown_seq) { ATOMIC_DEC(g_pic_ready); g_st.pics_skipped++; vdecGetPicture(g_vdec, &fmt, NULL); continue; }
+        int bi = pick_free_buf();
+        if (vdecGetPicture(g_vdec, &fmt, g_pic_buf[bi]) != 0) { ATOMIC_DEC(g_pic_ready); g_st.decode_errors++; continue; }
+        ATOMIC_DEC(g_pic_ready); g_st.pics_out++; if (g_st.pics_out == 1) logf_("primera imagen decodificada: %dx%d", w, h);
+        g_st.width = w; g_st.height = h; g_buf_w[bi] = w; g_buf_h[bi] = h;
         if (t_in > 0) g_st.decode_ms_last = (int)((now_us() - t_in) / 1000);
-        shown = 1;
-    }
-    if (shown) {                                  /* se muestra solo la última imagen disponible (si hay retraso se descartan las anteriores) */
-        present(1); g_st.pics_shown++; g_have_shown = 1; g_fps_n++;
-        int64_t t = now_us(); if (!g_fps_t0) g_fps_t0 = t;
-        if (t - g_fps_t0 >= 1000000) { g_st.shown_fps_x10 = (uint32_t)((int64_t)g_fps_n * 10000000 / (t - g_fps_t0)); g_fps_n = 0; g_fps_t0 = t; }
+        g_pub_idx = bi; __sync_synchronize(); g_pub_seq++;         /* se publica: el hilo de presentación la toma */
     }
 }
 /* Reinicio del decodificador cuando se queda mudo con unidades pendientes (sin AUDONE/PICOUT): antes el receptor descartaba video para siempre. */
@@ -359,11 +409,23 @@ static void log_au_nals(const uint8_t *d, size_t n, int key) {
     o += snprintf(l + o, sizeof l - o, " | "); for (size_t i = 0; i < 6 && i < n && o < 150; i++) o += snprintf(l + o, sizeof l - o, "%02x", d[i]);
     logf_("%s", l);
 }
+/* Pausas del flujo: si el teléfono (o el Wi‑Fi) no entrega nada durante más de 1 s, se cuenta y se registra la duración. En la ronda 7 aparecían cada ~20 s
+ * y antes se confundían con un decodificador mudo. */
+static void note_arrival(void) {
+    int64_t t = now_us();
+    if (g_last_in_us && t - g_last_in_us > 1000000) {
+        int ms = (int)((t - g_last_in_us) / 1000); g_st.gap_count++; if (ms > g_st.gap_ms_max) g_st.gap_ms_max = ms;
+        if (g_st.gap_count <= 12) logf_("pausa del flujo: %d ms sin datos del telefono (pausa n.o %u)", ms, g_st.gap_count);
+    }
+    g_last_in_us = t;
+}
 void ps3av_push_video(const uint8_t *d, size_t n, int64_t pts, int key) {
     if (!g_vdec_open) return;
+    note_arrival();
     g_st.video_in++;
     check_sps(d, n, key);
-    if (g_au_inuse > 0 && g_last_progress_us && now_us() - g_last_progress_us > 1500000) vdec_recover("1,5 s sin avisos con unidades pendientes");
+    release_done_aus();      /* primero se liberan las ya terminadas: antes una pausa del flujo dejaba unidades «en uso» y se creía al decodificador mudo */
+    if (g_st.au_submitted > g_st.cb_audone + 2 && g_last_progress_us && now_us() - g_last_progress_us > 1500000) vdec_recover("1,5 s sin avisos con unidades pendientes");
     if (!g_have_key) { if (!key) { g_st.video_dropped_nokey++; return; } g_have_key = 1; }
     release_done_aus();
     if (n + sizeof k_aud > AU_SLOT_BYTES) { g_st.au_oversize++; if (g_st.au_oversize <= 3) logf_("unidad de video de %u bytes supera el tope de %u: se descarta", (unsigned)n, (unsigned)AU_SLOT_BYTES); g_st.video_dropped_busy++; g_have_key = 0; return; }
@@ -397,7 +459,7 @@ static void audio_thread(void *arg) {
             if (avail >= AUDIO_BLOCK_SAMPLES) {
                 for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) { uint32_t p = (g_rr + i) % AUDIO_RING; dst[2 * i] = g_ring[2 * p]; dst[2 * i + 1] = g_ring[2 * p + 1]; }
                 __asm__ volatile("lwsync" ::: "memory"); g_rr += AUDIO_BLOCK_SAMPLES;
-            } else { memset(dst, 0, sizeof(float) * 2 * AUDIO_BLOCK_SAMPLES); if (g_aac_ready) g_st.audio_underruns++; }
+            } else { memset(dst, 0, sizeof(float) * 2 * AUDIO_BLOCK_SAMPLES); if (g_aac_ready && now_us() - g_last_audio_in_us < 300000) g_st.audio_underruns++; }   /* solo si el audio SÍ llega pero tarde: una pausa del emisor no es atraso del receptor */
             wi = (wi + 1) % g_acfg.numBlocks;
         }
     }
@@ -421,6 +483,7 @@ static int audio_init(void) {
 static void aac_reset(void) { if (g_aac) { NeAACDecClose(g_aac); g_aac = NULL; } g_aac_ready = 0; g_rr = g_rw = 0; }
 void ps3av_push_audio(const uint8_t *d, size_t n, int64_t pts) {
     if (!g_ring) return;
+    note_arrival(); g_last_audio_in_us = now_us();
     if (!g_aac) {
         g_aac = NeAACDecOpen(); if (!g_aac) return;
         NeAACDecConfigurationPtr c = NeAACDecGetCurrentConfiguration(g_aac); c->outputFormat = FAAD_FMT_16BIT; c->downMatrix = 1; NeAACDecSetConfiguration(g_aac, c);
@@ -442,12 +505,12 @@ void ps3av_push_audio(const uint8_t *d, size_t n, int64_t pts) {
 }
 
 /* ───────── API ───────── */
-void ps3av_message(const char *t) { snprintf(g_msg, sizeof g_msg, "%s", t ? t : ""); printf("[opentv] %s\n", g_msg); if (g_fb[0]) present(g_have_shown); }
-void ps3av_text(int row, const char *t) { if (row < 0 || row > 2) return; snprintf(g_big[row], sizeof g_big[row], "%s", t ? t : ""); if (g_fb[0]) present(g_have_shown); }
+void ps3av_message(const char *t) { snprintf(g_msg, sizeof g_msg, "%s", t ? t : ""); printf("[opentv] %s\n", g_msg); request_redraw(); }
+void ps3av_text(int row, const char *t) { if (row < 0 || row > 2) return; snprintf(g_big[row], sizeof g_big[row], "%s", t ? t : ""); request_redraw(); }
 void ps3av_hud(int on) { g_hud = on; }
 void ps3av_get_stats(ps3av_stats *o) { *o = g_st; }
 void ps3av_reset_stream(void) {
-    vdec_close(); g_have_key = 0; g_last_vpts = g_last_apts = -1; g_have_shown = 0; g_st.width = g_st.height = 0; g_st.sps_profile = 0; g_sps_msg[0] = 0; g_last_progress_us = 0; aac_reset();
+    vdec_close(); g_have_key = 0; g_last_vpts = g_last_apts = -1; g_pub_idx = -1; g_shown_seq = g_pub_seq; g_redraw = 1; g_last_in_us = 0; g_st.width = g_st.height = 0; g_st.sps_profile = 0; g_sps_msg[0] = 0; g_last_progress_us = 0; aac_reset();
     if (vdec_open() != 0) ps3av_message("No se pudo reiniciar el decodificador de video");
 }
 /* Botón PS → «Salir del juego»: el sistema solo avisa por este callback (SYSUTIL_EXIT_GAME); la app NO puede interceptar ni reasignar el botón PS.
@@ -468,17 +531,21 @@ int ps3av_poll_buttons(void) {
 int ps3av_init(void) {
     int r;
     if ((r = display_init()) != 0) { printf("[opentv] display_init=%d\n", r); return -1; }
-    g_pic = (uint8_t *)memalign(128, (size_t)MAX_W * MAX_H * 4); if (!g_pic) return -2;
+    for (int i = 0; i < NPIC; i++) { g_pic_buf[i] = (uint8_t *)memalign(128, (size_t)MAX_W * MAX_H * 4); if (!g_pic_buf[i]) return -2; }
+    g_st.disp_w = g_dw; g_st.disp_h = g_dh; logf_("pantalla %dx%d; presentacion en hilo propio; %d buffers de imagen", g_dw, g_dh, NPIC);
     for (int i = 0; i < AU_SLOTS; i++) { g_au_buf[i] = (uint8_t *)memalign(128, AU_SLOT_BYTES); if (!g_au_buf[i]) return -3; }
     { int m1 = sysModuleLoad(SYSMODULE_VDEC), m2 = sysModuleLoad(SYSMODULE_VDEC_H264); logf_("sysModuleLoad VDEC=%d VDEC_H264=%d", m1, m2); }
     if ((r = vdec_open()) != 0) { printf("[opentv] vdec_open=%d\n", r); ps3av_message("Decodificador H.264 no disponible"); return -4; }
     if ((r = audio_init()) != 0) { printf("[opentv] audio_init=%d (sin audio)\n", r); ps3av_message("Audio no disponible; solo video"); }
     ioPadInit(7);
     sysUtilRegisterCallback(0, sysutil_cb, NULL);
-    present(0);
+    g_prun = 1;
+    if (sysThreadCreate(&g_pthread, present_thread, NULL, 1001, 0x10000, THREAD_JOINABLE, (char *)"opentv-present") != 0) { g_prun = 0; logf_("no se pudo crear el hilo de presentacion: se presenta en el hilo principal"); present_img(NULL, 0, 0); }
+    else { g_pthread_ok = 1; g_redraw = 1; }
     return 0;
 }
 void ps3av_shutdown(void) {
     g_arun = 0; if (g_athread) { u64 rv; sysThreadJoin(g_athread, &rv); }
+    g_prun = 0; if (g_pthread_ok) { u64 rv; sysThreadJoin(g_pthread, &rv); g_pthread_ok = 0; }
     vdec_close();
 }

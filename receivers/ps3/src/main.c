@@ -125,6 +125,7 @@ static int cb_confirm(void *u, const char *sas, const char *peer) {
 static void cb_stats(void *u, ot_link_stats *s) {
     (void)u; ps3av_stats a; ps3av_get_stats(&a);
     static int n; if (++n % 3 == 1) trace("ts=%u KB videoIn=%u imagenes=%u mostradas=%u errDec=%u audio=%u sub=%u skew=%dms %dx%d", (unsigned)(g_ts_bytes / 1024), a.video_in, a.pics_out, a.pics_shown, a.decode_errors, a.audio_frames, a.audio_underruns, (int)a.av_skew_ms, (int)a.width, (int)a.height);
+    if (n % 3 == 1) trace("presentacion: pantalla %dx%d  %u.%u fps mostrados  presentar %u us  saltadas %u  pausas>1s %u (max %u ms)", (int)a.disp_w, (int)a.disp_h, a.shown_fps_x10 / 10, a.shown_fps_x10 % 10, a.present_us, a.pics_skipped, a.gap_count, a.gap_ms_max);
     if (n % 3 == 1) trace("decodificador: AUenv=%u AUDONE=%u PICOUT=%u errCb=%u(cod %d) rc=%d reinicios=%u descBusy=%u descSinClave=%u SPS=%d/%d %dx%d veredicto=%d flipTO=%u bloqueado=%u", a.au_submitted, a.cb_audone, a.cb_picout, a.cb_error, (int)a.last_cb_error, (int)a.last_decode_rc, a.vdec_resets, a.video_dropped_busy, a.video_dropped_nokey, (int)a.sps_profile, (int)a.sps_level, (int)a.sps_w, (int)a.sps_h, (int)a.sps_verdict, a.flip_timeouts, a.vdec_wedged);
     int lag = a.decode_ms_last < 0 ? 0 : a.decode_ms_last; s->buffer_ms = (uint16_t)(lag > 65000 ? 65000 : lag);
     s->dropped = a.video_dropped_busy + a.video_dropped_nokey + a.decode_errors; s->late = a.audio_underruns;

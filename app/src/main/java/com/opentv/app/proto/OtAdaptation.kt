@@ -7,7 +7,9 @@ package com.opentv.app.proto
  */
 class OtBitrateController(
     private val maxBps: Long,
-    private val minBps: Long = maxBps / 8,
+    // Piso de calidad: con 3 Mbit pedidos, la ronda 7 mostró que el control caía a 375 kbit/s (max/8) y la imagen salía pixelada.
+    // Por debajo de ~1,5 Mbit un 720p30 de pantalla se ve mal; el piso es el mayor entre max/4 y min(max, 1,5 Mbit).
+    private val minBps: Long = maxOf(maxBps / 4, minOf(maxBps, 1_500_000L)),
     private val startBps: Long = maxBps,
     private val targetBufferMs: Int = 200,
 ) {
@@ -17,20 +19,28 @@ class OtBitrateController(
     private var lastDropped = 0L
     private var lastLate = 0L
 
+    companion object {
+        /** Bloques de audio vacíos por informe a partir de los cuales se considera atraso real (≈ 200 ms con bloques de 256 muestras a 48 kHz). */
+        const val LATE_SOFT_BLOCKS = 40L
+    }
+
     /** Devuelve el nuevo bitrate si hay que cambiarlo, o `null` si no. */
     fun onStats(stats: OtStats): Long? {
         val newDrops = stats.dropped - lastDropped
         val newLate = stats.lateFrames - lastLate
         lastDropped = stats.dropped
         lastLate = stats.lateFrames
-        val congested = newDrops > 0 || newLate > 2 || stats.bufferMs > targetBufferMs * 3
-        if (congested) {
+        // «late» del receptor = bloques de audio vacíos (5 ms c/u en la PS3): una pausa del emisor/Wi‑Fi de 1-3 s suma cientos de golpe sin que
+        // el receptor vaya lento. Bajar fuerte por eso (x0,7 en cada pausa, cada ~20 s) hundía el bitrate. Ahora solo baja suave (x0,9) si son muchos.
+        val hard = newDrops > 0 || stats.bufferMs > targetBufferMs * 3
+        val soft = newLate > LATE_SOFT_BLOCKS
+        if (hard || soft) {
             healthyStreak = 0
-            val next = (currentBps * 7 / 10).coerceAtLeast(minBps)
+            val next = (if (hard) currentBps * 7 / 10 else currentBps * 9 / 10).coerceAtLeast(minBps)
             return if (next != currentBps) { currentBps = next; next } else null
         }
         if (stats.bufferMs <= targetBufferMs) healthyStreak++ else healthyStreak = 0
-        if (healthyStreak >= 5 && currentBps < maxBps) {
+        if (healthyStreak >= 4 && currentBps < maxBps) {
             healthyStreak = 0
             val next = (currentBps * 12 / 10).coerceAtMost(maxBps)
             if (next != currentBps) { currentBps = next; return next }

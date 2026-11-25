@@ -57,4 +57,26 @@ Cómo interpretar: si **ninguna** responde con el video de prueba, el problema e
 Sospechas cubiertas: formato de marcas de tiempo (el encabezado de PSL1GHT declara `{low, hi}` y Sony `{upper, lower}`), AUD, número de SPU, pila/prioridades de los hilos, tipo de página de memoria.
 
 ### Home 2 de prueba
-Ver `HOME2-NOVA.md` (módulo opcional, no incluido en el build por defecto).
+Ver `HOME2-NOVA.md` (desde la ronda 8 va en el build por defecto).
+
+## Ronda 7 (resultados físicos, 2026-11-24) y cambios de la ronda 8
+**Resultado clave: la PS3 ya muestra imagen** (causa raíz confirmada: descriptor de callback de 32 bits, `__build_opd32`). Config 0 (3 SPU, prio 500, pila 256 KiB) decodifica 720p sin errores (AUDONE=PICOUT, errDec=0). **Actualizar encima NO funcionó** (sin mensaje de error; ver `ACTUALIZAR-ENCIMA.md`).
+
+### PS3 — evidencia del log y qué se cambió
+| Evidencia | Interpretación | Cambio |
+|---|---|---|
+| 6729 imágenes decodificadas, 4355 mostradas (~20 fps), HUD sin descartes de decodificador | La presentación (escalado píxel a píxel con divisiones + copia a memoria de video + espera de vsync) corría en el mismo hilo que lee el socket: ~50 ms por cuadro → tope de 20 fps y el socket sin leer mientras tanto | **Hilo de presentación propio** (triple buffer de imágenes), tablas de coordenadas sin divisiones, línea escalada armada una vez y copiada en bloque, imágenes atrasadas se descartan **sin convertir a ARGB**. Se registra `presentar N us`, fps mostrados, saltadas y pantalla (línea `presentacion:` del log) |
+| «decodificador sin respuesta (1,5 s…)» 21 veces con AU enviadas = AUDONE | Falso positivo: se comprobaba antes de liberar las unidades terminadas, y se disparaba tras una **pausa del flujo** (sin datos del teléfono ≥ 1,5 s, cada ~20 s) | Se libera primero y solo avisa si hay ≥ 3 unidades sin AUDONE. Las pausas ahora se cuentan aparte: `pausas>1s N (max M ms)` y una línea por pausa |
+| `sub` (audio vacío) subía en cientos de golpe en cada pausa | Contaba como «atraso» un hueco del emisor | Solo cuenta si el audio llegó hace < 300 ms |
+| Teléfono: bitrate producido 491-512 kbit/s, control en 375 kbit/s (= 3000/8, el piso), cola hasta 1511 KB | El control bajaba ×0,7 por cada pausa (el audio vacío contaba como «late») y se recuperaba con +20 % cada 5 s: en una pausa cada ~20 s el piso era inevitable → imagen pixelada | `OtBitrateController`: «late» solo baja ×0,9 y solo si > 40 bloques (~200 ms); recuperación a 4 informes; **piso de calidad 1,5 Mbit** (en vez de max/8). 2 pruebas nuevas |
+| Cierre / botón PS | En el log, 3 reconexiones y cierres sin «el decodificador no respondió» | Sin cambios (ya funcionaba) |
+**Sin explicar todavía:** las pausas del flujo cada ~20 s. Pueden venir del Wi‑Fi del teléfono (escaneos), del codificador o de la red; el log nuevo mide su duración. Si se repiten en el IPTV/otras tecnologías apunta al enlace Wi‑Fi.
+
+### DLNA / IPTV / WVC (tubería común)
+Evidencia: 74 (720p60) y > 200 (1080p60) «tics atrasados» con 0 bajadas de resolución. Causa en el código: la adaptación exigía **5 segundos seguidos** con tics atrasados; con una app pesada la GPU compite a ráfagas (un segundo malo, uno bueno) y la racha se reiniciaba siempre. Cambio: **ventana de 10 s, 4 malos** (`QualityAdapter.LATE_WINDOW_S/LATE_HITS`); un tropiezo aislado sigue sin hacer nada (prueba existente) y las ráfagas alternadas ahora bajan 60→30 fps (prueba nueva). Efecto esperado: bajo carga pesada el LG recibe 30 estables en vez de 60 con tirones; **no** se tocó el IPTV sin carga (10/10). Audio con ceros en DLNA: típico de apps que prohíben la captura de audio; sin cambios. WVC: sin cambios propios (microcortes/segmentos son de la app del televisor/WVC); se beneficia de lo anterior.
+
+### Miracast
+Sin cambios. Se negocia solo entre modos que el televisor **declara**; el LG declara 720p60 y no 1080p60. Forzar un modo no declarado violaría la negociación y es más probable que lo cierre. Si un televisor declara 1080p60, el modo «priorizar fluidez» ya lo elige.
+
+### Build
+`withNova=true` por defecto: Home v3 + Home 2 + OpenTV en un solo APK con el `build.yml` de siempre; `home2.yml` eliminado. Ajustes → Sistema muestra «Compilación y firma».

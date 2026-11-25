@@ -1,5 +1,5 @@
 # Análisis del «Nova TV Launcher» (ZIP de DeepSeek/OpenCode/CraftAnything) — 2026-11-22
-**Actualización 2026-11-22 (a pedido del usuario): se integró como módulo OPCIONAL «Home 2 (prueba)» (`-PwithNova=true`), ver `HOME2-NOVA.md`. El build por defecto no lo incluye.**
+**Actualización 2026-11-22 (a pedido del usuario): se integró como módulo OPCIONAL «Home 2 (prueba)» (`withNova=true`), ver `HOME2-NOVA.md`. Desde la ronda 8 va en el build por defecto.**
 
 **Decisión inicial: no meterlo en el build principal en esta ronda, por los motivos de abajo (siguen vigentes: por eso es opcional).**
 

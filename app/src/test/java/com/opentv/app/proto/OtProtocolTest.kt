@@ -205,12 +205,24 @@ class OtProtocolTest {
         val down = c.onStats(OtStats(100, 5, 0))!!
         assertEquals(2_800_000L, down)
         var ups = 0L
-        repeat(5) { c.onStats(OtStats(100, 5, 0))?.let { ups = it } }
+        repeat(4) { c.onStats(OtStats(100, 5, 0))?.let { ups = it } }
         assertEquals(3_360_000L, ups)
         repeat(100) { c.onStats(OtStats(100, 5, 0)) }
         assertTrue(c.currentBps <= 4_000_000L)
         repeat(30) { c.onStats(OtStats(10_000, 5, 0)) } // búfer enorme = congestión
-        assertEquals(500_000L, c.currentBps) // piso = max/8
+        assertEquals(1_500_000L, c.currentBps) // piso de calidad: max(max/4, min(max, 1,5 Mbit))
+    }
+
+    @Test fun `una pausa del emisor con muchos bloques de audio vacios no hunde el bitrate`() {
+        val c = OtBitrateController(maxBps = 3_000_000, startBps = 3_000_000)
+        var late = 0L
+        repeat(12) { // una pausa de Wi‑Fi cada ~20 s suma cientos de bloques vacíos de golpe
+            late += 400
+            c.onStats(OtStats(100, 0, late))
+            repeat(20) { c.onStats(OtStats(100, 0, late)) }
+        }
+        assertTrue("no debe quedar en el piso", c.currentBps >= 2_400_000L)
+        assertEquals(1_500_000L, OtBitrateController(maxBps = 3_000_000).also { k -> repeat(40) { i -> k.onStats(OtStats(100, i + 1L, 0)) } }.currentBps)
     }
 
     @Test fun `la compuerta de envio descarta hasta el proximo fotograma clave`() {
