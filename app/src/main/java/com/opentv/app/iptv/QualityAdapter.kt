@@ -14,6 +14,8 @@ class QualityAdapter(
     requested: IptvPreset,
     /** Resolución máxima útil (la nativa del televisor, si se conoce): no se procesa más de lo que se puede mostrar. */
     private val maxHeight: Int = 2160,
+    /** `true` = no se bajan los FPS pedidos (ver [FpsPolicy]): el piso es el pedido y los escalones de resolución conservan los FPS. */
+    private val holdFps: Boolean = false,
 ) {
     enum class Kind { NONE, FPS, RESOLUTION, BITRATE }
 
@@ -37,10 +39,12 @@ class QualityAdapter(
         val lateTicks: Int = 0,
     )
 
-    private var ladder: List<IptvPreset> = buildLadder(requested, maxHeight)
+    private fun floor(p: IptvPreset): Int = if (holdFps) p.fps else floorFor(p)
+
+    private var ladder: List<IptvPreset> = buildLadder(requested, maxHeight, holdFps)
     private var index = 0
     var current: IptvPreset = ladder[0]; private set
-    private var governor = FpsGovernor(current.fps, floorFps = floorFor(current))
+    private var governor = FpsGovernor(current.fps, floorFps = floor(current))
     val targetFps: Int get() = governor.targetFps
     val lastCause: FpsGovernor.Bottleneck get() = governor.lastCause
     /** Cantidad de bajadas de resolución y de subidas probadas: sirve para el informe de estabilidad. */
@@ -64,9 +68,9 @@ class QualityAdapter(
     fun retarget(preset: IptvPreset) { reset(preset) }
 
     private fun reset(preset: IptvPreset) {
-        val l = buildLadder(preset, maxHeight)
+        val l = buildLadder(preset, maxHeight, holdFps)
         ladder = l; index = 0; current = l[0]
-        governor = FpsGovernor(current.fps, floorFor(current)); bitrateScale = 1.0
+        governor = FpsGovernor(current.fps, floor(current)); bitrateScale = 1.0
         failedIndex = null; failedTtl = 0; stableSeconds = 0; upBackoffS = UP_RES_AFTER_S; cooldown = 0; lateWindow.clear(); lateBad = 0
         lossHistory.clear(); recoverAfterS = NET_UP_S
     }
@@ -102,7 +106,7 @@ class QualityAdapter(
                 failedIndex = index; failedTtl = upBackoffS; upBackoffS = (upBackoffS * 2).coerceAtMost(MAX_BACKOFF_S)
                 val was = current
                 index++; current = lower; resolutionDrops++; backlogBad = 0; lateWindow.clear(); lateBad = 0; stableSeconds = 0; cooldown = SETTLE_S
-                governor = FpsGovernor(current.fps, floorFor(current)); bitrateScale = 1.0
+                governor = FpsGovernor(current.fps, floor(current)); bitrateScale = 1.0
                 return Action(
                     Kind.RESOLUTION, current, current.fps, current.bitrateBps, cause,
                     "No se sostiene ${was.shortLabel} (${cause.label}). Se pasa a ${current.shortLabel}; se volverá a probar tras ${failedTtl / 60} min sin fallos.",
@@ -150,7 +154,7 @@ class QualityAdapter(
                 val was = current
                 index = upIdx; current = ladder[index]; resolutionProbes++; stableSeconds = 0; cooldown = SETTLE_S
                 // Se prueba primero con la mitad de los FPS si el escalón superior tiene más FPS que el actual.
-                governor = FpsGovernor(current.fps, floorFor(current)); bitrateScale = 1.0
+                governor = FpsGovernor(current.fps, floor(current)); bitrateScale = 1.0
                 return Action(Kind.RESOLUTION, current, current.fps, current.bitrateBps, FpsGovernor.Bottleneck.NONE,
                     "Estable desde hace ${upBackoffS / 60} min: se prueba subir de ${was.shortLabel} a ${current.shortLabel}.")
             }
@@ -186,7 +190,7 @@ class QualityAdapter(
          * Una resolución por escalón (los FPS los baja el [FpsGovernor] dentro de cada una), de mayor a menor, sin superar lo pedido
          * ni la resolución útil: p. ej. 1080p60 → 720p60 → 480p30. Si se pidieron menos FPS, ningún escalón pide más que eso.
          */
-        fun buildLadder(requested: IptvPreset, maxHeight: Int): List<IptvPreset> {
+        fun buildLadder(requested: IptvPreset, maxHeight: Int, holdFps: Boolean = false): List<IptvPreset> {
             val cap = minOf(requested.height, maxHeight)
             val tiers = listOf(1080, 720, 480).filter { it <= cap }.ifEmpty { listOf(requested.height) }
             val presets = IptvPreset.values().filter { it != IptvPreset.SAFE && it != IptvPreset.COMPAT_360 }
@@ -194,6 +198,7 @@ class QualityAdapter(
                 val sameHeight = presets.filter { it.height == h }
                 (sameHeight.filter { it.fps <= requested.fps }.maxByOrNull { it.fps } ?: sameHeight.minByOrNull { it.fps })
             }.ifEmpty { listOf(requested) }.let { list -> if (list.first().height == requested.height) listOf(requested) + list.drop(1) else list }
+                .let { list -> if (holdFps) list.filter { it.fps >= requested.fps || it === list.first() } else list }
         }
     }
 }

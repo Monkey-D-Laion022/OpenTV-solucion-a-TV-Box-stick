@@ -20,7 +20,7 @@ PSL1GHT   ?= $(PS3DEV)
 export PSL1GHT
 
 # Versión de entrega (la misma del APK: app/build.gradle.kts, OPENTV_VERSION). Se ve en el HUD, en opentv.log y como versión del juego en el XMB (APP_VER 06.09 = 6.7.9).
-OT_VERSION ?= 6.7.9
+OT_VERSION ?= 6.8.0
 TARGET    := opentv-ps3
 APPID     := OPENTV001
 CONTENTID := UP0001-$(APPID)_00-0000000000000000

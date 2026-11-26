@@ -169,6 +169,27 @@ static void scale_blit(u32 *fb, const u32 *src, int sw, int sh) {
         g_map_sw = sw; g_map_sh = sh; g_map_dw = dw; g_map_dh = dh;
     }
     if (oy > 0) memset(fb, 0, (size_t)oy * g_pitch);
+    /* Camino rápido 1280x720 -> 1920x1080 (x1,5): sin tablas, 4 píxeles origen -> 6 destino con 3 escrituras de 64 bits (PPC big-endian). Ronda 9: el
+     * escalado genérico costaba ~19 ms y limitaba 720p60 a ~42 fps; la copia a la memoria de video sola cuesta ~12 ms. */
+    if (ox == 0 && dw * 2 == sw * 3 && dh * 2 == sh * 3 && (sw & 3) == 0) {
+        int last = -1;
+        for (int y = 0; y < dh; y++) {
+            int sy = g_ymap[y];
+            if (sy != last) {
+                const uint64_t *r = (const uint64_t *)(src + (size_t)sy * sw); uint64_t *o = (uint64_t *)g_line;
+                for (int x = 0; x < sw; x += 4) {
+                    uint64_t a = r[0], b = r[1]; r += 2;
+                    o[0] = (a & 0xFFFFFFFF00000000ULL) | (a >> 32);
+                    o[1] = (a << 32) | (b >> 32);
+                    o[2] = b; o += 3;
+                }
+                last = sy;
+            }
+            memcpy(fb + (size_t)(oy + y) * g_dw, g_line, g_pitch);
+        }
+        int bt = g_dh - oy - dh; if (bt > 0) memset(fb + (size_t)(oy + dh) * g_dw, 0, (size_t)bt * g_pitch);
+        return;
+    }
     int last_sy = -1;
     for (int y = 0; y < dh; y++) {
         int sy = g_ymap[y];

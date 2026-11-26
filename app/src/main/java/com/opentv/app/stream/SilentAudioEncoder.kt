@@ -28,7 +28,7 @@ class SilentAudioEncoder(
         }
         codec = encoder
         running = true
-        thread = Thread({ loop(encoder) }, "opentv-audio").apply { isDaemon = true; start() }
+        thread = Thread({ android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO); loop(encoder) }, "opentv-audio").apply { isDaemon = true; start() }
     }
 
     fun stop() {
@@ -56,8 +56,11 @@ class SilentAudioEncoder(
                 // Mantiene el audio a ritmo de reloj, con 200 ms de adelanto como máximo.
                 val wallElapsedUs = System.nanoTime() / 1000 - startWall
                 val sentUs = samples * 1_000_000L / SAMPLE_RATE
+                // Atrasado (teléfono cargado): se mete una ráfaga de cuadros para alcanzar al reloj. Ronda 9: en 720p60 el audio quedó ~0,5 s atrás del video y el A/V se desfasó.
+                var burst = if (sentUs < wallElapsedUs - 60_000L) 6 else 1
                 if (sentUs <= wallElapsedUs + 200_000L) {
-                    val index = encoder.dequeueInputBuffer(5_000L)
+                  while (burst-- > 0) {
+                    val index = encoder.dequeueInputBuffer(if (burst > 0) 0L else 5_000L)
                     if (index >= 0) {
                         val input = encoder.getInputBuffer(index)
                         input?.clear()
@@ -66,9 +69,10 @@ class SilentAudioEncoder(
                         if (input != null) {
                             while (input.position() < bytes) input.put(0)
                         }
-                        encoder.queueInputBuffer(index, 0, bytes, startUs + sentUs, 0)
+                        encoder.queueInputBuffer(index, 0, bytes, startUs + samples * 1_000_000L / SAMPLE_RATE, 0)
                         samples += SAMPLES_PER_FRAME
-                    }
+                    } else break
+                  }
                 } else {
                     Thread.sleep(5)
                 }

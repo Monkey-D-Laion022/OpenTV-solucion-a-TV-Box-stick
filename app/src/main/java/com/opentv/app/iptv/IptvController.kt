@@ -307,7 +307,7 @@ class IptvController private constructor(context: Context) {
             var lastProgressMs = startedAt
             var fallbackDone = false
             var lastDeliveryMs = startedAt
-            val adapter = QualityAdapter(preset, maxHeight = 1080)
+            val adapter = QualityAdapter(preset, maxHeight = 1080, holdFps = FpsPolicy.hold)
             var adaptNotes = ArrayDeque<String>()
             var governorNote: String? = null
             var thermal: String? = null

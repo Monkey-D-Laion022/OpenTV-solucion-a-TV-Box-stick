@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import com.opentv.app.iptv.FpsPolicy
 import com.opentv.app.launcher.DefaultLauncherHelper
 import com.opentv.app.navigation.Routes
 import com.opentv.app.ui.components.FocusableSurface
@@ -179,6 +180,13 @@ private fun SystemPane(onNavigate: (String) -> Unit, onGoDiagnostics: () -> Unit
     InfoRow("Android", "${info.androidRelease} (API ${info.sdkInt})")
     InfoRow("Memoria", "${info.totalRamBytes / (1024 * 1024)} MB" + if (info.isLowRamDevice) " · equipo de poca memoria" else "")
     Note("OpenTV funciona en Android 7.0 (API 24) o superior.")
+    val ctx = LocalContext.current
+    var hold by remember { mutableStateOf(run { FpsPolicy.load(ctx); FpsPolicy.hold }) }
+    TvListItem(
+        "Mantener 60 fps: " + if (hold) "activado" else "desactivado",
+        "Nunca baja a 30 fps por carga del teléfono; si no alcanza, habrá tirones en vez de una bajada. Vale desde la próxima transmisión.",
+        onClick = { hold = !hold; FpsPolicy.set(ctx, hold) },
+    )
     TvListItem("Herramientas", "Funciones avanzadas: reproducir un enlace directo", onClick = { onNavigate(Routes.TOOLS) })
     TvListItem("Diagnósticos", "Medición de captura, Wi-Fi Direct, Wi-Fi Display, Shizuku y dispositivo", onClick = onGoDiagnostics)
 }

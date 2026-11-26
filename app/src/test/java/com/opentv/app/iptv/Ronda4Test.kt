@@ -108,4 +108,21 @@ class Ronda4Test {
         assertTrue(PowerSaveJudge.active(false, false, true))
         assertTrue(!PowerSaveJudge.active(false, false, false))
     }
+
+    @Test
+    fun holdFpsLadderKeepsSixtyFps() {
+        val l = QualityAdapter.buildLadder(IptvPreset.FULL_HD_60, 1080, holdFps = true)
+        assertTrue(l.all { it.fps == 60 })
+        assertEquals(IptvPreset.FULL_HD_60, l.first())
+    }
+
+    @Test
+    fun holdFpsNeverLowersTargetFps() {
+        val a = QualityAdapter(IptvPreset.FULL_HD_60, 1080, holdFps = true)
+        repeat(120) {
+            val act = a.onSecond(QualityAdapter.Sample(20.0, 20.0, 1000, 1000, 1, false, backlog = 10, lateTicks = 30))
+            assertEquals(60, act.fps)
+        }
+        assertEquals(60, a.targetFps)
+    }
 }
