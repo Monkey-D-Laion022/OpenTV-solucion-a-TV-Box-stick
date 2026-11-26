@@ -1,3 +1,7 @@
+import java.time.LocalDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -17,7 +21,7 @@ android {
         versionCode = (System.currentTimeMillis() / 60_000L).toInt()
         // Versión real de entrega (antes siempre «0.1.0»). OPENTV_VERSION se sube a mano en cada ronda; se le suma la fecha/hora UTC del build
         // para distinguir dos compilaciones de la misma ronda. Ajustes → Sistema muestra versión + número de compilación + huella de firma.
-        versionName = "6.7.9+" + java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd.HHmm"))
+        versionName = "6.7.9+" + LocalDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ofPattern("yyyyMMdd.HHmm"))
     }
 
     // Firma de depuración FIJA y versionada (app/opentv-debug.keystore, clave pública de pruebas «android»): todos los workflows firman igual,
