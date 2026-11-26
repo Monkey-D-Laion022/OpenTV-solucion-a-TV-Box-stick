@@ -250,7 +250,8 @@ class IptvController private constructor(context: Context) {
         val preset = choice.preset
         startPresetName = preset.name
         IptvService.start(appContext)
-        val hub = StreamHub(maxQueuedBytes = HubSizing.queueBytes(preset.bitrateBps))
+        // replayBytes: el cliente nuevo (el LG por DLNA) recibe ya el último GOP en vez de esperar al próximo clave: evita el timeout del sondeo inicial.
+        val hub = StreamHub(maxQueuedBytes = HubSizing.queueBytes(preset.bitrateBps), replayBytes = HubSizing.queueBytes(preset.bitrateBps))
         val segmenter = HlsSegmenter(preset.hlsConfig())
         val mp4 = Mp4Feed()
         val token = _access.value.fixedToken ?: randomToken()

@@ -58,6 +58,31 @@ class WfdSourceTest {
         val body = text.substringAfter("\r\n\r\n")
         assertTrue(text.contains("Content-Length: ${body.length}"))
     }
+    @Test fun forzar1080p60PideElModoNoDeclaradoYLoMarcaComoForzado() {
+        val (c, _) = WfdFormatChooser.choose(m3("000000C0", level = "04"), force1080p60 = true) // declara 720p60 y 1080p30, no 1080p60
+        assertEquals("1920x1080p60", c!!.mode.label); assertTrue(c.forced); assertEquals(0x10, c.levelBit); assertEquals(IptvPreset.FULL_HD_60, c.preset)
+        assertTrue(WfdSourceRtsp.m4(4, "192.168.49.1", 19000, c).contains("00000100")) // bit CEA 8
+    }
+    @Test fun forzarNoCambiaNadaSiElTelevisorYaDeclara1080p60() {
+        val (c, _) = WfdFormatChooser.choose(m3("00000100", level = "1f"), force1080p60 = true)
+        assertFalse(c!!.forced); assertEquals("1920x1080p60", c.mode.label)
+    }
+    @Test fun sinForzarElLGSigueEn720p60() {
+        val (c, _) = WfdFormatChooser.choose(m3("000000C0", level = "04"), preferFluidity = true)
+        assertEquals("1280x720p60", c!!.mode.label); assertFalse(c.forced)
+    }
+    @Test fun siElTelevisorRechazaElModoForzadoVuelveAlDeclaradoSinFallar() {
+        val f = WfdSourceFlow("192.168.49.1", force1080p60 = true)
+        val (n, acts) = f.start(m3("000000C0", level = "04"), 4)
+        assertTrue(acts.filterIsInstance<WfdAction.Send>().single().text.contains("00000100"))
+        val r = f.onMessage(resp(4, 400), n)
+        assertEquals(WfdSourceFlow.State.WAIT_M4, f.state)
+        val resent = r.second.filterIsInstance<WfdAction.Send>().single().text
+        assertTrue(resent.startsWith("SET_PARAMETER")); assertFalse(resent.contains("00000100"))
+        assertFalse(f.choice!!.forced)
+        val r2 = f.onMessage(resp(r.first - 1), r.first) // el nuevo M4 usó el CSeq anterior a r.first
+        assertEquals(WfdSourceFlow.State.WAIT_M5, f.state)
+    }
     @Test fun elFlujoCompletoHastaTransmitir() {
         val f = WfdSourceFlow("192.168.49.1")
         var (n, acts) = f.start(m3("000001C0"), 4)

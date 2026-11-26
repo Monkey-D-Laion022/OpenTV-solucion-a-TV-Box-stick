@@ -15,7 +15,9 @@ android {
         // Creciente entre builds Y entre workflows (el número de ejecución de GitHub es distinto en cada workflow): minutos desde 1970.
         // Así un APK nuevo siempre se instala ENCIMA del anterior («Actualizar») sin desinstalar. Ver docs/ACTUALIZAR-ENCIMA.md.
         versionCode = (System.currentTimeMillis() / 60_000L).toInt()
-        versionName = "0.1.0"
+        // Versión real de entrega (antes siempre «0.1.0»). OPENTV_VERSION se sube a mano en cada ronda; se le suma la fecha/hora UTC del build
+        // para distinguir dos compilaciones de la misma ronda. Ajustes → Sistema muestra versión + número de compilación + huella de firma.
+        versionName = "6.7.9+" + java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd.HHmm"))
     }
 
     // Firma de depuración FIJA y versionada (app/opentv-debug.keystore, clave pública de pruebas «android»): todos los workflows firman igual,

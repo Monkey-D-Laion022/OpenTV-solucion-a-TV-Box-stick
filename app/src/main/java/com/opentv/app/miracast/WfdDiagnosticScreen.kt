@@ -53,6 +53,7 @@ fun WfdDiagnosticScreen(
     val session by viewModel.sessionUi.collectAsStateWithLifecycle()
     var toConfirm by remember { mutableStateOf<P2pPeer?>(null) }
     var transmit by remember { mutableStateOf(false) }
+    var force1080 by remember { mutableStateOf(false) }
     var pendingPeer by remember { mutableStateOf<P2pPeer?>(null) }
     val context = LocalContext.current
     val captureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -61,7 +62,7 @@ fun WfdDiagnosticScreen(
         if (peer != null) {
             if (result.resultCode == Activity.RESULT_OK && data != null) {
                 val audio = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-                viewModel.startTest(peer, MirrorRequest(result.resultCode, data), audio)
+                viewModel.startTest(peer, MirrorRequest(result.resultCode, data), audio, force1080)
             } else viewModel.startTest(peer) // sin captura concedida: solo diagnóstico
         }
     }
@@ -76,7 +77,7 @@ fun WfdDiagnosticScreen(
             launcher.launch(P2pPolicy.NEARBY_PERMISSION)
         }
     }
-    DisposableEffect(Unit) { onDispose { viewModel.cancelTest(); viewModel.stopDiscovery() } }
+    DisposableEffect(Unit) { onDispose { viewModel.stopDiscovery() } } // la sesión NO se cancela al salir: sigue transmitiendo
 
     val firstFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
@@ -149,6 +150,18 @@ fun WfdDiagnosticScreen(
                 else "Solo lee las capacidades (M1–M3) y se detiene: el televisor puede quedarse en «Obteniendo señal de Miracast» porque OpenTV no continúa el protocolo.",
                 style = MaterialTheme.typography.bodySmall, color = OpenTvColors.Muted,
             )
+
+            if (transmit) {
+                TvButton(
+                    if (force1080) "Forzar 1080p60 aunque el televisor no lo declare: ACTIVADO (experimental)" else "Forzar 1080p60 aunque el televisor no lo declare: apagado",
+                    { force1080 = !force1080 }, horizontalPadding = 20.dp,
+                )
+                Text(
+                    "El LG declara 1080p30 pero no 1080p60. Con esto OpenTV pide 1080p60 igual en M4. Si el televisor responde error, vuelve solo al mejor modo que sí declara (720p60 en el LG). " +
+                        "Si lo acepta pero la imagen sale negra o deformada, apagalo. El teléfono debe poder codificar 1080p60: con apps pesadas abiertas suele quedar en ~30 fps.",
+                    style = MaterialTheme.typography.bodySmall, color = OpenTvColors.Muted,
+                )
+            }
 
             // ---- 2. Prueba ----
             if (session.started || session.running) {

@@ -19,6 +19,8 @@ export PS3DEV
 PSL1GHT   ?= $(PS3DEV)
 export PSL1GHT
 
+# Versión de entrega (la misma del APK: app/build.gradle.kts, OPENTV_VERSION). Se ve en el HUD, en opentv.log y como versión del juego en el XMB (APP_VER 06.09 = 6.7.9).
+OT_VERSION ?= 6.7.9
 TARGET    := opentv-ps3
 APPID     := OPENTV001
 CONTENTID := UP0001-$(APPID)_00-0000000000000000
@@ -48,7 +50,7 @@ MBED_INC := $(DEPS)/mbed-out/include
 FAAD_INC := $(DEPS)/faad-out/include
 MACHDEP  := -mcpu=cell -mhard-float -fmodulo-sched -ffunction-sections -fdata-sections
 CFLAGS   := -O2 -std=gnu99 -Wall -Wno-unused-function $(MACHDEP) -I$(MBED_INC) -I$(FAAD_INC) -I$(HERE)/third_party \
-            -I$(HERE)/core -I$(HERE)/src -I$(PS3DEV)/ppu/include -DMBEDTLS_CONFIG_FILE='"ot_mbedtls_config.h"' -D__PS3__
+            -I$(HERE)/core -I$(HERE)/src -I$(PS3DEV)/ppu/include -DMBEDTLS_CONFIG_FILE='"ot_mbedtls_config.h"' -D__PS3__ -DOT_VERSION='"$(OT_VERSION)"'
 # IMPORTANTE: NO añadir $(PS3DEV)/portlibs/ppu/include. Esa carpeta trae mbedTLS 2.28 y faad antiguos: sus cabeceras tapaban a las 3.6.2/faad2 compiladas
 # aquí (el enum de hashes cambia entre 2.x y 3.x -> mbedtls_md_info_from_type(SHA256) daba NULL = -0x5100 en la PS3). 'check-includes' lo vigila.
 # Orden de enlace: las bibliotecas del sistema de PSL1GHT (stubs que sprxlinker completa) y después las dependencias propias.

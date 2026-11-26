@@ -51,4 +51,38 @@ class StreamHubTest {
         hub.publish(bytes(1), true)
         assertNull(sub.poll(10))
     }
+
+    @Test
+    fun replayGivesNewSubscriberTheLastGopImmediately() {
+        val hub = StreamHub(replayBytes = 100)
+        hub.publish(bytes(1), true)
+        hub.publish(bytes(2), false)
+        hub.publish(bytes(3), true) // GOP nuevo: reemplaza al anterior
+        hub.publish(bytes(4), false)
+        val sub = hub.subscribe()
+        assertArrayEquals(bytes(3), sub.poll(50))
+        assertArrayEquals(bytes(4), sub.poll(50))
+        hub.publish(bytes(5), false)
+        assertArrayEquals(bytes(5), sub.poll(50))
+    }
+
+    @Test
+    fun replayOversizeGopInvalidatesCache() {
+        val hub = StreamHub(replayBytes = 3)
+        hub.publish(bytes(1, 1), true)
+        hub.publish(bytes(2, 2), false) // 4 > 3: invalida
+        val sub = hub.subscribe()
+        assertNull(sub.poll(20))
+        hub.publish(bytes(9), false)
+        assertNull(sub.poll(20)) // sigue esperando clave
+        hub.publish(bytes(7), true)
+        assertArrayEquals(bytes(7), sub.poll(50))
+    }
+
+    @Test
+    fun defaultHubHasNoReplay() {
+        val hub = StreamHub()
+        hub.publish(bytes(1), true)
+        assertNull(hub.subscribe().poll(20))
+    }
 }

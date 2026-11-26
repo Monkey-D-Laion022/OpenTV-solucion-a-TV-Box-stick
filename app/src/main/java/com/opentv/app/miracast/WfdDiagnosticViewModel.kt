@@ -8,7 +8,8 @@ import kotlinx.coroutines.flow.StateFlow
 /** Une el descubrimiento de la etapa A (reutilizado sin cambios de lógica) con la prueba de negociación de la etapa B. */
 class WfdDiagnosticViewModel(application: Application) : AndroidViewModel(application) {
     private val discovery = P2pDiscovery(application, viewModelScope)
-    private val session = WfdDiagnosticSession(application, viewModelScope)
+    // La sesión es de la aplicación, no de la pantalla: salir de Wi‑Fi Direct ya no corta la transmisión (ver WfdSessionHolder).
+    private val session = WfdSessionHolder.get(application)
 
     val discoveryUi: StateFlow<P2pUi> get() = discovery.ui
     val sessionUi: StateFlow<WfdUi> get() = session.ui
@@ -19,16 +20,15 @@ class WfdDiagnosticViewModel(application: Application) : AndroidViewModel(applic
     fun stopDiscovery() = discovery.stop()
 
     /** Solo se llama después de que el usuario confirmó el dispositivo en el diálogo. */
-    fun startTest(peer: P2pPeer, request: com.opentv.app.stream.MirrorRequest? = null, captureAudio: Boolean = false) {
+    fun startTest(peer: P2pPeer, request: com.opentv.app.stream.MirrorRequest? = null, captureAudio: Boolean = false, force1080p60: Boolean = false) {
         discovery.stop()
-        session.start(peer, request, captureAudio)
+        session.start(peer, request, captureAudio, force1080p60)
     }
 
     fun cancelTest() = session.cancel()
 
-    /** Al salir de la pantalla se corta todo y se libera. */
+    /** Al salir de la pantalla se detiene solo la búsqueda; la sesión en curso sigue (se corta con «Cancelar prueba»). */
     override fun onCleared() {
-        session.cancel()
         discovery.stop()
         super.onCleared()
     }

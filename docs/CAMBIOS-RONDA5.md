@@ -80,3 +80,6 @@ Sin cambios. Se negocia solo entre modos que el televisor **declara**; el LG dec
 
 ### Build
 `withNova=true` por defecto: Home v3 + Home 2 + OpenTV en un solo APK con el `build.yml` de siempre; `home2.yml` eliminado. Ajustes → Sistema muestra «Compilación y firma».
+
+## Ronda 9
+Ver `docs/PLAN-RONDA9.md`: versionName real, sesión Miracast persistente + 1080p60 forzado opcional, replay de GOP en StreamHub (DLNA), conclusiones de PS3/WVC/60 fps.

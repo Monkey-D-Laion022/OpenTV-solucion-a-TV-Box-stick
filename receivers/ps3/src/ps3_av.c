@@ -56,6 +56,9 @@ static char g_msg[160], g_big[3][64];
 static gcmContextData *g_ctx;
 static u32 *g_fb[2]; static u32 g_fb_off[2]; static int g_fb_cur, g_first_flip = 1;
 static int g_dw, g_dh; static u32 g_pitch;
+#ifndef OT_VERSION
+#define OT_VERSION "dev"
+#endif
 #define NPIC 3
 static uint8_t *g_pic_buf[NPIC];              /* salida ARGB32 del decodificador: 3 buffers (uno se escribe, uno espera, uno lo está leyendo el hilo de presentación) */
 static int g_buf_w[NPIC], g_buf_h[NPIC];
@@ -127,14 +130,14 @@ static void draw_text(u32 *fb, int x, int y, const char *s, int scale, u32 fg, u
 static void draw_overlay(u32 *fb) {
     char l[160];
     if (g_hud && !g_st.width && g_st.video_in) {
-        snprintf(l, sizeof l, " SIN IMAGEN: video %u  AU enviadas %u  AUDONE %u  PICOUT %u  err %u(cod %d)  rc %d  reinicios %u  descartes %u/%u  var %u ",
+        snprintf(l, sizeof l, " v" OT_VERSION " SIN IMAGEN: video %u  AU enviadas %u  AUDONE %u  PICOUT %u  err %u(cod %d)  rc %d  reinicios %u  descartes %u/%u  var %u ",
                  g_st.video_in, g_st.au_submitted, g_st.cb_audone, g_st.cb_picout, g_st.cb_error, (int)g_st.last_cb_error, (int)g_st.last_decode_rc,
                  g_st.vdec_resets, g_st.video_dropped_busy, g_st.video_dropped_nokey, g_st.vdec_variant);
         draw_text(fb, 16, 12, l, 1, 0x00FFE060, 0x00202020);
         if (g_sps_msg[0]) draw_text(fb, 16, 32, g_sps_msg, 1, 0x00FFFFFF, 0x00802020);
     }
     if (g_hud && g_st.width) {
-        snprintf(l, sizeof l, " %dx%d  %u.%u fps  dec %d ms  A/V %+d ms  drop %u/%u  err %u  aud-under %u ",
+        snprintf(l, sizeof l, " v" OT_VERSION "  %dx%d  %u.%u fps  dec %d ms  A/V %+d ms  drop %u/%u  err %u  aud-under %u ",
                  g_st.width, g_st.height, g_st.shown_fps_x10 / 10, g_st.shown_fps_x10 % 10, g_st.decode_ms_last, g_st.av_skew_ms,
                  g_st.video_dropped_busy, g_st.video_dropped_nokey, g_st.decode_errors, g_st.audio_underruns);
         draw_text(fb, 16, 12, l, 1, 0x00FFFFFF, 0x00202020);

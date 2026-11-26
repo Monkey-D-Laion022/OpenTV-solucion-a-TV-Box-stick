@@ -28,6 +28,9 @@
 
 /* Carpeta de datos: se toma de la ruta real del ejecutable (argv[0]) para no depender de que el ID del juego instalado sea OPENTV001;
  * si no se puede, queda la ruta de fábrica. El registro además se copia a /dev_hdd0/tmp/ (siempre existe y es fácil de leer por FTP/webMAN). */
+#ifndef OT_VERSION
+#define OT_VERSION "dev"
+#endif
 static char g_dir[192] = "/dev_hdd0/game/OPENTV001/USRDIR/";
 static const char *P(const char *name) {
     static char ring[4][256]; static int k; char *b = ring[k++ & 3];
@@ -185,6 +188,7 @@ int main(int argc, char **argv) {
     netInitialize();
     ps3av_set_datadir(g_dir);
     ps3av_set_logger(log_line);
+    trace("OpenTV Receptor PS3 v%s (compilado %s %s)", OT_VERSION, __DATE__, __TIME__);
     trace("carpeta de datos: %s (argv[0]=%s) · el registro se copia también a %s", g_dir, (argc > 0 && argv && argv[0]) ? argv[0] : "?", TMPLOG);
     if (ps3av_init() != 0) { printf("[opentv] no se pudo iniciar video/audio\n"); return 1; }
     cfg_t cfg; read_cfg(&cfg); net_info();

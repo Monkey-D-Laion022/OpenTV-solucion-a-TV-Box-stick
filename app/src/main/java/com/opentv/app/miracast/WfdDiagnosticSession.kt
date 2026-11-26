@@ -86,7 +86,10 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
             ContextCompat.checkSelfPermission(app, P2pPolicy.NEARBY_PERMISSION) == PackageManager.PERMISSION_GRANTED
 
     /** Inicia la prueba con [peer]. Solo se llama después de la confirmación explícita del usuario. */
-    fun start(peer: P2pPeer, request: com.opentv.app.stream.MirrorRequest? = null, captureAudio: Boolean = false) {
+    @Volatile private var force1080p60 = false
+
+    fun start(peer: P2pPeer, request: com.opentv.app.stream.MirrorRequest? = null, captureAudio: Boolean = false, force1080p60: Boolean = false) {
+        this.force1080p60 = force1080p60
         streamRequest = request; streamAudio = captureAudio
         if (_ui.value.running) return
         startedAt = SystemClock.elapsedRealtime()
@@ -554,7 +557,7 @@ class WfdDiagnosticSession(private val app: Application, private val scope: Coro
                                 "Respuesta RTSP ${msg.statusCode} con ${params.size} parámetro(s).",
                             )
                             if (streamRequest != null && msg.statusCode == 200) {
-                                val f = WfdSourceFlow(client.localAddress?.hostAddress ?: "0.0.0.0")
+                                val f = WfdSourceFlow(client.localAddress?.hostAddress ?: "0.0.0.0", force1080p60 = force1080p60)
                                 flow = f
                                 runFlow(f, null, params)
                             }

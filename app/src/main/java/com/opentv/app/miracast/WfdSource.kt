@@ -20,6 +20,8 @@ data class WfdChoice(
     val levelBit: Int,
     val audio: WfdAudioChoice,
     val note: String,
+    /** true = modo que el televisor NO declara (1080p60 pedido a la fuerza); si rechaza M4 se vuelve al mejor modo declarado. */
+    val forced: Boolean = false,
 )
 
 enum class WfdAudioChoice(val m4Value: String, val label: String) {
@@ -47,13 +49,24 @@ object WfdFormatChooser {
      * [preferFluidity] = prioriza 60 fps sobre resolución: 1080p60, 720p60, y solo después 1080p30. Se agregó porque el LG declara 720p60 pero no
      * 1080p60 (M3 real): sin esto se negociaba 1080p30. Sigue sin forzarse nada: solo se elige entre modos que el televisor DECLARA.
      */
-    fun choose(m3: Map<String, String>, maxPreset: IptvPreset? = null, preferFluidity: Boolean = false): Pair<WfdChoice?, String> {
+    fun choose(m3: Map<String, String>, maxPreset: IptvPreset? = null, preferFluidity: Boolean = false, force1080p60: Boolean = false): Pair<WfdChoice?, String> {
         val CANDIDATES = candidates(preferFluidity)
         val v = m3["wfd_video_formats"]?.let { WfdVideoFormats.parse(it) }
             ?: return null to "El televisor no declaró wfd_video_formats interpretable: no se puede elegir formato."
         if (v.noVideo) return null to "El televisor declara «none» como video."
         val profileBit = when { v.profiles and 0x01 != 0 -> 0x01; v.profiles and 0x02 != 0 -> 0x02; else -> return null to "El televisor no declara perfil CBP ni CHP." }
         val limit = maxPreset?.let { it.width.toLong() * it.height * it.fps }
+        // Opción experimental (ronda 8, pedido del usuario): el LG declara 1080p30 pero no 1080p60. Se pide igual el bit CEA 8 en M4. El estándar no lo
+        // permite (la fuente debe elegir entre lo declarado), así que puede rechazarlo o aceptarlo sin mostrar imagen: por eso es opcional y, si
+        // el televisor responde error a M4, WfdSourceFlow vuelve solo al mejor modo declarado.
+        if (force1080p60 && !v.has1080p60 && v.modes.any { !it.interlaced && it.width >= 1280 } &&
+            (limit == null || 1920L * 1080 * 60 <= limit)
+        ) {
+            val audio = if (m3["wfd_audio_codecs"]?.contains("AAC", ignoreCase = true) == true) WfdAudioChoice.AAC else WfdAudioChoice.NONE
+            val mode = WfdMode(WfdTable.CEA, 8, 1920, 1080, 60, false)
+            return WfdChoice(mode, IptvPreset.FULL_HD_60, profileBit, 0x10, audio,
+                "FORZADO: se pide 1920x1080p60 aunque el televisor no lo declara (declara ${v.modes.filter { !it.interlaced }.joinToString(", ") { it.label }.ifBlank { "ningún modo progresivo" }}). Experimental.", forced = true) to "ok"
+        }
         for (c in CANDIDATES) {
             if (limit != null && c.preset.width.toLong() * c.preset.height * c.preset.fps > limit) continue
             val mode = v.modes.firstOrNull { !it.interlaced && it.width == c.w && it.height == c.h && it.fps == c.fps } ?: continue
@@ -132,7 +145,13 @@ sealed interface WfdAction {
  * Continuación del intercambio tras M3. Estados: M4 → M5 → SETUP → PLAY → transmitiendo (con mantenimiento M16, petición de
  * cuadro clave M7 y TEARDOWN). Lógica pura.
  */
-class WfdSourceFlow(private val localIp: String, private val maxPreset: IptvPreset? = null, private val preferFluidity: Boolean = true) {
+class WfdSourceFlow(
+    private val localIp: String,
+    private val maxPreset: IptvPreset? = null,
+    private val preferFluidity: Boolean = true,
+    private val force1080p60: Boolean = false,
+) {
+    private var m3Saved: Map<String, String> = emptyMap()
     enum class State { IDLE, WAIT_M4, WAIT_M5, WAIT_SETUP, WAIT_PLAY, STREAMING, DONE, FAILED }
 
     var state = State.IDLE; private set
@@ -144,7 +163,8 @@ class WfdSourceFlow(private val localIp: String, private val maxPreset: IptvPres
 
 
     fun start(m3: Map<String, String>, nextCseq: Int): Pair<Int, List<WfdAction>> {
-        val (c, why) = WfdFormatChooser.choose(m3, maxPreset, preferFluidity)
+        m3Saved = m3
+        val (c, why) = WfdFormatChooser.choose(m3, maxPreset, preferFluidity, force1080p60)
         if (c == null) { state = State.FAILED; return nextCseq to listOf(WfdAction.Fail(why)) }
         val port = parseClientRtpPort(m3["wfd_client_rtp_ports"])
         if (port == null) { state = State.FAILED; return nextCseq to listOf(WfdAction.Fail("El televisor no declaró wfd_client_rtp_ports interpretable.")) }
@@ -195,7 +215,12 @@ class WfdSourceFlow(private val localIp: String, private val maxPreset: IptvPres
         val ok = msg.statusCode == 200
         if (msg.cseq != null && m16Pending.remove(msg.cseq)) return nextCseq to (if (ok) emptyList() else listOf(WfdAction.Log("El televisor respondió ${msg.statusCode} al mantenimiento M16.")))
         return when (msg.cseq) {
-            m4Cseq -> if (!ok) fail(nextCseq, "El televisor rechazó M4 (RTSP ${msg.statusCode}): no acepta el formato elegido ${choice?.mode?.label}.")
+            m4Cseq -> if (!ok && choice?.forced == true) {
+                // El televisor no acepta el modo forzado: se repite M4 con el mejor modo que SÍ declara (sin reconectar).
+                val (c2, why2) = WfdFormatChooser.choose(m3Saved, maxPreset, preferFluidity, false)
+                if (c2 == null) fail(nextCseq, "El televisor rechazó el modo forzado (RTSP ${msg.statusCode}) y no hay otro modo utilizable: $why2")
+                else { choice = c2; m4Cseq = nextCseq; nextCseq + 1 to listOf(WfdAction.Log("El televisor rechazó el modo forzado (RTSP ${msg.statusCode}); se usa el declarado: ${c2.mode.label}."), WfdAction.Log(c2.note), WfdAction.Send(WfdSourceRtsp.m4(m4Cseq, localIp, clientPort, c2))) }
+            } else if (!ok) fail(nextCseq, "El televisor rechazó M4 (RTSP ${msg.statusCode}): no acepta el formato elegido ${choice?.mode?.label}.")
             else { m5Cseq = nextCseq; state = State.WAIT_M5; nextCseq + 1 to listOf(WfdAction.Log("M4 aceptado."), WfdAction.Send(WfdSourceRtsp.m5(m5Cseq))) }
             m5Cseq -> if (!ok) fail(nextCseq, "El televisor rechazó M5 (RTSP ${msg.statusCode}).")
             else { state = State.WAIT_SETUP; nextCseq to listOf(WfdAction.Log("M5 aceptado: se espera el SETUP del televisor.")) }
